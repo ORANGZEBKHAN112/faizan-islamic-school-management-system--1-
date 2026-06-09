@@ -1,0 +1,43 @@
+---
+description: Faizan Islamic School ERP — stack, patterns, and constraints
+alwaysApply: true
+---
+
+# Project rules
+
+**Before any code change, read `PROJECT_CONTEXT.md` at repo root.** It is the source of truth.
+
+## Stack (active only)
+
+- React 19 + Vite + Tailwind 4 in `src/`
+- Express + raw `mssql` in `server.ts` (not `Backend/` .NET or `Frontend/` Angular unless asked)
+
+## Must follow
+
+- Reuse `dataService` / `authService` — no new axios clients per page
+- Domain types in `src/types.ts`; camelCase in UI, map DB columns via `COLUMN_MAP` in `server.ts`
+- New tables: update `Database/schema.sql`, `TABLE_MAP`, and `COLUMN_MAP` together
+- UI: Tailwind + `vibrant-card`, `sonner` toasts, `lucide-react` icons, `motion` for overlays — match `Layout.tsx` / existing pages
+- Role gates: update `App.tsx` routes and `Layout.tsx` `menuItems` when adding admin features
+- Prefer extending dedicated routes in `server.ts` over duplicating generic CRUD when joins/transactions are needed
+
+## Avoid
+
+- Editing `node_modules`, `dist`, legacy `Frontend/` unless migration task
+- Introducing ORMs, new state libraries, or parallel API layers
+- Drive-by refactors; no new markdown unless requested
+- Assuming JWT protects API — auth is client-side today; do not rely on server middleware that does not exist
+
+## Key files
+
+| Area | Files |
+|------|--------|
+| API/DB | `server.ts` |
+| Routes/UI | `src/App.tsx`, `src/pages/*` |
+| HTTP | `src/services/dataService.ts` |
+| Types | `src/types.ts` |
+| Schema | `Database/schema.sql` |
+
+## Run
+
+`npm run dev` — single process serves `/api` and the SPA.
