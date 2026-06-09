@@ -1095,7 +1095,7 @@ async function startServer() {
   await connectToDb();
   await testConnection();
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
   const corsOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
     .split(",")
@@ -4511,7 +4511,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
