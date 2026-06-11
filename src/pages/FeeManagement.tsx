@@ -1,29 +1,38 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, FileText, Download, CheckCircle, AlertCircle, Filter, XCircle, CreditCard, Clock } from 'lucide-react';
-import { Fee, Student, Campus, Class, FeeStructure, FeeSetting, FeeGenerationRun } from '../types';
+import { Fee, Campus, Class, FeeStructure, FeeSetting, FeeGenerationRun, FeeStats } from '../types';
 import { dataService } from '../services/dataService';
-import { feeCollectedTotal, feeOutstandingTotal } from '../utils/feeStats';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
-import { canPickCampus, defaultCampusFilter, getStoredUser, getUserCampusScope } from '../utils/campusScope';
+import { canPickCampus, getStoredUser, getUserCampusScope, resolveCampusFilter } from '../utils/campusScope';
+import { deriveAcademicSession, normalizeSessionLabel } from '../utils/academicSession';
+import { useCollection } from '../hooks/useCollection';
+import PageHeader from '../components/ui/PageHeader';
 import PageLoader from '../components/ui/PageLoader';
 import Pagination from '../components/ui/Pagination';
+import TableShell from '../components/ui/TableShell';
+import EmptyState from '../components/ui/EmptyState';
+import { useConfirm } from '../context/ConfirmContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 const scopeUser = getStoredUser();
+const CLIENT_BULK_PDF_LIMIT = 50;
+const VOUCHERS_PAGE_SIZE = 50;
 
 export default function FeeManagement() {
-  const [searchParams] = useSearchParams();
+  const confirm = useConfirm();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlCampusId = searchParams.get('campusId');
   const urlStudentId = searchParams.get('studentId') || '';
-  const [vouchers, setVouchers] = useState<Fee[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
   const [feeSettings, setFeeSettings] = useState<FeeSetting[]>([]);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [feeStats, setFeeStats] = useState<FeeStats>({ totalCount: 0, totalPaid: 0, totalOutstanding: 0, defaulters: 0 });
+  const [refDataLoading, setRefDataLoading] = useState(true);
   const initialLoaded = useRef<Record<string, boolean>>({});
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,43 +59,66 @@ export default function FeeManagement() {
   const [selectedMonths, setSelectedMonths] = useState<number[]>([new Date().getMonth() + 1]);
   
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'vouchers' | 'generate' | 'runs'>('vouchers');
   const [generationRuns, setGenerationRuns] = useState<FeeGenerationRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
-  
-  const stats = {
-    totalPaid: feeCollectedTotal(vouchers),
-    totalUnpaid: feeOutstandingTotal(vouchers),
-    defaulters: vouchers.filter(v => v.status === 'Unpaid' || v.status === 'Partially Paid').length,
-    vouchersCount: vouchers.length
-  };
-  
-  const [structureForm, setStructureForm] = useState({
-    campusId: '',
-    classId: '',
-    tuitionFee: 0,
-    admissionFee: 0,
-    examFee: 0,
-    transportFee: 0,
-    miscFee: 0
-  });
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [generationJobId, setGenerationJobId] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCampus, setSelectedCampus] = useState<string>(() =>
-    scopeUser ? defaultCampusFilter(scopeUser) : 'all'
+    scopeUser ? resolveCampusFilter(scopeUser, searchParams.get('campusId')) : (searchParams.get('campusId') || 'all')
   );
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [filterMonth, setFilterMonth] = useState<number | ''>('');
+  const [filterYear, setFilterYear] = useState<number | ''>('');
+
+  const voucherParams = useMemo(
+    () => ({
+      page: currentPage,
+      limit: VOUCHERS_PAGE_SIZE,
+      ...(selectedCampus !== 'all' ? { campusId: selectedCampus } : {}),
+      ...(selectedStatus !== 'all' ? { status: selectedStatus } : {}),
+      ...(filterMonth ? { month: filterMonth } : {}),
+      ...(filterYear ? { year: filterYear } : {}),
+      ...(urlStudentId ? { studentId: urlStudentId } : {}),
+      ...(debouncedSearchTerm.trim() ? { search: debouncedSearchTerm.trim() } : {}),
+    }),
+    [currentPage, selectedCampus, selectedStatus, filterMonth, filterYear, urlStudentId, debouncedSearchTerm]
+  );
+
+  const {
+    data: vouchers,
+    loading: vouchersLoading,
+    total: vouchersTotal,
+    refresh: refreshVouchers,
+  } = useCollection<Fee>('fees', { params: voucherParams, paginated: true });
+
+  const [structureForm, setStructureForm] = useState({
+    campusId: '',
+    sessionLabel: deriveAcademicSession(new Date().getFullYear(), new Date().getMonth() + 1),
+    tuitionFee: 0,
+    admissionFee: 0,
+    securityFee: 0,
+    examFee: 0,
+    transportFee: 0,
+    miscFee: 0,
+    summerCampFee: 0,
+    idCardFee: 0,
+    tripFee: 0,
+  });
+
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSyncingStructures, setIsSyncingStructures] = useState(false);
   const [generationParams, setGenerationParams] = useState({
     campusId: scopeUser && getUserCampusScope(scopeUser) ? getUserCampusScope(scopeUser)! : 'all',
     month: new Date().getMonth() + 1,
     year: new Date().getFullYear(),
+    session: deriveAcademicSession(new Date().getFullYear(), new Date().getMonth() + 1),
     includeAdmissions: true,
     includeArrears: true
   });
-  const [generationSummary, setGenerationSummary] = useState<any>(null);
+  const [generationSummary, setGenerationSummary] = useState<Record<string, unknown> | null>(null);
 
   const parsePaymentHistory = (raw?: string) => {
     if (!raw) return [];
@@ -106,27 +138,53 @@ export default function FeeManagement() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedCampus, selectedStatus]);
+  }, [searchTerm, selectedCampus, selectedStatus, filterMonth, filterYear]);
+
+  useEffect(() => {
+    if (!scopeUser) return;
+    setSelectedCampus(resolveCampusFilter(scopeUser, urlCampusId));
+  }, [urlCampusId]);
+
+  const handleCampusChange = (campusId: string) => {
+    setSelectedCampus(campusId);
+    if (scopeUser && canPickCampus(scopeUser)) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (campusId === 'all') next.delete('campusId');
+        else next.set('campusId', campusId);
+        return next;
+      }, { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    if (scopeUser && canPickCampus(scopeUser) && selectedCampus !== 'all') {
+      setGenerationParams((prev) =>
+        prev.campusId === selectedCampus ? prev : { ...prev, campusId: selectedCampus }
+      );
+    }
+  }, [selectedCampus]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     initialLoaded.current = {
-      vouchers: false,
-      students: false,
       campuses: false,
       classes: false,
       structures: false,
       settings: selectedCampus === 'all',
     };
-    setDataLoading(true);
+    setRefDataLoading(true);
 
     const markLoaded = (key: string, loading: boolean) => {
       if (!loading) initialLoaded.current[key] = true;
       const allDone = Object.values(initialLoaded.current).every(Boolean);
-      if (allDone) setDataLoading(false);
+      if (allDone) setRefDataLoading(false);
     };
 
-    const unsubVouchers = dataService.subscribe('fees', setVouchers, { campusId: selectedCampus }, undefined, (state) => markLoaded('vouchers', state.loading));
-    const unsubStudents = dataService.subscribe('students', setStudents, undefined, undefined, (state) => markLoaded('students', state.loading));
     const unsubCampuses = dataService.subscribe('campuses', setCampuses, undefined, undefined, (state) => markLoaded('campuses', state.loading));
     const unsubClasses = dataService.subscribe('classes', setClasses, undefined, undefined, (state) => markLoaded('classes', state.loading));
     const unsubStructures = dataService.subscribe('feeStructures', setFeeStructures, undefined, undefined, (state) => markLoaded('structures', state.loading));
@@ -139,8 +197,6 @@ export default function FeeManagement() {
     }
 
     return () => {
-      unsubVouchers();
-      unsubStudents();
       unsubCampuses();
       unsubClasses();
       unsubStructures();
@@ -149,10 +205,92 @@ export default function FeeManagement() {
   }, [selectedCampus]);
 
   useEffect(() => {
-    if (!dataLoading) return;
-    const timeout = setTimeout(() => setDataLoading(false), 12000);
+    const loadStats = async () => {
+      try {
+        const params: Record<string, unknown> = {};
+        if (selectedCampus !== 'all') params.campusId = selectedCampus;
+        if (selectedStatus !== 'all') params.status = selectedStatus;
+        if (filterMonth) params.month = filterMonth;
+        if (filterYear) params.year = filterYear;
+        if (debouncedSearchTerm.trim()) params.search = debouncedSearchTerm.trim();
+        if (urlStudentId) params.studentId = urlStudentId;
+        const stats = await dataService.fetchFeeStats(params);
+        setFeeStats(stats);
+      } catch (err) {
+        console.error('Error loading fee stats:', err);
+      }
+    };
+    loadStats();
+  }, [selectedCampus, selectedStatus, filterMonth, filterYear, debouncedSearchTerm, urlStudentId, vouchersLoading]);
+
+  useEffect(() => {
+    if (!refDataLoading) return;
+    const timeout = setTimeout(() => setRefDataLoading(false), 12000);
     return () => clearTimeout(timeout);
-  }, [dataLoading]);
+  }, [refDataLoading]);
+
+  useEffect(() => {
+    if (!generationJobId) return;
+    const poll = setInterval(async () => {
+      try {
+        const job = await dataService.fetchFeeGenerationJob(generationJobId);
+        if (job.status === 'completed') {
+          setGenerationSummary(job);
+          setGenerationJobId(null);
+          setIsGenerating(false);
+          const skipped = Number(job.skippedMissingFeeSettings || 0);
+          const processed = Number(job.processedCount || 0);
+          if (processed === 0 && skipped > 0) {
+            toast.error(`No vouchers created — ${skipped} student(s) have no fee structure for session ${job.sessionLabel || generationParams.session}. Add it in Fee Settings first.`);
+          } else if (skipped > 0) {
+            toast.success(`Generated ${processed} voucher(s). ${skipped} skipped (missing campus session fee structure).`);
+          } else {
+            toast.success(`Generated ${processed} voucher(s)`);
+          }
+          await refreshVouchers();
+          dataService.invalidateCollection('fees');
+        } else if (job.status === 'failed') {
+          setGenerationJobId(null);
+          setIsGenerating(false);
+          toast.error(job.errorMessage || 'Fee generation failed');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [generationJobId, refreshVouchers]);
+
+  useEffect(() => {
+    if (!exportJobId) return;
+    const poll = setInterval(async () => {
+      try {
+        const job = await dataService.fetchFeeExportJob(exportJobId);
+        if (job.status === 'completed' && job.filePath) {
+          setExportJobId(null);
+          toast.success('Export ready — downloading…');
+          const token = localStorage.getItem('token');
+          const resp = await fetch(dataService.getFeeExportDownloadUrl(exportJobId), {
+            headers: token ? { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, '')}` } : {},
+          });
+          if (!resp.ok) throw new Error('Download failed');
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `vouchers_export_${exportJobId}.zip`;
+          link.click();
+          URL.revokeObjectURL(url);
+        } else if (job.status === 'failed') {
+          setExportJobId(null);
+          toast.error(job.errorMessage || 'Export failed');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [exportJobId]);
 
   useEffect(() => {
     if (activeTab !== 'runs') return;
@@ -194,29 +332,40 @@ export default function FeeManagement() {
     return () => clearTimeout(timer);
   }, [isExtraChargeOpen, extraStudentQuery, selectedCampus]);
 
+  useEffect(() => {
+    const derived = deriveAcademicSession(generationParams.year, generationParams.month);
+    setGenerationParams((prev) => (prev.session === derived ? prev : { ...prev, session: derived }));
+  }, [generationParams.year, generationParams.month]);
+
   const generateVouchers = async () => {
-    if (generationParams.campusId === 'all' && !window.confirm('Generate fees for ALL campuses? This cannot be easily undone.')) {
-      return;
+    if (generationParams.campusId === 'all') {
+      const ok = await confirm({
+        title: 'Generate for all campuses?',
+        message: 'This queues a large background job across every campus. Continue?',
+        confirmLabel: 'Generate all',
+        variant: 'primary',
+      });
+      if (!ok) return;
     }
     setIsGenerating(true);
     setGenerationSummary(null);
     try {
       const result = await dataService.fetchGenerateFees({
         ...generationParams,
+        sessionLabel: generationParams.session,
         months: selectedMonths.length > 0 ? selectedMonths : [generationParams.month],
       });
-      setGenerationSummary(result);
-      toast.success(result.message);
+      setGenerationJobId(result.jobId);
+      toast.success('Fee generation started — processing in background…');
     } catch (error) {
       console.error('Error generating fees:', error);
-      const msg = (error as any)?.response?.data?.message;
-      toast.error(msg || 'Failed to generate monthly fees');
-    } finally {
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to queue fee generation');
       setIsGenerating(false);
     }
   };
 
-  if (dataLoading) {
+  if (refDataLoading || vouchersLoading) {
     return <PageLoader label="Loading fee data…" />;
   }
 
@@ -226,8 +375,8 @@ export default function FeeManagement() {
 
     try {
       await dataService.update('fees', selectedVoucher.id, paymentForm);
-      const refreshed = await dataService.refresh('fees', { campusId: selectedCampus });
-      setVouchers(refreshed);
+      await refreshVouchers();
+      dataService.invalidateCollection('fees');
 
       toast.success('Payment recorded successfully');
       setIsPaymentModalOpen(false);
@@ -266,7 +415,11 @@ export default function FeeManagement() {
       toast.error('No unpaid monthly vouchers for this year');
       return;
     }
-    if (!window.confirm(`Pay full year advance (Rs. ${total.toLocaleString()}) for all ${unpaid.length} remaining month(s)?`)) return;
+    if (!await confirm({
+      title: 'Pay full year advance?',
+      message: `Pay Rs. ${total.toLocaleString()} for all ${unpaid.length} remaining month(s) in ${year}?`,
+      confirmLabel: 'Pay advance',
+    })) return;
     try {
       const result = await dataService.advanceYearPayment({
         studentId: selectedVoucher.studentId,
@@ -277,8 +430,8 @@ export default function FeeManagement() {
       });
       toast.success(`Advance applied to ${result.vouchersUpdated} voucher(s)`);
       setIsPaymentModalOpen(false);
-      const refreshed = await dataService.refresh('fees', { campusId: selectedCampus });
-      setVouchers(refreshed);
+      await refreshVouchers();
+      dataService.invalidateCollection('fees');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || 'Advance payment failed');
@@ -299,8 +452,8 @@ export default function FeeManagement() {
       });
       toast.success('Extra charge created');
       setIsExtraChargeOpen(false);
-      const refreshed = await dataService.refresh('fees', { campusId: selectedCampus });
-      setVouchers(refreshed);
+      await refreshVouchers();
+      dataService.invalidateCollection('fees');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || 'Failed to create charge');
@@ -314,36 +467,10 @@ export default function FeeManagement() {
   };
 
   const downloadPDF = (voucher: Fee, existingDoc?: jsPDF) => {
-    const student = students.find(s => s.id === voucher.studentId);
     const campus = campuses.find(c => c.id === voucher.campusId);
     const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthName = monthNames[voucher.month] || "Recurring";
-    const voucherPeriodKey = (voucher.year || 0) * 100 + (voucher.month || 0);
-    const previousPending = vouchers
-      .filter((v) =>
-        v.studentId === voucher.studentId &&
-        ((v.year || 0) * 100 + (v.month || 0)) < voucherPeriodKey &&
-        ['Unpaid', 'Partially Paid', 'Overdue', 'Pending'].includes(v.status) &&
-        getVoucherRemaining(v) > 0
-      )
-      .sort((a, b) => ((a.year || 0) * 100 + (a.month || 0)) - ((b.year || 0) * 100 + (b.month || 0)));
-    const carriedForwardPrevious = vouchers
-      .filter((v) =>
-        v.studentId === voucher.studentId &&
-        ((v.year || 0) * 100 + (v.month || 0)) < voucherPeriodKey &&
-        ['Monthly', 'Admission', 'Arrears'].includes(v.feeType || '') &&
-        String(v.paymentMethod || '').toLowerCase() === 'carried forward'
-      )
-      .sort((a, b) => ((a.year || 0) * 100 + (a.month || 0)) - ((b.year || 0) * 100 + (b.month || 0)));
-    const pendingArrearsTotal = previousPending.reduce((sum, row) => sum + getVoucherRemaining(row), 0);
-    const arrearsMonthLabels = (
-      previousPending.length > 0 ? previousPending : carriedForwardPrevious
-    )
-      .map((row) => row.monthsLabel || `${monthNames[row.month] || row.month}/${row.year}`)
-      .filter(Boolean);
-    const arrearsMonthLabelText = arrearsMonthLabels.length > 0
-      ? arrearsMonthLabels.join(", ")
-      : "Previous Months";
+    const arrearsMonthLabelText = voucher.monthsLabel || "Previous Months";
     const quickPayTrackingRef = voucher.transactionRef || `QP-${voucher.id.substring(0, 8).toUpperCase()}`;
 
     const doc = existingDoc || new jsPDF('p', 'mm', 'a4');
@@ -379,7 +506,7 @@ export default function FeeManagement() {
     doc.text(voucher.studentName || 'N/A', 42, 46);
     doc.setFont("helvetica", "normal");
     doc.text("Father:", 16, 52);
-    doc.text(student?.fatherName || 'N/A', 42, 52);
+    doc.text((voucher as Fee & { fatherName?: string }).fatherName || 'N/A', 42, 52);
     doc.text("Roll No:", 16, 58);
     doc.text(voucher.rollNumber || 'N/A', 42, 58);
 
@@ -428,18 +555,9 @@ export default function FeeManagement() {
       margin: { left: 15, right: 15 },
     });
 
-    const pendingRows = previousPending.length > 0
-      ? previousPending.map((row) => [
-          row.monthsLabel || `${monthNames[row.month] || row.month}/${row.year}`,
-          row.feeType || 'Monthly',
-          `Rs. ${getVoucherRemaining(row).toLocaleString()}`,
-        ])
-      : carriedForwardPrevious.length > 0
-      ? carriedForwardPrevious.map((row) => [
-          row.monthsLabel || `${monthNames[row.month] || row.month}/${row.year}`,
-          'Carried Forward',
-          `Rs. ${Number(row.paidAmount || row.amount || 0).toLocaleString()}`,
-        ])
+    const pendingArrearsTotal = voucher.arrears || 0;
+    const pendingRows = pendingArrearsTotal > 0
+      ? [[arrearsMonthLabelText, 'Arrears', `Rs. ${pendingArrearsTotal.toLocaleString()}`]]
       : [['None', '-', 'Rs. 0']];
 
     autoTable(doc, {
@@ -472,119 +590,110 @@ export default function FeeManagement() {
     }
   };
 
-  const downloadAllVouchers = () => {
-    if (filteredVouchers.length === 0) {
+  const downloadAllVouchers = async () => {
+    if (vouchersTotal === 0) {
       toast.error('No vouchers to download.');
       return;
     }
-    
-    const doc = new jsPDF('p', 'mm', 'a4');
-    const toastId = toast.loading(`Generating ${filteredVouchers.length} vouchers...`);
 
-    filteredVouchers.forEach((voucher, index) => {
-      if (index > 0) {
-        doc.addPage();
-      }
-      downloadPDF(voucher, doc);
-    });
-
-    doc.save(`Bulk_Vouchers_${new Date().toISOString().split('T')[0]}.pdf`);
-    toast.success('Bulk download complete!', { id: toastId });
-  };
-
-  const filteredVouchers = vouchers.filter(v => {
-    const searchStr = v.studentName ? `${v.studentName} ${v.rollNumber}` : '';
-    const matchesSearch = searchStr.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCampus = selectedCampus === 'all' || v.campusId === selectedCampus;
-    const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
-    const matchesStudent = !urlStudentId || v.studentId === urlStudentId;
-    return matchesSearch && matchesCampus && matchesStatus && matchesStudent;
-  });
-
-  const totalPages = Math.ceil(filteredVouchers.length / itemsPerPage);
-  const paginatedVouchers = filteredVouchers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  const handleAddStructure = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validation
-    if (!structureForm.campusId) {
-      toast.error('Please select a campus');
-      return;
-    }
-    if (!structureForm.classId) {
-      toast.error('Please select a class');
+    if (vouchersTotal <= CLIENT_BULK_PDF_LIMIT) {
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const toastId = toast.loading(`Generating ${vouchers.length} vouchers…`);
+      vouchers.forEach((voucher, index) => {
+        if (index > 0) doc.addPage();
+        downloadPDF(voucher, doc);
+      });
+      doc.save(`Bulk_Vouchers_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('Bulk download complete!', { id: toastId });
       return;
     }
 
     try {
-      await dataService.add('feeStructures', structureForm);
-      toast.success('Fee structure saved successfully');
+      const result = await dataService.startFeeExport({
+        campusId: selectedCampus !== 'all' ? selectedCampus : undefined,
+        year: filterYear || undefined,
+        month: filterMonth || undefined,
+        status: selectedStatus,
+        search: debouncedSearchTerm.trim() || undefined,
+      });
+      setExportJobId(result.jobId);
+      toast.success(`Export queued for ${vouchersTotal.toLocaleString()} vouchers…`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to start export');
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(vouchersTotal / VOUCHERS_PAGE_SIZE));
+
+  const handleAddStructure = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!structureForm.campusId) {
+      toast.error('Please select a campus');
+      return;
+    }
+    const sessionLabel = normalizeSessionLabel(structureForm.sessionLabel);
+    if (!/^\d{4}-\d{4}$/.test(sessionLabel)) {
+      toast.error('Session must be in format 2026-2027');
+      return;
+    }
+
+    try {
+      await dataService.saveCampusFeeStructure({
+        ...structureForm,
+        sessionLabel,
+        monthlyFee: structureForm.tuitionFee,
+      });
+      toast.success('Campus fee structure saved');
       setIsStructureModalOpen(false);
-      setStructureForm({ campusId: '', classId: '', tuitionFee: 0, admissionFee: 0, examFee: 0, transportFee: 0, miscFee: 0 });
+      setStructureForm({
+        campusId: '',
+        sessionLabel: deriveAcademicSession(new Date().getFullYear(), new Date().getMonth() + 1),
+        tuitionFee: 0,
+        admissionFee: 0,
+        securityFee: 0,
+        examFee: 0,
+        transportFee: 0,
+        miscFee: 0,
+        summerCampFee: 0,
+        idCardFee: 0,
+        tripFee: 0,
+      });
     } catch (error) {
       console.error('Error saving fee structure:', error);
       toast.error('Failed to save fee structure');
     }
   };
 
-  const handleSyncStructures = async () => {
-    const targetLabel = selectedCampus === 'all' ? 'all campuses' : 'selected campus';
-    if (!window.confirm(`Create missing fee structures for ${targetLabel}?`)) return;
-    try {
-      setIsSyncingStructures(true);
-      const result = await dataService.syncFeeStructuresForAllClasses(
-        selectedCampus === 'all' ? undefined : selectedCampus
-      );
-      const refreshed = await dataService.refresh('feeStructures');
-      setFeeStructures(refreshed);
-      toast.success(`${result.createdCount} class structure(s) added`);
-    } catch (error) {
-      console.error('Error syncing fee structures:', error);
-      toast.error('Failed to initialize fee structures for classes');
-    } finally {
-      setIsSyncingStructures(false);
-    }
-  };
-
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Fee Management</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Generate vouchers, record payments, and track collections. Fee amounts are configured in Fee Settings.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleSyncStructures}
-            disabled={isSyncingStructures}
-            className="vibrant-btn-secondary px-6 py-3 rounded-2xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
-          >
-            <Filter className="w-4 h-4" />
-            {isSyncingStructures ? 'Syncing…' : 'Sync Structures'}
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setIsExtraChargeOpen(true)}
-            className="vibrant-btn-secondary px-6 py-3 rounded-2xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"
-          >
-            <Plus className="w-4 h-4" />
-            Extra Charge
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={downloadAllVouchers}
-            className="vibrant-glass text-primary px-6 py-3 rounded-2xl border border-white dark:border-slate-800 flex items-center gap-2 hover:bg-white dark:hover:bg-slate-800 transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
-          >
-            <Download className="w-4 h-4" />
-            Bulk Download
-          </motion.button>
-        </div>
-      </div>
+      <PageHeader
+        title="Fee Management"
+        description="Generate vouchers, record payments, and track collections. Fee amounts are set per campus and session in Fee Settings."
+        actions={
+          <>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setIsExtraChargeOpen(true)}
+              className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
+            >
+              <Plus className="w-4 h-4" />
+              Extra charge
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={downloadAllVouchers}
+              className="vibrant-btn-primary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
+            >
+              <Download className="w-4 h-4" />
+              Bulk download
+            </motion.button>
+          </>
+        }
+      />
 
       {/* Stats Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -596,7 +705,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-success/5 rounded-full blur-2xl group-hover:bg-success/10 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Collected</span>
-            <span className="text-3xl font-black text-success mt-1">Rs. {stats.totalPaid.toLocaleString()}</span>
+            <span className="text-3xl font-black text-success mt-1">Rs. {Number(feeStats.totalPaid || 0).toLocaleString()}</span>
             <div className="flex items-center gap-2 mt-2">
               <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               <span className="text-[10px] font-medium text-success/60">Live Updates</span>
@@ -613,7 +722,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outstanding</span>
-            <span className="text-3xl font-black text-accent mt-1">Rs. {stats.totalUnpaid.toLocaleString()}</span>
+            <span className="text-3xl font-black text-accent mt-1">Rs. {Number(feeStats.totalOutstanding || 0).toLocaleString()}</span>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[10px] font-medium text-accent/60">Includes arrears</span>
             </div>
@@ -629,7 +738,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-primary/5 rounded-full blur-2xl group-hover:bg-primary/10 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Defaulters</span>
-            <span className="text-3xl font-black text-primary mt-1">{stats.defaulters}</span>
+            <span className="text-3xl font-black text-primary mt-1">{feeStats.defaulters}</span>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[10px] font-medium text-primary/60">Unpaid vouchers</span>
             </div>
@@ -645,7 +754,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-slate-200 dark:bg-slate-700/50 rounded-full blur-2xl group-hover:scale-125 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Vouchers</span>
-            <span className="text-3xl font-black text-slate-900 dark:text-white mt-1">{stats.vouchersCount}</span>
+            <span className="text-3xl font-black text-slate-900 dark:text-white mt-1">{feeStats.totalCount}</span>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[10px] font-medium text-slate-400">Current Session</span>
             </div>
@@ -698,8 +807,9 @@ export default function FeeManagement() {
 
       {activeTab === 'generate' && (
         <motion.div 
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
+          id="bulk-generation"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           className="vibrant-card p-10 bg-primary/5 border-primary/10"
         >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -714,18 +824,20 @@ export default function FeeManagement() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Campus</label>
                   {(!scopeUser || canPickCampus(scopeUser)) ? (
-                    <select 
-                      className="vibrant-input"
+                    <SearchableSelect
                       value={generationParams.campusId}
-                      onChange={(e) => setGenerationParams({...generationParams, campusId: e.target.value})}
-                    >
-                      <option value="all">All Campuses</option>
-                      {campuses.map(c => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                    </select>
+                      onChange={(campusId) => setGenerationParams({ ...generationParams, campusId })}
+                      placeholder="All Campuses"
+                      searchPlaceholder="Search campuses…"
+                      options={[
+                        { value: 'all', label: 'All Campuses' },
+                        ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+                      ]}
+                    />
                   ) : (
                     <div className="vibrant-input flex items-center text-sm font-bold text-slate-600 dark:text-slate-300">
                       {campuses.find((c) => c.id === generationParams.campusId)?.campusName || 'Your campus'}
@@ -733,26 +845,35 @@ export default function FeeManagement() {
                   )}
                 </div>
                 <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Academic Session</label>
+                  <input
+                    type="text"
+                    className="vibrant-input font-black"
+                    value={generationParams.session}
+                    onChange={(e) => setGenerationParams({ ...generationParams, session: e.target.value })}
+                    placeholder="2026-2027"
+                  />
+                </div>
+                <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Month</label>
-                  <select 
-                    className="vibrant-input"
-                    value={generationParams.month}
-                    onChange={(e) => setGenerationParams({...generationParams, month: parseInt(e.target.value)})}
-                  >
-                    {Array.from({length: 12}, (_, i) => (
-                      <option key={i+1} value={i+1}>{new Date(0, i).toLocaleString('default', { month: 'long' })}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={String(generationParams.month)}
+                    onChange={(month) => setGenerationParams({ ...generationParams, month: parseInt(month, 10) })}
+                    searchPlaceholder="Search month…"
+                    options={Array.from({ length: 12 }, (_, i) => ({
+                      value: String(i + 1),
+                      label: new Date(0, i).toLocaleString('default', { month: 'long' }),
+                    }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Year</label>
-                  <select 
-                    className="vibrant-input"
-                    value={generationParams.year}
-                    onChange={(e) => setGenerationParams({...generationParams, year: parseInt(e.target.value)})}
-                  >
-                    {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={String(generationParams.year)}
+                    onChange={(year) => setGenerationParams({ ...generationParams, year: parseInt(year, 10) })}
+                    searchPlaceholder="Search year…"
+                    options={[2023, 2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) }))}
+                  />
                 </div>
               </div>
 
@@ -885,8 +1006,8 @@ export default function FeeManagement() {
 
       {activeTab === 'runs' && (
         <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           className="vibrant-card overflow-hidden shadow-2xl shadow-slate-200/50"
         >
           <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
@@ -946,11 +1067,11 @@ export default function FeeManagement() {
 
       {activeTab === 'vouchers' && (
         <motion.div 
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="vibrant-card overflow-hidden shadow-2xl shadow-slate-200/50"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="vibrant-card shadow-2xl shadow-slate-200/50"
         >
-          <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50/50 dark:bg-slate-900/50 overflow-visible">
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
               <input
@@ -962,36 +1083,40 @@ export default function FeeManagement() {
               />
             </div>
             {(!scopeUser || canPickCampus(scopeUser)) ? (
-              <select
-                className="vibrant-input appearance-none"
+              <SearchableSelect
+                variant="compact"
                 value={selectedCampus}
-                onChange={(e) => setSelectedCampus(e.target.value)}
-              >
-                <option value="all">All Campuses</option>
-                {campuses.map(c => (
-                  <option key={c.id} value={c.id}>{c.campusName}</option>
-                ))}
-              </select>
+                onChange={handleCampusChange}
+                placeholder="All Campuses"
+                searchPlaceholder="Search campuses…"
+                options={[
+                  { value: 'all', label: 'All Campuses' },
+                  ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+                ]}
+              />
             ) : (
               <div className="vibrant-input flex items-center text-sm font-bold text-slate-600 dark:text-slate-300">
                 {campuses.find((c) => c.id === selectedCampus)?.campusName || 'Your campus'}
               </div>
             )}
-            <select
-              className="vibrant-input appearance-none"
+            <SearchableSelect
+              variant="compact"
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-            >
-              <option value="all">Any Payment Status</option>
-              <option value="Paid">Paid Only</option>
-              <option value="Partially Paid">Partially Paid</option>
-              <option value="Unpaid">Unpaid Only</option>
-              <option value="Pending">Processing (Quick Pay)</option>
-            </select>
+              onChange={setSelectedStatus}
+              placeholder="Any Payment Status"
+              searchPlaceholder="Search status…"
+              options={[
+                { value: 'all', label: 'Any Payment Status' },
+                { value: 'Paid', label: 'Paid Only' },
+                { value: 'Partially Paid', label: 'Partially Paid' },
+                { value: 'Unpaid', label: 'Unpaid Only' },
+                { value: 'Pending', label: 'Processing (Quick Pay)' },
+              ]}
+            />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <TableShell>
+            <table className="w-full min-w-[960px] text-left border-collapse table-sticky-head">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                   <th className="px-8 py-5">Voucher ID</th>
@@ -1006,22 +1131,21 @@ export default function FeeManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {paginatedVouchers.length === 0 && (
+                {vouchers.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-8 py-20 text-center">
-                      <div className="flex flex-col items-center gap-4">
-                        <div className="w-16 h-16 rounded-3xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                          <FileText className="w-8 h-8" />
-                        </div>
-                        <div>
-                          <p className="text-slate-900 dark:text-white font-bold">No vouchers found</p>
-                          <p className="text-slate-500 text-sm">No vouchers found for this campus/month. Please generate fees first.</p>
-                        </div>
-                      </div>
+                    <td colSpan={10} className="px-4 py-8">
+                      <EmptyState
+                        compact
+                        icon={FileText}
+                        title="No vouchers found"
+                        description="Configure a campus fee session in Fee Settings, then generate monthly vouchers below."
+                        actionLabel="Go to generation"
+                        onAction={() => document.getElementById('bulk-generation')?.scrollIntoView({ behavior: 'smooth' })}
+                      />
                     </td>
                   </tr>
                 )}
-                {paginatedVouchers.map((voucher) => {
+                {vouchers.map((voucher) => {
                   return (
                     <tr key={voucher.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
                       <td className="px-8 py-5 font-mono text-[10px] font-black text-slate-400">{voucher.id.substring(0, 8)}</td>
@@ -1102,13 +1226,13 @@ export default function FeeManagement() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableShell>
 
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
-            totalItems={filteredVouchers.length}
-            itemsPerPage={itemsPerPage}
+            totalItems={vouchersTotal}
+            itemsPerPage={VOUCHERS_PAGE_SIZE}
             itemLabel="Vouchers"
             onPageChange={setCurrentPage}
           />
@@ -1134,17 +1258,25 @@ export default function FeeManagement() {
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Campus</label>
-                    <select required className="vibrant-input appearance-none" value={structureForm.campusId} onChange={(e) => setStructureForm({ ...structureForm, campusId: e.target.value })}>
-                      <option value="">Select Campus</option>
-                      {campuses.map(c => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                    </select>
+                    <SearchableSelect
+                      required
+                      value={structureForm.campusId}
+                      onChange={(campusId) => setStructureForm({ ...structureForm, campusId })}
+                      placeholder="Select Campus"
+                      searchPlaceholder="Search campuses…"
+                      options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                    />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class</label>
-                    <select required className="vibrant-input appearance-none" value={structureForm.classId} onChange={(e) => setStructureForm({ ...structureForm, classId: e.target.value })}>
-                      <option value="">Select Class</option>
-                      {classes.map(c => <option key={c.id} value={c.id}>{c.className}</option>)}
-                    </select>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Session</label>
+                    <input
+                      type="text"
+                      required
+                      className="vibrant-input font-black"
+                      value={structureForm.sessionLabel}
+                      onChange={(e) => setStructureForm({ ...structureForm, sessionLabel: e.target.value })}
+                      placeholder="2026-2027"
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-8">
@@ -1294,15 +1426,16 @@ export default function FeeManagement() {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Method</label>
-                    <select
-                      className="vibrant-input appearance-none"
+                    <SearchableSelect
                       value={paymentForm.paymentMethod}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })}
-                    >
-                      <option value="Quick Pay">Quick Pay (Online)</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                    </select>
+                      onChange={(paymentMethod) => setPaymentForm({ ...paymentForm, paymentMethod })}
+                      searchPlaceholder="Search method…"
+                      options={[
+                        { value: 'Quick Pay', label: 'Quick Pay (Online)' },
+                        { value: 'Cash', label: 'Cash' },
+                        { value: 'Bank Transfer', label: 'Bank Transfer' },
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Transaction Ref #</label>
@@ -1352,27 +1485,31 @@ export default function FeeManagement() {
                   value={extraStudentQuery}
                   onChange={(e) => setExtraStudentQuery(e.target.value)}
                 />
-                <select
+                <SearchableSelect
                   required
-                  className="vibrant-input"
                   value={extraChargeForm.studentId}
-                  onChange={(e) => setExtraChargeForm({ ...extraChargeForm, studentId: e.target.value })}
-                >
-                  <option value="">{extraStudentLoading ? 'Loading students…' : 'Select student'}</option>
-                  {extraStudentOptions.map((s) => (
-                    <option key={s.id} value={s.id}>{s.firstName} — {s.rollNumber}</option>
-                  ))}
-                </select>
-                <select
-                  className="vibrant-input"
+                  onChange={(studentId) => setExtraChargeForm({ ...extraChargeForm, studentId })}
+                  disabled={extraStudentLoading}
+                  loading={extraStudentLoading}
+                  loadingText="Loading students…"
+                  placeholder="Select student"
+                  searchPlaceholder="Search students…"
+                  options={extraStudentOptions.map((s) => ({
+                    value: s.id,
+                    label: `${s.firstName} — ${s.rollNumber}`,
+                  }))}
+                />
+                <SearchableSelect
                   value={extraChargeForm.feeType}
-                  onChange={(e) => setExtraChargeForm({ ...extraChargeForm, feeType: e.target.value as Fee['feeType'] })}
-                >
-                  <option value="Security Deposit">Security Deposit</option>
-                  <option value="Summer Camp">Summer Camp</option>
-                  <option value="ID Card">ID Card</option>
-                  <option value="Educational Trip">Educational Trip</option>
-                </select>
+                  onChange={(feeType) => setExtraChargeForm({ ...extraChargeForm, feeType: feeType as Fee['feeType'] })}
+                  searchPlaceholder="Search fee type…"
+                  options={[
+                    { value: 'Security Deposit', label: 'Security Deposit' },
+                    { value: 'Summer Camp', label: 'Summer Camp' },
+                    { value: 'ID Card', label: 'ID Card' },
+                    { value: 'Educational Trip', label: 'Educational Trip' },
+                  ]}
+                />
                 <input
                   type="number"
                   required

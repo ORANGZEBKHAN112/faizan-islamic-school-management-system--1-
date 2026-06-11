@@ -69,12 +69,19 @@ export interface Student {
 export interface FeeStructure {
   id: string;
   campusId: string;
-  classId: string;
+  classId?: string | null;
+  sessionLabel: string;
   tuitionFee: number;
+  monthlyFee?: number;
   admissionFee: number;
+  securityFee?: number;
   examFee: number;
   transportFee: number;
   miscFee: number;
+  summerCampFee?: number;
+  idCardFee?: number;
+  tripFee?: number;
+  lastUpdated?: string;
 }
 
 export interface Fee {
@@ -112,6 +119,7 @@ export interface Fee {
   arrears?: number;
   // Optional display fields from joins
   studentName?: string;
+  fatherName?: string;
   rollNumber?: string;
   className?: string;
   sectionName?: string;
@@ -256,6 +264,48 @@ export interface FeeGenerationRun {
   newAdmissionsCount: number;
   arrearsCount: number;
   notes?: Array<{ className: string; campusName: string; count: number }> | null;
+}
+
+export interface FeeGenerationJob {
+  id: string;
+  campusId?: string;
+  year: number;
+  monthsCsv: string;
+  includeAdmissions?: boolean;
+  includeArrears?: boolean;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  processedCount: number;
+  totalCount: number;
+  skippedMissingFeeSettings: number;
+  newAdmissionsCount: number;
+  arrearsCount: number;
+  errorMessage?: string;
+  runBy?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  createdAt?: string;
+}
+
+export interface FeeExportJob {
+  id: string;
+  campusId?: string;
+  year?: number;
+  month?: number;
+  statusFilter?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  processedCount: number;
+  totalCount: number;
+  filePath?: string;
+  errorMessage?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface FeeStats {
+  totalCount: number;
+  totalPaid: number;
+  totalOutstanding: number;
+  defaulters: number;
 }
 
 export interface AdmissionApplication {

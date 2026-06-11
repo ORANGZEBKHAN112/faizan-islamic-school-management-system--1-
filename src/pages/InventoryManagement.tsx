@@ -4,6 +4,7 @@ import { InventoryItem } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 export default function InventoryManagement() {
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -133,9 +134,12 @@ export default function InventoryManagement() {
               <h3 className="text-2xl font-black mb-6">{editingId ? 'Edit Item' : 'New Item'}</h3>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <input className="vibrant-input" placeholder="Item name" value={formData.itemName} onChange={(e) => setFormData({ ...formData, itemName: e.target.value })} required />
-                <select className="vibrant-input" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
-                  {['Supplies', 'Furniture', 'Books', 'Electronics', 'Uniforms', 'Other'].map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <SearchableSelect
+                  value={formData.category}
+                  onChange={(category) => setFormData({ ...formData, category })}
+                  searchPlaceholder="Search category…"
+                  options={['Supplies', 'Furniture', 'Books', 'Electronics', 'Uniforms', 'Other'].map((c) => ({ value: c, label: c }))}
+                />
                 <div className="grid grid-cols-3 gap-4">
                   <input type="number" className="vibrant-input" placeholder="Qty" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })} />
                   <input className="vibrant-input" placeholder="Unit" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} />

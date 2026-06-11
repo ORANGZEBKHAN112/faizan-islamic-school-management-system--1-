@@ -3,7 +3,9 @@ import type { User } from '../types';
 
 const API_BASE_URL = '/api';
 const REFERENCE_COLLECTIONS = new Set(['campuses', 'classes']);
+const PAGINATED_COLLECTIONS = new Set(['students', 'fees', 'feevouchers']);
 const CACHE_TTL_MS = 60_000;
+const DEFAULT_LIST_LIMIT = 50;
 
 type Params = Record<string, unknown> | undefined;
 type CacheEntry = {
@@ -176,10 +178,18 @@ export const dataService = {
   },
 
   async getAll(collectionName: string, params?: Record<string, unknown>) {
+    const name = normalizeCollection(collectionName);
+    const mergedParams = { ...params };
+    if (PAGINATED_COLLECTIONS.has(name)) {
+      if (!mergedParams.limit) mergedParams.limit = DEFAULT_LIST_LIMIT;
+      if (!mergedParams.page) mergedParams.page = 1;
+      const result = await this.getPaginated(collectionName, mergedParams);
+      return result.data;
+    }
     const cached = getCached(collectionName, params);
     if (cached) return cached;
     const endpoint = getEndpoint(collectionName);
-    const response = await api.get(endpoint, { params });
+    const response = await api.get(endpoint, { params: mergedParams });
     const body = response.data;
     const parsed = body && Array.isArray(body.data) ? body.data : body;
     setCached(collectionName, params, parsed);
@@ -233,6 +243,30 @@ export const dataService = {
 
   async fetchFeeSettings(campusId?: string) {
     return this.getAll('fee-settings', campusId ? { campusId } : undefined);
+  },
+
+  async fetchCampusFeeStructures(campusId: string, sessionLabel?: string) {
+    const response = await api.get('/fee-structures/campus', {
+      params: { campusId, ...(sessionLabel ? { session: sessionLabel } : {}) },
+    });
+    return response.data;
+  },
+
+  async fetchCampusFeeSessions(campusId: string) {
+    const response = await api.get('/fee-structures/sessions', { params: { campusId } });
+    return response.data as Array<{ sessionLabel: string }>;
+  },
+
+  async saveCampusFeeStructure(data: Record<string, unknown>) {
+    const response = await api.post('/fee-structures/campus', data);
+    this.invalidateCollection('feeStructures');
+    return response.data;
+  },
+
+  async applyCampusFeeStructureToClasses(campusId: string, sessionLabel: string) {
+    const response = await api.post('/fee-structures/apply-to-classes', { campusId, sessionLabel });
+    this.invalidateCollection('fee-settings');
+    return response.data as { message: string; sessionLabel: string; updatedCount: number };
   },
 
   async applyClassWideFeeSettings(classId: string) {
@@ -368,21 +402,67 @@ export const dataService = {
     return response.data;
   },
 
+  async fetchReportSummary(params?: { campusId?: string; year?: number | string }) {
+    const response = await api.get('/reports/summary', { params });
+    return response.data;
+  },
+
   async fetchGenerateFees(params?: {
     campusId?: string;
     month?: number;
     months?: number[];
     year?: number;
+    session?: string;
+    sessionLabel?: string;
     includeAdmissions?: boolean;
     includeArrears?: boolean;
   }) {
     try {
       const response = await api.post(`/generate-monthly-fees`, params);
-      return response.data;
+      return response.data as {
+        message: string;
+        jobId: string;
+        months: number[];
+        async: boolean;
+      };
     } catch (error) {
       console.error('Error generating fees:', error);
       throw error;
     }
+  },
+
+  async fetchFeeGenerationJob(jobId: string) {
+    const response = await api.get(`/fee-generation-jobs/${jobId}`);
+    return response.data;
+  },
+
+  async fetchFeeStats(params?: Record<string, unknown>) {
+    const response = await api.get('/fees/stats', { params });
+    return response.data;
+  },
+
+  async startFeeExport(params?: Record<string, unknown>) {
+    const response = await api.post('/fees/export', params);
+    return response.data as { message: string; jobId: string; async: boolean };
+  },
+
+  async fetchFeeExportJob(jobId: string) {
+    const response = await api.get(`/fees/export/${jobId}`);
+    return response.data;
+  },
+
+  getFeeExportDownloadUrl(jobId: string) {
+    return `${API_BASE_URL}/fees/export/${jobId}/download`;
+  },
+
+  async refreshDashboardStats(campusId?: string) {
+    const response = await api.post('/dashboard-stats/refresh', { campusId: campusId || null });
+    return response.data;
+  },
+
+  async archiveOldFees(beforeYear?: number) {
+    const response = await api.post('/fees/archive', { beforeYear });
+    return response.data;
   },
 
   async fetchFeeGenerationRuns(params?: { campusId?: string; limit?: number }) {
@@ -496,6 +576,15 @@ export const dataService = {
   },
 
   async refresh(collectionName: string, params?: Record<string, unknown>) {
+    const name = normalizeCollection(collectionName);
+    if (PAGINATED_COLLECTIONS.has(name)) {
+      const result = await this.getPaginated(collectionName, {
+        page: 1,
+        limit: params?.limit ?? DEFAULT_LIST_LIMIT,
+        ...params,
+      });
+      return result.data;
+    }
     return this.getAll(collectionName, params);
   },
 };

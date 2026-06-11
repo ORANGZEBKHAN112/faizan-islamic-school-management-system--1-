@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 interface Expense {
   id: string;
@@ -212,13 +213,12 @@ export default function Expenses() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
-                    <select 
-                      className="vibrant-input"
+                    <SearchableSelect
                       value={formData.category}
-                      onChange={e => setFormData({...formData, category: e.target.value})}
-                    >
-                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                      onChange={(category) => setFormData({ ...formData, category })}
+                      searchPlaceholder="Search category…"
+                      options={categories.map((c) => ({ value: c, label: c }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>

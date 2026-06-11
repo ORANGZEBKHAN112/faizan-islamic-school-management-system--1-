@@ -4,12 +4,15 @@ import { AdmissionApplication, Campus, Class } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { useConfirm } from '../context/ConfirmContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 
 const scopeUser = getStoredUser();
 const STATUSES = ['Pending', 'Under Review', 'Approved', 'Rejected', 'Enrolled'] as const;
 
 export default function AdmissionManagement() {
+  const confirm = useConfirm();
   const [applications, setApplications] = useState<AdmissionApplication[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -114,7 +117,11 @@ export default function AdmissionManagement() {
       toast.error('Assign a class first (edit application)');
       return;
     }
-    if (!window.confirm(`Enroll ${app.applicantName} as a student?`)) return;
+    if (!await confirm({
+      title: 'Enroll student?',
+      message: `Create a student record for ${app.applicantName} and assign roll number?`,
+      confirmLabel: 'Enroll',
+    })) return;
     try {
       const result = await dataService.enrollAdmission(app.id);
       toast.success(`Enrolled! Roll number: ${result.rollNumber}`);
@@ -230,22 +237,21 @@ export default function AdmissionManagement() {
                         </button>
                       )}
                       {!app.classId && app.status !== 'Enrolled' && app.status !== 'Rejected' && (
-                        <select
-                          className="text-[10px] font-bold border rounded-xl px-2 py-1"
+                        <SearchableSelect
+                          className="text-[10px] font-bold border rounded-xl px-2 py-1 min-h-0"
                           value={app.classId || ''}
-                          onChange={async (e) => {
-                            await dataService.updateAdmission(app.id, { ...app, classId: e.target.value });
+                          onChange={async (classId) => {
+                            await dataService.updateAdmission(app.id, { ...app, classId });
                             toast.success('Class assigned');
                             await load();
                           }}
-                        >
-                          <option value="">Assign class</option>
-                          {campusClasses(app.campusId).map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.className} {c.sectionName}{c.capacity ? ` (${c.enrolledCount ?? 0}/${c.capacity})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="Assign class"
+                          searchPlaceholder="Search classes…"
+                          options={campusClasses(app.campusId).map((c) => ({
+                            value: c.id,
+                            label: `${c.className} ${c.sectionName}${c.capacity ? ` (${c.enrolledCount ?? 0}/${c.capacity})` : ''}`,
+                          }))}
+                        />
                       )}
                     </div>
                   </td>
@@ -304,27 +310,37 @@ export default function AdmissionManagement() {
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {(!scopeUser || canPickCampus(scopeUser)) && (
-                  <select className="vibrant-input" value={formData.campusId} onChange={(e) => setFormData({ ...formData, campusId: e.target.value, classId: '' })} required>
-                    <option value="">Select campus</option>
-                    {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                  </select>
+                  <SearchableSelect
+                    required
+                    value={formData.campusId}
+                    onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
+                    placeholder="Select campus"
+                    searchPlaceholder="Search campuses…"
+                    options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                  />
                 )}
-                <select className="vibrant-input" value={formData.classId} onChange={(e) => setFormData({ ...formData, classId: e.target.value })}>
-                  <option value="">Preferred class (optional)</option>
-                  {campusClasses(formData.campusId).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.className}{c.sectionName ? ` (${c.sectionName})` : ''}{c.capacity ? ` — ${c.enrolledCount ?? 0}/${c.capacity}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={formData.classId}
+                  onChange={(classId) => setFormData({ ...formData, classId })}
+                  placeholder="Preferred class (optional)"
+                  searchPlaceholder="Search classes…"
+                  options={campusClasses(formData.campusId).map((c) => ({
+                    value: c.id,
+                    label: `${c.className}${c.sectionName ? ` (${c.sectionName})` : ''}${c.capacity ? ` — ${c.enrolledCount ?? 0}/${c.capacity}` : ''}`,
+                  }))}
+                />
                 <input className="vibrant-input" placeholder="Applicant full name *" value={formData.applicantName} onChange={(e) => setFormData({ ...formData, applicantName: e.target.value })} required />
                 <input className="vibrant-input" placeholder="Father's name" value={formData.fatherName} onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })} />
                 <div className="grid grid-cols-2 gap-4">
                   <input type="date" className="vibrant-input" value={formData.dateOfBirth} onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })} />
-                  <select className="vibrant-input" value={formData.gender} onChange={(e) => setFormData({ ...formData, gender: e.target.value })}>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
+                  <SearchableSelect
+                    value={formData.gender}
+                    onChange={(gender) => setFormData({ ...formData, gender })}
+                    options={[
+                      { value: 'Male', label: 'Male' },
+                      { value: 'Female', label: 'Female' },
+                    ]}
+                  />
                 </div>
                 <input className="vibrant-input" placeholder="Contact number" value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} />
                 <input className="vibrant-input" placeholder="Previous school" value={formData.previousSchool} onChange={(e) => setFormData({ ...formData, previousSchool: e.target.value })} />

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import TableSkeleton from '../components/ui/TableSkeleton';
 
 export default function AttendancePage() {
@@ -129,31 +130,35 @@ export default function AttendancePage() {
         <div className="flex flex-wrap items-center gap-4 bg-white/50 dark:bg-slate-900/50 p-2 rounded-3xl border border-slate-100 dark:border-slate-800 backdrop-blur-md">
            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">
             <Building className="w-4 h-4 text-slate-400" />
-            <select 
-              className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 focus:ring-0 cursor-pointer"
+            <SearchableSelect
+              variant="inline"
               value={selectedCampus}
-              onChange={(e) => {
-                setSelectedCampus(e.target.value);
+              onChange={(campusId) => {
+                setSelectedCampus(campusId);
                 setSelectedClass('');
               }}
               disabled={campusesLoading}
-            >
-              <option value="">{campusesLoading ? 'Loading campuses…' : 'Select Campus'}</option>
-              {activeCampuses.map(c => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-            </select>
+              loading={campusesLoading}
+              loadingText="Loading campuses…"
+              placeholder="Select Campus"
+              searchPlaceholder="Search campuses…"
+              options={activeCampuses.map((c) => ({ value: c.id, label: c.campusName }))}
+            />
           </div>
 
           <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">
             <Users className="w-4 h-4 text-slate-400" />
-            <select 
-              className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 focus:ring-0 cursor-pointer"
+            <SearchableSelect
+              variant="inline"
               value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
+              onChange={setSelectedClass}
               disabled={!selectedCampus || classesLoading}
-            >
-              <option value="">{!selectedCampus ? 'Select Campus First' : classesLoading ? 'Loading classes…' : 'Select Class'}</option>
-              {currentClasses.map(c => <option key={c.id} value={c.id}>{c.className} - {c.sectionName}</option>)}
-            </select>
+              loading={classesLoading}
+              loadingText="Loading classes…"
+              placeholder={!selectedCampus ? 'Select Campus First' : 'Select Class'}
+              searchPlaceholder="Search classes…"
+              options={currentClasses.map((c) => ({ value: c.id, label: `${c.className} - ${c.sectionName}` }))}
+            />
           </div>
 
           <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">

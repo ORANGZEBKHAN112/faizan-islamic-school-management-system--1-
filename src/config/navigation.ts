@@ -117,6 +117,13 @@ export function isNavActive(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
+export function getPageTitle(pathname: string, role: UserRole): string {
+  const items = getFlatNavItems(role)
+    .filter((item) => isNavActive(pathname, item.path))
+    .sort((a, b) => b.path.length - a.path.length);
+  return items[0]?.name ?? 'FISS';
+}
+
 /** All paths for command palette quick actions */
 export function getQuickActions(role: UserRole) {
   return getFlatNavItems(role).filter((item) => item.path !== '/');

@@ -5,6 +5,7 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import Pagination from '../components/ui/Pagination';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Teacher', 'Accountant', 'Student'];
 
@@ -242,16 +243,23 @@ export default function UserManagement() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role</label>
-                    <select className="vibrant-input" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}>
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
+                    <SearchableSelect
+                      value={formData.role}
+                      onChange={(role) => setFormData({ ...formData, role: role as UserRole })}
+                      searchPlaceholder="Search role…"
+                      options={ROLES.map((r) => ({ value: r, label: r }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Campus</label>
-                    <select className="vibrant-input" value={formData.campusId} onChange={(e) => setFormData({ ...formData, campusId: e.target.value })} disabled={formData.role === 'Super Admin'}>
-                      <option value="">— None / School-wide —</option>
-                      {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                    </select>
+                    <SearchableSelect
+                      value={formData.campusId}
+                      onChange={(campusId) => setFormData({ ...formData, campusId })}
+                      disabled={formData.role === 'Super Admin'}
+                      placeholder="— None / School-wide —"
+                      searchPlaceholder="Search campuses…"
+                      options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                    />
                   </div>
                 </div>
                 <div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, User, School, X, Command, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Student, Campus, UserRole } from '../types';
+import { Campus, UserRole } from '../types';
 import { dataService } from '../services/dataService';
 import { getFlatNavItems, getQuickActions } from '../config/navigation';
 
@@ -18,24 +18,38 @@ type SearchResult = {
   action: () => void;
 };
 
+type StudentHit = { id: string; firstName: string; lastName?: string; rollNumber: string };
+
 export default function CommandPalette({ userRole }: CommandPaletteProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
 
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<StudentHit[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const navigate = useNavigate();
   const navItems = useMemo(() => getFlatNavItems(userRole), [userRole]);
   const quickLinks = useMemo(() => getQuickActions(userRole).slice(0, 6), [userRole]);
 
   useEffect(() => {
-    const unsubStudents = dataService.subscribe('students', setStudents);
     const unsubCampuses = dataService.subscribe('campuses', setCampuses);
-    return () => {
-      unsubStudents();
-      unsubCampuses();
-    };
+    return () => unsubCampuses();
   }, []);
+
+  useEffect(() => {
+    if (!isOpen || query.trim().length < 2) {
+      setStudents([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await dataService.fetchStudentOptions({ search: query.trim(), limit: 5 });
+        setStudents(rows);
+      } catch {
+        setStudents([]);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [isOpen, query]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -56,25 +70,18 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
 
     const searchResults: SearchResult[] = [];
 
-    students
-      .filter(
-        (s) =>
-          `${s.firstName} ${s.lastName}`.toLowerCase().includes(q) ||
-          s.rollNumber.toLowerCase().includes(q)
-      )
-      .slice(0, 5)
-      .forEach((s) => {
-        searchResults.push({
-          type: 'Student',
-          title: `${s.firstName} ${s.lastName}`,
-          subtitle: s.rollNumber,
-          icon: User,
-          action: () => {
-            navigate(`/students?id=${s.id}`);
-            setIsOpen(false);
-          },
-        });
+    students.forEach((s) => {
+      searchResults.push({
+        type: 'Student',
+        title: `${s.firstName} ${s.lastName || ''}`.trim(),
+        subtitle: s.rollNumber,
+        icon: User,
+        action: () => {
+          navigate(`/students?id=${s.id}`);
+          setIsOpen(false);
+        },
       });
+    });
 
     campuses
       .filter(

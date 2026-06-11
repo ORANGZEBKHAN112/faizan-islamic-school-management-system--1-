@@ -7,8 +7,12 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { User, Campus, DashboardStats } from '../types';
 import { dataService } from '../services/dataService';
-import { canPickCampus, campusQueryParam, defaultCampusFilter } from '../utils/campusScope';
+import { canPickCampus, campusQueryParam, defaultCampusFilter, pathWithCampus } from '../utils/campusScope';
 import { useNavigate } from 'react-router-dom';
+import PageHeader from '../components/ui/PageHeader';
+import SearchableSelect from '../components/ui/SearchableSelect';
+import SetupChecklist from '../components/ui/SetupChecklist';
+import { CHART_PRIMARY, CHART_SECONDARY } from '../utils/chartTheme';
 import { motion } from 'motion/react';
 
 interface DashboardProps {
@@ -29,6 +33,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [selectedCampus, setSelectedCampus] = useState(() => defaultCampusFilter(user));
   const [campusOptions, setCampusOptions] = useState<Campus[]>([]);
   const campusParams = campusQueryParam(user, selectedCampus);
+  const feesPath = pathWithCampus('/fees', user, selectedCampus);
 
   useEffect(() => {
     dataService.subscribe('campuses', setCampusOptions);
@@ -54,9 +59,9 @@ export default function Dashboard({ user }: DashboardProps) {
 
   const cards = [
     { title: 'Active Students', value: stats.activeStudents, icon: Users, color: 'bg-success', path: '/students' },
-    { title: 'Fees Collected', value: `Rs. ${stats.totalCollected.toLocaleString()}`, icon: CreditCard, color: 'bg-teal-500', path: '/fees' },
-    { title: 'Outstanding', value: `Rs. ${stats.totalOutstanding.toLocaleString()}`, icon: AlertCircle, color: 'bg-danger', path: '/fees' },
-    { title: 'Fee Defaulters', value: stats.defaulters, icon: AlertCircle, color: 'bg-rose-500', path: '/fees' },
+    { title: 'Fees Collected', value: `Rs. ${stats.totalCollected.toLocaleString()}`, icon: CreditCard, color: 'bg-teal-500', path: feesPath },
+    { title: 'Outstanding', value: `Rs. ${stats.totalOutstanding.toLocaleString()}`, icon: AlertCircle, color: 'bg-danger', path: feesPath },
+    { title: 'Fee Defaulters', value: stats.defaulters, icon: AlertCircle, color: 'bg-rose-500', path: feesPath },
     { title: 'Pending Admissions', value: stats.pendingAdmissions, icon: UserPlus, color: 'bg-accent', path: '/admissions' },
     { title: 'Exams This Month', value: stats.examsScheduled, icon: ClipboardList, color: 'bg-primary', path: '/exams' },
     { title: 'Campuses', value: stats.campusCount, icon: School, color: 'bg-primary', path: '/campuses' },
@@ -71,6 +76,48 @@ export default function Dashboard({ user }: DashboardProps) {
     icon: CreditCard,
     color: 'text-green-500',
   }));
+
+  const setupSteps = [
+    {
+      id: 'campuses',
+      title: 'Add campuses',
+      description: 'Create at least one active campus in the network.',
+      href: '/campuses',
+      done: stats.campusCount > 0,
+    },
+    {
+      id: 'classes',
+      title: 'Create classes',
+      description: 'Set up classes and sections for each campus.',
+      href: '/classes',
+      done: stats.classCount > 0,
+    },
+    ...(user.role === 'Super Admin'
+      ? [{
+          id: 'fee-session',
+          title: 'Configure fee session',
+          description: 'Set campus fee structure for the current academic session.',
+          href: '/fee-settings',
+          done: (stats.monthlyFees || []).some((m) => m.collected > 0),
+        }]
+      : []),
+    {
+      id: 'students',
+      title: 'Enroll students',
+      description: 'Register students or import from Excel.',
+      href: '/students',
+      done: stats.activeStudents > 0,
+    },
+    {
+      id: 'vouchers',
+      title: 'Generate fee vouchers',
+      description: 'Run monthly fee generation for your campus.',
+      href: feesPath,
+      done: stats.totalCollected > 0,
+    },
+  ];
+
+  const showSetup = user.role === 'Super Admin' || user.role === 'Admin';
 
   if (loading) {
     return (
@@ -96,28 +143,36 @@ export default function Dashboard({ user }: DashboardProps) {
         </motion.div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Dashboard</h2>
-          <p className="text-slate-500 font-medium">Welcome back, <span className="text-primary font-bold">{user.fullName}</span></p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {canPickCampus(user) && (
-            <div className="flex items-center gap-2 px-4 py-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <Building className="w-4 h-4 text-primary" />
-              <select className="vibrant-select py-2 px-3 text-[10px] font-black uppercase tracking-widest border-none bg-transparent focus:ring-0 cursor-pointer min-w-[140px]"
-                value={selectedCampus} onChange={(e) => setSelectedCampus(e.target.value)}>
-                <option value="all">All Campuses</option>
-                {campusOptions.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-              </select>
+      <PageHeader
+        title="Dashboard"
+        description={<>Welcome back, <span className="text-primary font-bold">{user.fullName}</span></>}
+        filters={
+          <>
+            {canPickCampus(user) && (
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                <Building className="w-4 h-4 text-primary shrink-0" />
+                <SearchableSelect
+                  variant="inline"
+                  value={selectedCampus}
+                  onChange={setSelectedCampus}
+                  options={[
+                    { value: 'all', label: 'All campuses' },
+                    ...campusOptions.map((c) => ({ value: c.id, label: c.campusName })),
+                  ]}
+                  placeholder="All campuses"
+                  searchPlaceholder="Search campuses…"
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <Calendar className="w-4 h-4 text-primary shrink-0" />
+              {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
-          )}
-          <div className="flex items-center gap-3 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-            <Calendar className="w-4 h-4 text-primary" />
-            {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
+
+      {showSetup && <SetupChecklist steps={setupSteps} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {cards.map((card, i) => (
@@ -149,8 +204,8 @@ export default function Dashboard({ user }: DashboardProps) {
                   <XAxis dataKey="monthName" tick={{ fontSize: 10, fontWeight: 700 }} />
                   <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `Rs.${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
                   <Tooltip formatter={(v: number) => [`Rs. ${v.toLocaleString()}`, '']} />
-                  <Bar dataKey="collected" fill="#00a99d" name="Collected" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="pending" fill="#003b5c" name="Pending" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="collected" fill={CHART_PRIMARY} name="Collected" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="pending" fill={CHART_SECONDARY} name="Pending" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -181,7 +236,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <p className="text-slate-400 text-sm text-center py-8">No recent payments</p>
             )}
           </div>
-          <button onClick={() => navigate('/fees')} className="mt-6 w-full vibrant-btn-secondary text-[10px] font-black uppercase">
+          <button onClick={() => navigate(feesPath)} className="mt-6 w-full vibrant-btn-secondary text-[10px] font-black uppercase">
             View All Fees
           </button>
         </div>

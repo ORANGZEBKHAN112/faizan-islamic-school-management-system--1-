@@ -5,6 +5,8 @@ import { Exam, ExamResult, Campus, Class, Student } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { useConfirm } from '../context/ConfirmContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { gradeFromMarks } from '../utils/examGrades';
 
@@ -12,6 +14,7 @@ const scopeUser = getStoredUser();
 const canCreateExam = scopeUser?.role === 'Super Admin' || scopeUser?.role === 'Admin';
 
 export default function Exams() {
+  const confirm = useConfirm();
   const [exams, setExams] = useState<Exam[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -42,13 +45,31 @@ export default function Exams() {
     loadExams();
     const unsubCampuses = dataService.subscribe('campuses', setCampuses);
     const unsubClasses = dataService.subscribe('classes', setClasses);
-    const unsubStudents = dataService.subscribe('students', setStudents);
     return () => {
       unsubCampuses();
       unsubClasses();
-      unsubStudents();
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedExam?.classId) {
+      setStudents([]);
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await dataService.getPaginated('students', {
+          classId: selectedExam.classId,
+          status: 'Active',
+          limit: 200,
+          page: 1,
+        });
+        setStudents(rows.data);
+      } catch {
+        setStudents([]);
+      }
+    })();
+  }, [selectedExam?.classId]);
 
   const campusClasses = classes.filter((c) => !formData.campusId || c.campusId === formData.campusId);
   const examStudents = selectedExam
@@ -111,7 +132,12 @@ export default function Exams() {
   };
 
   const handleDeleteExam = async (id: string) => {
-    if (!window.confirm('Delete this exam and all results?')) return;
+    if (!await confirm({
+      title: 'Delete exam?',
+      message: 'This removes the exam and all saved results permanently.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })) return;
     try {
       await dataService.deleteExam(id);
       toast.success('Exam deleted');
@@ -271,19 +297,30 @@ export default function Exams() {
               <h3 className="text-2xl font-black mb-6">Schedule Exam</h3>
               <form onSubmit={handleCreateExam} className="space-y-4">
                 <input className="vibrant-input" placeholder="Exam title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
-                <select className="vibrant-input" value={formData.examType} onChange={(e) => setFormData({ ...formData, examType: e.target.value })}>
-                  {['Monthly', 'Midterm', 'Final', 'Quiz'].map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <SearchableSelect
+                  value={formData.examType}
+                  onChange={(examType) => setFormData({ ...formData, examType })}
+                  searchPlaceholder="Search type…"
+                  options={['Monthly', 'Midterm', 'Final', 'Quiz'].map((t) => ({ value: t, label: t }))}
+                />
                 {(!scopeUser || canPickCampus(scopeUser)) ? (
-                  <select className="vibrant-input" value={formData.campusId} onChange={(e) => setFormData({ ...formData, campusId: e.target.value, classId: '' })} required>
-                    <option value="">Select campus</option>
-                    {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                  </select>
+                  <SearchableSelect
+                    required
+                    value={formData.campusId}
+                    onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
+                    placeholder="Select campus"
+                    searchPlaceholder="Search campuses…"
+                    options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                  />
                 ) : null}
-                <select className="vibrant-input" value={formData.classId} onChange={(e) => setFormData({ ...formData, classId: e.target.value })} required>
-                  <option value="">Select class</option>
-                  {campusClasses.map((c) => <option key={c.id} value={c.id}>{c.className} {c.sectionName}</option>)}
-                </select>
+                <SearchableSelect
+                  required
+                  value={formData.classId}
+                  onChange={(classId) => setFormData({ ...formData, classId })}
+                  placeholder="Select class"
+                  searchPlaceholder="Search classes…"
+                  options={campusClasses.map((c) => ({ value: c.id, label: `${c.className} ${c.sectionName}` }))}
+                />
                 <div className="grid grid-cols-2 gap-4">
                   <input type="date" className="vibrant-input" value={formData.examDate} onChange={(e) => setFormData({ ...formData, examDate: e.target.value })} />
                   <input type="number" className="vibrant-input" placeholder="Total marks" value={formData.totalMarks} onChange={(e) => setFormData({ ...formData, totalMarks: parseInt(e.target.value) || 100 })} />

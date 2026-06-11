@@ -113,18 +113,26 @@ CREATE TABLE FeeSettings (
     CONSTRAINT FK_FeeSettings_Classes FOREIGN KEY (class_id) REFERENCES Classes(id)
 );
 
--- 8. FeeStructures (per campus + class fee template)
+-- 8. FeeStructures (one fee template per campus per academic session)
 CREATE TABLE FeeStructures (
     id NVARCHAR(50) PRIMARY KEY,
-    campus_id NVARCHAR(50),
-    class_id NVARCHAR(50),
+    campus_id NVARCHAR(50) NOT NULL,
+    class_id NVARCHAR(50) NULL,
+    session NVARCHAR(20) NULL,
     tuition_fee DECIMAL(18, 2) DEFAULT 0,
     admission_fee DECIMAL(18, 2) DEFAULT 0,
+    security_fee DECIMAL(18, 2) DEFAULT 0,
     exam_fee DECIMAL(18, 2) DEFAULT 0,
     transport_fee DECIMAL(18, 2) DEFAULT 0,
-    misc_fee DECIMAL(18, 2) DEFAULT 0
+    misc_fee DECIMAL(18, 2) DEFAULT 0,
+    summer_camp_fee DECIMAL(18, 2) DEFAULT 0,
+    id_card_fee DECIMAL(18, 2) DEFAULT 0,
+    trip_fee DECIMAL(18, 2) DEFAULT 0,
+    last_updated DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_FeeStructures_Campuses FOREIGN KEY (campus_id) REFERENCES Campuses(id)
 );
-CREATE UNIQUE INDEX UX_FeeStructures_class_id ON FeeStructures(class_id);
+CREATE UNIQUE INDEX UX_FeeStructures_campus_session ON FeeStructures(campus_id, session) WHERE class_id IS NULL;
+CREATE UNIQUE INDEX UX_FeeStructures_class_id ON FeeStructures(class_id) WHERE class_id IS NOT NULL;
 
 -- 9. Fees (voucher + payment tracking)
 CREATE TABLE Fees (
@@ -300,8 +308,63 @@ CREATE TABLE FeeGenerationRuns (
     notes NVARCHAR(MAX)
 );
 
+-- 19. Async scaling tables
+CREATE TABLE FeeGenerationJobs (
+    id NVARCHAR(50) PRIMARY KEY,
+    campus_id NVARCHAR(50),
+    year INT NOT NULL,
+    months_csv NVARCHAR(100) NOT NULL,
+    include_admissions BIT DEFAULT 1,
+    include_arrears BIT DEFAULT 1,
+    status NVARCHAR(20) DEFAULT 'pending',
+    processed_count INT DEFAULT 0,
+    total_count INT DEFAULT 0,
+    skipped_missing_fee_settings INT DEFAULT 0,
+    new_admissions_count INT DEFAULT 0,
+    arrears_count INT DEFAULT 0,
+    error_message NVARCHAR(MAX),
+    run_by NVARCHAR(255),
+    started_at DATETIME,
+    finished_at DATETIME,
+    created_at DATETIME DEFAULT GETDATE()
+);
+
+CREATE TABLE FeeExportJobs (
+    id NVARCHAR(50) PRIMARY KEY,
+    campus_id NVARCHAR(50),
+    year INT,
+    month INT,
+    status_filter NVARCHAR(30),
+    search NVARCHAR(200),
+    format NVARCHAR(20) DEFAULT 'csv_zip',
+    status NVARCHAR(20) DEFAULT 'pending',
+    processed_count INT DEFAULT 0,
+    total_count INT DEFAULT 0,
+    file_path NVARCHAR(500),
+    error_message NVARCHAR(MAX),
+    requested_by NVARCHAR(255),
+    started_at DATETIME,
+    finished_at DATETIME,
+    created_at DATETIME DEFAULT GETDATE()
+);
+
+CREATE TABLE DashboardCampusStats (
+    campus_id NVARCHAR(50) NOT NULL PRIMARY KEY,
+    active_students INT DEFAULT 0,
+    total_collected DECIMAL(18, 2) DEFAULT 0,
+    total_outstanding DECIMAL(18, 2) DEFAULT 0,
+    defaulters INT DEFAULT 0,
+    pending_admissions INT DEFAULT 0,
+    exams_scheduled INT DEFAULT 0,
+    online_collections DECIMAL(18, 2) DEFAULT 0,
+    total_expenses DECIMAL(18, 2) DEFAULT 0,
+    refreshed_at DATETIME DEFAULT GETDATE()
+);
+
 -- Fee module stability indexes/constraints
 CREATE INDEX IX_Fees_student_year_month_status ON Fees(student_id, year, month, status);
+CREATE INDEX IX_Fees_year_month_status_campus ON Fees(year, month, status) INCLUDE (student_id, balance_amount, paid_amount);
+CREATE INDEX IX_Fees_student_id_created ON Fees(student_id, created_at DESC);
 CREATE INDEX IX_Students_campus_class_status ON Students(campus_id, class_id, status);
 CREATE UNIQUE INDEX UX_Fees_monthly_admission_student_month_year
 ON Fees(student_id, month, year, fee_type)

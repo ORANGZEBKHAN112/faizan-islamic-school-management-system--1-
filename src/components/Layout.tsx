@@ -9,10 +9,11 @@ import {
   Moon,
   Monitor,
 } from 'lucide-react';
-import { User } from '../types';
+import { Campus, User } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import CommandPalette from './CommandPalette';
-import { getNavModules, isNavActive } from '../config/navigation';
+import DevCredit from './ui/DevCredit';
+import { getNavModules, getPageTitle, isNavActive } from '../config/navigation';
 import { ThemeMode, getStoredTheme, applyTheme, cycleTheme, themeLabel } from '../utils/theme';
 import { dataService } from '../services/dataService';
 
@@ -23,8 +24,13 @@ interface LayoutProps {
 export default function Layout({ user }: LayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
+  const [campusName, setCampusName] = useState<string | null>(null);
   const location = useLocation();
   const navModules = useMemo(() => getNavModules(user.role), [user.role]);
+  const pageTitle = useMemo(
+    () => getPageTitle(location.pathname, user.role),
+    [location.pathname, user.role]
+  );
 
   useEffect(() => {
     applyTheme(themeMode);
@@ -49,6 +55,22 @@ export default function Layout({ user }: LayoutProps) {
     });
   }, []);
 
+  useEffect(() => {
+    if (!user.campusId) {
+      setCampusName(null);
+      return;
+    }
+    let cancelled = false;
+    dataService.fetchCampuses().then((campuses: Campus[]) => {
+      if (cancelled) return;
+      const match = campuses.find((c) => c.id === user.campusId);
+      setCampusName(match?.campusName ?? null);
+    }).catch(() => {
+      if (!cancelled) setCampusName(null);
+    });
+    return () => { cancelled = true; };
+  }, [user.campusId]);
+
   const handleLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
@@ -65,7 +87,6 @@ export default function Layout({ user }: LayoutProps) {
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 overflow-hidden">
       <CommandPalette userRole={user.role} />
 
-      {/* Mobile overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
@@ -78,7 +99,6 @@ export default function Layout({ user }: LayoutProps) {
         )}
       </AnimatePresence>
 
-      {/* Sidebar */}
       <AnimatePresence mode="wait">
         {isSidebarOpen && (
           <motion.aside
@@ -94,7 +114,10 @@ export default function Layout({ user }: LayoutProps) {
                   <School className="w-5 h-5" />
                 </div>
                 <div className="flex flex-col">
-                  <span>FISS</span>
+                  <span className="flex items-center gap-2">
+                    FISS
+                    <span className="beta-badge">Beta</span>
+                  </span>
                   <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black leading-tight">
                     Faizan Islamic School
                   </span>
@@ -129,14 +152,10 @@ export default function Layout({ user }: LayoutProps) {
             </nav>
 
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
-              <div className="px-3 py-2 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-100 dark:border-orange-500/20">
-                <p className="text-[9px] text-orange-500 uppercase font-black tracking-widest">Developer</p>
-                <p className="text-xs font-black text-orange-600 dark:text-orange-300">Orangzaib khan baloch</p>
-              </div>
               <div className="px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Signed in as</p>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{user.fullName}</p>
-                <p className="text-[9px] font-black text-primary uppercase tracking-widest">{user.role}</p>
+                <p className="section-label">Signed in as</p>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5">{user.fullName}</p>
+                <p className="text-[10px] font-semibold text-primary mt-0.5">{user.role}</p>
               </div>
               <button
                 onClick={handleLogout}
@@ -150,21 +169,34 @@ export default function Layout({ user }: LayoutProps) {
         )}
       </AnimatePresence>
 
-      {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header className="h-16 lg:h-[4.5rem] vibrant-glass flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
-          <div className="flex items-center gap-3 lg:gap-5">
+        <header className="h-16 lg:h-[4.5rem] vibrant-glass flex items-center justify-between gap-4 px-4 lg:px-8 z-10 shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400 transition-all active:scale-95"
+              className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400 transition-all active:scale-95 shrink-0"
               aria-label={isSidebarOpen ? 'Close menu' : 'Open menu'}
             >
               {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
+            <div className="min-w-0 hidden sm:block">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm lg:text-base font-bold text-slate-900 dark:text-white truncate">{pageTitle}</h2>
+                <span className="beta-badge hidden md:inline-flex">Beta</span>
+              </div>
+              {(campusName || user.role) && (
+                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                  {campusName ? campusName : user.role}
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 lg:gap-5">
+          <div className="flex items-center gap-2 lg:gap-3 shrink-0">
+            <kbd className="kbd-badge hidden xl:flex" title="Open command palette">
+              Ctrl+K
+            </kbd>
             <button
               type="button"
               onClick={handleThemeToggle}
@@ -173,12 +205,15 @@ export default function Layout({ user }: LayoutProps) {
               aria-label={`Theme: ${themeLabel(themeMode)}`}
             >
               <ThemeIcon className="w-4 h-4" />
-              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">
+              <span className="hidden lg:inline text-xs font-semibold">
                 {themeLabel(themeMode)}
               </span>
             </button>
 
-            <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-black text-sm shadow-md shadow-primary/20">
+            <div
+              className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-bold text-sm shadow-md shadow-primary/20"
+              title={user.fullName}
+            >
               {user.fullName.charAt(0)}
             </div>
           </div>
@@ -187,11 +222,12 @@ export default function Layout({ user }: LayoutProps) {
         <main className="flex-1 overflow-y-auto p-4 lg:p-8 scroll-smooth">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
           >
             <Outlet />
+            <DevCredit />
           </motion.div>
         </main>
       </div>

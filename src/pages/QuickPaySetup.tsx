@@ -4,6 +4,7 @@ import { QuickPayConfig, Transaction } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 export default function QuickPaySetup() {
   const [config, setConfig] = useState<QuickPayConfig | null>(null);
@@ -184,14 +185,17 @@ export default function QuickPaySetup() {
               </div>
               <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment Mode</span>
-                <select 
-                  className="bg-transparent text-xs font-black text-primary outline-none uppercase tracking-widest"
+                <SearchableSelect
+                  variant="inline"
+                  className="text-xs font-black text-primary uppercase tracking-widest"
                   value={config?.mode || 'Sandbox'}
-                  onChange={(e) => setConfig(prev => ({ ...prev!, mode: e.target.value as any }))}
-                >
-                  <option value="Sandbox">Sandbox</option>
-                  <option value="Live">Live</option>
-                </select>
+                  onChange={(mode) => setConfig((prev) => ({ ...prev!, mode: mode as QuickPayConfig['mode'] }))}
+                  searchable={false}
+                  options={[
+                    { value: 'Sandbox', label: 'Sandbox' },
+                    { value: 'Live', label: 'Live' },
+                  ]}
+                />
               </div>
               <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable QuickPay</span>

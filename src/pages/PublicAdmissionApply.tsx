@@ -4,6 +4,8 @@ import { School, Send, LogIn, CheckCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { dataService } from '../services/dataService';
+import DevCredit from '../components/ui/DevCredit';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Campus, Class } from '../types';
 
 export default function PublicAdmissionApply() {
@@ -127,31 +129,25 @@ export default function PublicAdmissionApply() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Campus *</label>
-                  <select
+                  <SearchableSelect
                     required
-                    className="vibrant-input appearance-none"
                     value={formData.campusId}
-                    onChange={(e) => setFormData({ ...formData, campusId: e.target.value, classId: '' })}
-                  >
-                    <option value="">Select campus</option>
-                    {campuses.map((c) => (
-                      <option key={c.id} value={c.id}>{c.campusName}</option>
-                    ))}
-                  </select>
+                    onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
+                    placeholder="Select campus"
+                    searchPlaceholder="Search campuses…"
+                    options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Preferred class</label>
-                  <select
-                    className="vibrant-input appearance-none"
+                  <SearchableSelect
                     value={formData.classId}
-                    onChange={(e) => setFormData({ ...formData, classId: e.target.value })}
+                    onChange={(classId) => setFormData({ ...formData, classId })}
                     disabled={!formData.campusId}
-                  >
-                    <option value="">Any / not sure</option>
-                    {classes.map((c) => (
-                      <option key={c.id} value={c.id}>{classLabel(c)}</option>
-                    ))}
-                  </select>
+                    placeholder="Any / not sure"
+                    searchPlaceholder="Search classes…"
+                    options={classes.map((c) => ({ value: c.id, label: classLabel(c) }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Student name *</label>
@@ -181,14 +177,14 @@ export default function PublicAdmissionApply() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gender</label>
-                  <select
-                    className="vibrant-input appearance-none"
+                  <SearchableSelect
                     value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                  >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
+                    onChange={(gender) => setFormData({ ...formData, gender })}
+                    options={[
+                      { value: 'Male', label: 'Male' },
+                      { value: 'Female', label: 'Female' },
+                    ]}
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact number *</label>
@@ -234,6 +230,7 @@ export default function PublicAdmissionApply() {
             </>
           )}
         </motion.form>
+        <DevCredit />
       </div>
     </div>
   );

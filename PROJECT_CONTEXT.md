@@ -19,7 +19,7 @@
 
 - **Runtime:** Node.js, ESM (`"type": "module"`)
 - **Frontend:** React 19, React Router 7, TypeScript 5.8, Tailwind CSS 4 (`@tailwindcss/vite`)
-- **Backend:** Express, `mssql`, JWT (`jsonwebtoken`), bcrypt, multer, `xlsx`, `date-fns`
+- **Backend:** Express, `mssql`, JWT (`jsonwebtoken`), bcrypt, multer, `read-excel-file`, `date-fns`
 - **UI libs:** `lucide-react`, `motion`, `sonner`, `recharts`, `jspdf` + autotable, `axios`, `clsx` / `tailwind-merge`
 - **Dev:** `tsx`, Vite middleware embedded in Express (dev) or static `dist/` (prod)
 - **Optional:** `@google/genai` via `GEMINI_API_KEY` in Vite env
@@ -108,7 +108,7 @@
 | GET/PUT | `/api/fees`, `/api/feevouchers` | Payment updates, outstanding balance |
 | POST | `/api/generate-monthly-fees` | Bulk fee generation |
 | POST | `/api/payments/quickpay-callback` | Payment webhook |
-| POST | `/api/import-excel`, `/api/import-students` | multer + xlsx |
+| POST | `/api/import-excel`, `/api/import-students` | multer + `read-excel-file` |
 | GET | `/api/dashboard-stats` | KPIs |
 | * | `/api/:collection` | Generic CRUD (`TABLE_MAP`) |
 

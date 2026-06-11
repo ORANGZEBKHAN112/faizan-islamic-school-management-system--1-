@@ -10,8 +10,10 @@ import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Pagination from '../components/ui/Pagination';
+import { useConfirm } from '../context/ConfirmContext';
 
 export default function CampusManagement() {
+  const confirm = useConfirm();
   const { data: campuses, loading } = useCollection<Campus>('campuses');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,14 +86,18 @@ export default function CampusManagement() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this campus?')) {
-      try {
-        await dataService.delete('campuses', id);
-        toast.success('Campus deleted successfully');
-      } catch (error) {
-        console.error('Error deleting campus:', error);
-        toast.error('Failed to delete campus');
-      }
+    if (!await confirm({
+      title: 'Delete campus?',
+      message: 'This removes the campus record. Classes and students linked to it may be affected.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })) return;
+    try {
+      await dataService.delete('campuses', id);
+      toast.success('Campus deleted successfully');
+    } catch (error) {
+      console.error('Error deleting campus:', error);
+      toast.error('Failed to delete campus');
     }
   };
 

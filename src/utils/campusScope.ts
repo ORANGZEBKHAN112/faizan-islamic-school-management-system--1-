@@ -34,3 +34,18 @@ export function campusQueryParam(user: User, selected: string): Record<string, s
   const campusId = scope || (selected !== 'all' ? selected : undefined);
   return campusId ? { campusId } : undefined;
 }
+
+/** Resolve campus filter from URL query, respecting locked campus scope. */
+export function resolveCampusFilter(user: User, urlCampusId?: string | null): string {
+  const scope = getUserCampusScope(user);
+  if (scope) return scope;
+  if (urlCampusId && urlCampusId !== 'all') return urlCampusId;
+  return 'all';
+}
+
+/** Append campusId query when a school-wide user has a campus selected. */
+export function pathWithCampus(path: string, user: User, selectedCampus: string): string {
+  if (!canPickCampus(user) || selectedCampus === 'all') return path;
+  const join = path.includes('?') ? '&' : '?';
+  return `${path}${join}campusId=${encodeURIComponent(selectedCampus)}`;
+}

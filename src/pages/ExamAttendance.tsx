@@ -4,6 +4,7 @@ import { Exam, Student, StaffMember } from '../types';
 import { dataService } from '../services/dataService';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 type AttStatus = 'Present' | 'Absent' | 'Leave' | 'Late';
 
@@ -18,15 +19,33 @@ export default function ExamAttendance() {
 
   useEffect(() => {
     dataService.getAll('exams').then(setExams).catch(() => toast.error('Failed to load exams'));
-    const unsubStudents = dataService.subscribe('students', setStudents);
     const unsubStaff = dataService.subscribe('staff', setStaff);
-    return () => { unsubStudents(); unsubStaff(); };
+    return () => { unsubStaff(); };
   }, []);
 
   const selectedExam = exams.find((e) => e.id === selectedExamId);
-  const examStudents = selectedExam
-    ? students.filter((s) => s.classId === selectedExam.classId && s.status === 'Active')
-    : [];
+
+  useEffect(() => {
+    if (!selectedExam?.classId) {
+      setStudents([]);
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await dataService.getPaginated('students', {
+          classId: selectedExam.classId,
+          status: 'Active',
+          limit: 200,
+          page: 1,
+        });
+        setStudents(rows.data);
+      } catch {
+        setStudents([]);
+      }
+    })();
+  }, [selectedExam?.classId]);
+
+  const examStudents = students;
   const examStaff = selectedExam
     ? staff.filter((m) => m.isActive && m.campusId === selectedExam.campusId)
     : [];
@@ -95,16 +114,17 @@ export default function ExamAttendance() {
 
       <div className="vibrant-card p-6 flex flex-wrap items-center gap-4">
         <ClipboardList className="w-5 h-5 text-primary" />
-        <select
-          className="vibrant-input flex-1 min-w-[200px]"
+        <SearchableSelect
+          className="flex-1 min-w-[200px]"
           value={selectedExamId}
-          onChange={(e) => setSelectedExamId(e.target.value)}
-        >
-          <option value="">Select exam</option>
-          {exams.map((e) => (
-            <option key={e.id} value={e.id}>{e.title} — {e.className} ({e.examDate || 'TBD'})</option>
-          ))}
-        </select>
+          onChange={setSelectedExamId}
+          placeholder="Select exam"
+          searchPlaceholder="Search exams…"
+          options={exams.map((e) => ({
+            value: e.id,
+            label: `${e.title} — ${e.className} (${e.examDate || 'TBD'})`,
+          }))}
+        />
         <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
           <button
             type="button"

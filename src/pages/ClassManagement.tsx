@@ -9,8 +9,11 @@ import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Pagination from '../components/ui/Pagination';
+import { useConfirm } from '../context/ConfirmContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 export default function ClassManagement() {
+  const confirm = useConfirm();
   const { data: classes, loading: classesLoading } = useCollection<Class>('classes');
   const { data: campuses, loading: campusesLoading } = useCollection<Campus>('campuses');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -79,14 +82,18 @@ export default function ClassManagement() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this class?')) {
-      try {
-        await dataService.delete('classes', id);
-        toast.success('Class deleted successfully');
-      } catch (error) {
-        console.error('Error deleting class:', error);
-        toast.error('Failed to delete class');
-      }
+    if (!await confirm({
+      title: 'Delete class?',
+      message: 'Students assigned to this class will need to be moved separately.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })) return;
+    try {
+      await dataService.delete('classes', id);
+      toast.success('Class deleted successfully');
+    } catch (error) {
+      console.error('Error deleting class:', error);
+      toast.error('Failed to delete class');
     }
   };
 
@@ -138,16 +145,17 @@ export default function ClassManagement() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <select
-            className="vibrant-input appearance-none"
+          <SearchableSelect
+            variant="compact"
             value={selectedCampus}
-            onChange={(e) => setSelectedCampus(e.target.value)}
-          >
-            <option value="all">All Campuses</option>
-            {campuses.map(c => (
-              <option key={c?.id} value={c?.id}>{c?.campusName}</option>
-            ))}
-          </select>
+            onChange={setSelectedCampus}
+            placeholder="All Campuses"
+            searchPlaceholder="Search campuses…"
+            options={[
+              { value: 'all', label: 'All Campuses' },
+              ...campuses.map((c) => ({ value: c?.id ?? '', label: c?.campusName ?? '' })),
+            ]}
+          />
         </div>
 
         {loading ? (
@@ -261,17 +269,14 @@ export default function ClassManagement() {
               <form onSubmit={handleSubmit} className="p-10 space-y-8 bg-white dark:bg-slate-900">
                 <div className="space-y-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Campus</label>
-                  <select
+                  <SearchableSelect
                     required
-                    className="vibrant-input appearance-none"
                     value={formData.campusId}
-                    onChange={(e) => setFormData({ ...formData, campusId: e.target.value })}
-                  >
-                    <option value="">Choose a campus...</option>
-                    {campuses.map(c => (
-                      <option key={c.id} value={c.id}>{c.campusName}</option>
-                    ))}
-                  </select>
+                    onChange={(campusId) => setFormData({ ...formData, campusId })}
+                    placeholder="Choose a campus..."
+                    searchPlaceholder="Search campuses…"
+                    options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
@@ -306,14 +311,14 @@ export default function ClassManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Shift</label>
-                    <select
-                      className="vibrant-input appearance-none"
+                    <SearchableSelect
                       value={formData.shift}
-                      onChange={(e) => setFormData({ ...formData, shift: e.target.value })}
-                    >
-                      <option value="Morning">Morning</option>
-                      <option value="Evening">Evening</option>
-                    </select>
+                      onChange={(shift) => setFormData({ ...formData, shift })}
+                      options={[
+                        { value: 'Morning', label: 'Morning' },
+                        { value: 'Evening', label: 'Evening' },
+                      ]}
+                    />
                   </div>
                 </div>
                 <div className="flex gap-4 pt-6 border-t border-slate-100 dark:border-slate-800">

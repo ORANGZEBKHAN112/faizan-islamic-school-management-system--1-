@@ -7,8 +7,12 @@ import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStoredUser } from '../utils/campusScope';
 import { useCollection } from '../hooks/useCollection';
+import PageHeader from '../components/ui/PageHeader';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Pagination from '../components/ui/Pagination';
+import TableShell from '../components/ui/TableShell';
+import EmptyState from '../components/ui/EmptyState';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 const scopeUser = getStoredUser();
 const canWriteStudents = scopeUser?.role === 'Super Admin' || scopeUser?.role === 'Admin';
@@ -136,9 +140,23 @@ export default function StudentManagement() {
   }, [selectedCampus, selectedClass, classes]);
 
   useEffect(() => {
-    const unsubVouchers = dataService.subscribe('fees', setVouchers);
-    return () => unsubVouchers();
-  }, []);
+    if (!selectedStudent?.id) {
+      setVouchers([]);
+      return;
+    }
+    (async () => {
+      try {
+        const rows = await dataService.getPaginated('fees', {
+          studentId: selectedStudent.id,
+          limit: 200,
+          page: 1,
+        });
+        setVouchers(rows.data);
+      } catch {
+        setVouchers([]);
+      }
+    })();
+  }, [selectedStudent?.id]);
 
   useEffect(() => {
     const studentId = searchParams.get('id');
@@ -417,8 +435,8 @@ export default function StudentManagement() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.match(/\.(xlsx|xls)$/i)) {
-      toast.error('Please upload an Excel file (.xlsx or .xls)');
+    if (!file.name.match(/\.xlsx$/i)) {
+      toast.error('Please upload an Excel workbook (.xlsx)');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -484,61 +502,67 @@ export default function StudentManagement() {
     }
   };
 
+  const hasActiveFilters =
+    !!debouncedSearchTerm.trim() ||
+    selectedCampus !== 'all' ||
+    selectedClass !== 'all' ||
+    selectedStatus !== 'all';
+
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Students</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Manage student records, profiles, and fee history.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImportExcel}
-            accept=".xlsx, .xls"
-            className="hidden"
-          />
-          {canWriteStudents && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            disabled={isImporting}
-            onClick={() => fileInputRef.current?.click()}
-            className="vibrant-glass text-primary px-6 py-3 rounded-2xl border border-primary/20 flex items-center gap-2 hover:bg-primary/5 transition-all shadow-sm text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-          >
-            <Share2 className="w-4 h-4" />
-            {isImporting ? 'Importing...' : 'Import Students'}
-          </motion.button>
-          )}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={exportToCSV}
-            className="vibrant-glass text-slate-700 dark:text-slate-300 px-6 py-3 rounded-2xl border border-white dark:border-slate-800 flex items-center gap-2 hover:bg-white dark:hover:bg-slate-800 transition-all shadow-sm text-[10px] font-black uppercase tracking-widest"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </motion.button>
-          {canWriteStudents && (
-          <motion.button
-            whileHover={{ scale: 1.02, y: -2 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => {
-              setEditingId(null);
-              setIsModalOpen(true);
-            }}
-            className="vibrant-btn-primary px-6 py-3 rounded-2xl flex items-center gap-2 shadow-xl shadow-primary/20 text-[10px] font-black uppercase tracking-widest"
-          >
-            <Plus className="w-4 h-4" />
-            Register Student
-          </motion.button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Students"
+        description="Manage student records, profiles, and fee history."
+        actions={
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImportExcel}
+              accept=".xlsx"
+              className="hidden"
+            />
+            {canWriteStudents && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={isImporting}
+                onClick={() => fileInputRef.current?.click()}
+                className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold disabled:opacity-50"
+              >
+                <Share2 className="w-4 h-4" />
+                {isImporting ? 'Importing…' : 'Import students'}
+              </motion.button>
+            )}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={exportToCSV}
+              className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </motion.button>
+            {canWriteStudents && (
+              <motion.button
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  setEditingId(null);
+                  setIsModalOpen(true);
+                }}
+                className="vibrant-btn-primary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold shadow-xl shadow-primary/20"
+              >
+                <Plus className="w-4 h-4" />
+                Register student
+              </motion.button>
+            )}
+          </>
+        }
+      />
 
-      <div className="vibrant-card overflow-hidden">
-        <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-6 bg-slate-50/50 dark:bg-slate-900/50">
+      <div className="vibrant-card">
+        <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-6 bg-slate-50/50 dark:bg-slate-900/50 overflow-visible">
           <div className="relative group col-span-1 md:col-span-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
             <input
@@ -549,39 +573,50 @@ export default function StudentManagement() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <select
-            className="vibrant-input appearance-none"
+          <SearchableSelect
+            variant="compact"
             value={selectedCampus}
-            onChange={(e) => setSelectedCampus(e.target.value)}
+            onChange={setSelectedCampus}
             disabled={campusesLoading}
-          >
-            <option value="all">{campusesLoading ? 'Loading campuses…' : 'All Campuses'}</option>
-            {campuses.map(c => (
-              <option key={c.id} value={c.id}>{c.campusName}</option>
-            ))}
-          </select>
-          <select
-            className="vibrant-input appearance-none"
+            loading={campusesLoading}
+            loadingText="Loading campuses…"
+            placeholder="All Campuses"
+            searchPlaceholder="Search campuses…"
+            options={[
+              { value: 'all', label: 'All Campuses' },
+              ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+            ]}
+          />
+          <SearchableSelect
+            variant="compact"
             value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value)}
+            onChange={setSelectedClass}
             disabled={classesLoading}
-          >
-            <option value="all">{classesLoading ? 'Loading classes…' : 'All Classes'}</option>
-            {classes.filter(c => selectedCampus === 'all' || c.campusId === selectedCampus).map(c => (
-              <option key={c.id} value={c.id}>{c.className} - {c.sectionName}</option>
-            ))}
-          </select>
-          <select
-            className="vibrant-input appearance-none"
+            loading={classesLoading}
+            loadingText="Loading classes…"
+            placeholder="All Classes"
+            searchPlaceholder="Search classes…"
+            options={[
+              { value: 'all', label: 'All Classes' },
+              ...classes
+                .filter((c) => selectedCampus === 'all' || c.campusId === selectedCampus)
+                .map((c) => ({ value: c.id, label: `${c.className} - ${c.sectionName}` })),
+            ]}
+          />
+          <SearchableSelect
+            variant="compact"
             value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-          >
-            <option value="all">All Status</option>
-            <option value="Active">Active Only</option>
-            <option value="unpaid">Has Dues</option>
-            <option value="Left">Left</option>
-            <option value="Graduated">Graduated</option>
-          </select>
+            onChange={setSelectedStatus}
+            placeholder="All Status"
+            searchPlaceholder="Search status…"
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'Active', label: 'Active Only' },
+              { value: 'unpaid', label: 'Has Dues' },
+              { value: 'Left', label: 'Left' },
+              { value: 'Graduated', label: 'Graduated' },
+            ]}
+          />
         </div>
 
         {studentsLoading ? (
@@ -589,8 +624,8 @@ export default function StudentManagement() {
             <TableSkeleton rows={8} columns={7} />
           </div>
         ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <TableShell>
+          <table className="w-full min-w-[880px] text-left border-collapse table-sticky-head">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Roll #</th>
@@ -605,16 +640,26 @@ export default function StudentManagement() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {paginatedStudents.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-8 py-20 text-center">
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="w-16 h-16 rounded-3xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                        <UserCircle className="w-8 h-8" />
-                      </div>
-                      <div>
-                        <p className="text-slate-900 dark:text-white font-bold">No students found</p>
-                        <p className="text-slate-500 text-sm">Try adjusting your search or filters.</p>
-                      </div>
-                    </div>
+                  <td colSpan={7} className="px-4 py-6">
+                    <EmptyState
+                      compact
+                      icon={UserCircle}
+                      title={hasActiveFilters ? 'No students match your filters' : 'No students yet'}
+                      description={
+                        hasActiveFilters
+                          ? 'Try clearing search or filters to see more results.'
+                          : 'Register your first student or import a list from Excel.'
+                      }
+                      actionLabel={!hasActiveFilters && canWriteStudents ? 'Register student' : undefined}
+                      onAction={
+                        !hasActiveFilters && canWriteStudents
+                          ? () => {
+                              setEditingId(null);
+                              setIsModalOpen(true);
+                            }
+                          : undefined
+                      }
+                    />
                   </td>
                 </tr>
               )}
@@ -690,7 +735,7 @@ export default function StudentManagement() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableShell>
         )}
         
         <Pagination
@@ -936,17 +981,33 @@ export default function StudentManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Campus</label>
-                    <select required className="vibrant-input appearance-none" value={formData.campusId} onChange={(e) => setFormData({ ...formData, campusId: e.target.value })} disabled={campusesLoading}>
-                      <option value="">{campusesLoading ? 'Loading campuses…' : 'Select Campus'}</option>
-                      {campuses.map(c => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                    </select>
+                    <SearchableSelect
+                      required
+                      value={formData.campusId}
+                      onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
+                      disabled={campusesLoading}
+                      loading={campusesLoading}
+                      loadingText="Loading campuses…"
+                      placeholder="Select Campus"
+                      searchPlaceholder="Search campuses…"
+                      options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class</label>
-                    <select required className="vibrant-input appearance-none" value={formData.classId} onChange={(e) => setFormData({ ...formData, classId: e.target.value })} disabled={classesLoading || !formData.campusId}>
-                      <option value="">{!formData.campusId ? 'Select campus first' : classesLoading ? 'Loading classes…' : 'Select Class'}</option>
-                      {classes.filter(c => c.campusId === formData.campusId).map(c => <option key={c.id} value={c.id}>{classOptionLabel(c)}</option>)}
-                    </select>
+                    <SearchableSelect
+                      required
+                      value={formData.classId}
+                      onChange={(classId) => setFormData({ ...formData, classId })}
+                      disabled={classesLoading || !formData.campusId}
+                      loading={classesLoading}
+                      loadingText="Loading classes…"
+                      placeholder={!formData.campusId ? 'Select campus first' : 'Select Class'}
+                      searchPlaceholder="Search classes…"
+                      options={classes
+                        .filter((c) => c.campusId === formData.campusId)
+                        .map((c) => ({ value: c.id, label: classOptionLabel(c) }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Roll Number</label>
@@ -982,11 +1043,16 @@ export default function StudentManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gender</label>
-                    <select className="vibrant-input appearance-none" value={formData.gender} onChange={(e) => setFormData({ ...formData, gender: e.target.value })}>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
+                    <SearchableSelect
+                      value={formData.gender}
+                      onChange={(gender) => setFormData({ ...formData, gender })}
+                      placeholder="Select gender"
+                      options={[
+                        { value: 'Male', label: 'Male' },
+                        { value: 'Female', label: 'Female' },
+                        { value: 'Other', label: 'Other' },
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contact Number</label>
@@ -1010,11 +1076,16 @@ export default function StudentManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
-                    <select className="vibrant-input appearance-none" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}>
-                      <option value="Active">Active</option>
-                      <option value="Left">Left</option>
-                      <option value="Graduated">Graduated</option>
-                    </select>
+                    <SearchableSelect
+                      value={formData.status}
+                      onChange={(status) => setFormData({ ...formData, status: status as Student['status'] })}
+                      placeholder="Select status"
+                      options={[
+                        { value: 'Active', label: 'Active' },
+                        { value: 'Left', label: 'Left' },
+                        { value: 'Graduated', label: 'Graduated' },
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Outstanding Fees (Rs.)</label>

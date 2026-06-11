@@ -5,6 +5,7 @@ import { LogIn, UserPlus, ShieldCheck, X, Sun, Moon, Monitor } from 'lucide-reac
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import FormField from '../components/ui/FormField';
+import DevCredit from '../components/ui/DevCredit';
 import { collectErrors, hasErrors, required } from '../utils/validation';
 import { ThemeMode, getStoredTheme, cycleTheme, themeLabel } from '../utils/theme';
 
@@ -55,24 +56,41 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-500 overflow-hidden">
-      {/* Left Side - Hero Image */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden group">
-        <img 
-          src="https://picsum.photos/seed/masjid-faizan/1200/800" 
-          alt="Masjid Faizan-e-Madinah" 
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
-          referrerPolicy="no-referrer"
+      {/* Left Side - Branded hero */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-secondary via-secondary/90 to-primary/80" />
+        <div
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: `radial-gradient(circle at 25% 25%, white 1px, transparent 1px),
+              radial-gradient(circle at 75% 75%, white 1px, transparent 1px)`,
+            backgroundSize: '48px 48px',
+          }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-secondary/90 via-secondary/40 to-transparent flex flex-col justify-end p-16">
+        <div className="absolute top-12 left-12 w-32 h-32 bg-white/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-24 right-16 w-48 h-48 bg-primary/30 rounded-full blur-3xl" />
+        <div className="relative z-10 flex flex-col justify-between p-16 w-full">
+          <div className="flex items-center gap-4">
+            <img src="/fiss-logo.svg" alt="FISS Logo" className="w-16 h-16 object-contain bg-white/10 rounded-2xl p-2" />
+            <div>
+              <p className="text-white font-black text-xl tracking-tight">FISS</p>
+              <p className="text-white/70 text-sm font-medium">Faizan Islamic School System</p>
+            </div>
+          </div>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
+            transition={{ delay: 0.3 }}
             className="max-w-lg"
           >
-            <h2 className="text-5xl font-black text-white mb-6 leading-tight tracking-tight">Essential Education with Tarbiyah</h2>
-            <p className="text-white/80 text-lg font-medium leading-relaxed">Faizan Islamic School System provides a balanced approach to modern education and Islamic values.</p>
+            <h2 className="text-4xl xl:text-5xl font-black text-white mb-6 leading-tight tracking-tight">
+              Essential education with tarbiyah
+            </h2>
+            <p className="text-white/80 text-lg font-medium leading-relaxed">
+              A balanced approach to modern education and Islamic values for every campus in the network.
+            </p>
           </motion.div>
+          <DevCredit compact className="!text-white/50 !justify-start [&_strong]:!text-white/70" />
         </div>
       </div>
 
@@ -103,17 +121,17 @@ export default function Login() {
             <motion.div 
               initial={{ scale: 0.8 }}
               animate={{ scale: 1 }}
-              className="inline-flex items-center justify-center w-24 h-24 bg-white dark:bg-slate-800 rounded-3xl mb-6 shadow-xl shadow-primary/10 border border-slate-100 dark:border-slate-700 overflow-hidden"
+              className="inline-flex items-center justify-center w-40 h-40 bg-white dark:bg-slate-800 rounded-3xl mb-6 shadow-xl shadow-primary/10 border border-slate-100 dark:border-slate-700 overflow-hidden"
             >
               <img 
-                src="https://picsum.photos/seed/fiss-logo/200/200" 
+                src="/fiss-logo.svg" 
                 alt="FISS Logo" 
-                className="w-16 h-16 object-contain"
-                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain p-3"
               />
             </motion.div>
-            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight uppercase">FISS</h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 uppercase tracking-widest text-[10px]">Faizan Islamic School System</p>
+            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">FISS</h1>
+            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 text-sm">Faizan Islamic School System</p>
+            <span className="beta-badge mt-3 inline-flex">Beta</span>
           </div>
 
           <AnimatePresence mode="wait">
@@ -176,7 +194,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full vibrant-btn-primary py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-primary/20 mt-8 flex items-center justify-center gap-3"
+              className="w-full vibrant-btn-primary py-4 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 mt-8 flex items-center justify-center gap-3"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -192,15 +210,15 @@ export default function Login() {
           <div className="mt-8 text-center">
             <Link
               to="/apply"
-              className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline inline-flex items-center gap-2"
+              className="text-sm font-semibold text-primary hover:underline inline-flex items-center gap-2"
             >
               <UserPlus className="w-3.5 h-3.5" />
               Apply for admission online
             </Link>
           </div>
 
-          <div className="mt-10 pt-8 border-t border-slate-100 dark:border-slate-800 text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest opacity-50">Developed by Oranzeb Khan Baloch</p>
+          <div className="mt-8 lg:hidden">
+            <DevCredit compact className="!justify-center !py-2" />
           </div>
         </motion.div>
       </div>

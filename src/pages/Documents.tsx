@@ -6,6 +6,7 @@ import { downloadIdCard, downloadIdCardsBulk, downloadCertificate, downloadSumme
 import { toast } from 'sonner';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import PageLoader from '../components/ui/PageLoader';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 const scopeUser = getStoredUser();
 
@@ -177,17 +178,34 @@ export default function Documents() {
             />
           </div>
           {(!scopeUser || canPickCampus(scopeUser)) && (
-            <select className="vibrant-input" value={selectedCampus} onChange={(e) => { setSelectedCampus(e.target.value); setSelectedClass('all'); setSplitClassId('all'); setBatchIndex(0); }}>
-              <option value="all">All Campuses</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-            </select>
+            <SearchableSelect
+              value={selectedCampus}
+              onChange={(campusId) => {
+                setSelectedCampus(campusId);
+                setSelectedClass('all');
+                setSplitClassId('all');
+                setBatchIndex(0);
+              }}
+              placeholder="All Campuses"
+              searchPlaceholder="Search campuses…"
+              options={[
+                { value: 'all', label: 'All Campuses' },
+                ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+              ]}
+            />
           )}
-          <select className="vibrant-input" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
-            <option value="all">All Classes</option>
-            {classes.filter((c) => selectedCampus === 'all' || c.campusId === selectedCampus).map((c) => (
-              <option key={c.id} value={c.id}>{c.className} {c.sectionName}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={selectedClass}
+            onChange={setSelectedClass}
+            placeholder="All Classes"
+            searchPlaceholder="Search classes…"
+            options={[
+              { value: 'all', label: 'All Classes' },
+              ...classes
+                .filter((c) => selectedCampus === 'all' || c.campusId === selectedCampus)
+                .map((c) => ({ value: c.id, label: `${c.className} ${c.sectionName}` })),
+            ]}
+          />
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-4">
           Search is global by default. Select campus/class only when you want to narrow results.
@@ -276,12 +294,17 @@ export default function Documents() {
                   <IdCard className="w-4 h-4" />
                   <span className="text-[10px] font-black uppercase">Download Single ID Card</span>
                 </button>
-                <select className="vibrant-input" value={certType} onChange={(e) => setCertType(e.target.value as typeof certType)}>
-                  <option value="Character">Character Certificate</option>
-                  <option value="Completion">Certificate of Completion</option>
-                  <option value="Result">Examination Result Certificate</option>
-                  <option value="SummerCamp">Summer Camp Certificate</option>
-                </select>
+                <SearchableSelect
+                  value={certType}
+                  onChange={(type) => setCertType(type as typeof certType)}
+                  searchPlaceholder="Search certificate…"
+                  options={[
+                    { value: 'Character', label: 'Character Certificate' },
+                    { value: 'Completion', label: 'Certificate of Completion' },
+                    { value: 'Result', label: 'Examination Result Certificate' },
+                    { value: 'SummerCamp', label: 'Summer Camp Certificate' },
+                  ]}
+                />
                 <button onClick={() => handleCertificate(selectedStudent)} className="vibrant-btn-secondary w-full flex items-center justify-center gap-2">
                   <Award className="w-4 h-4" />
                   <span className="text-[10px] font-black uppercase">Download Certificate</span>
@@ -305,36 +328,43 @@ export default function Documents() {
             </div>
           </div>
           {(!scopeUser || canPickCampus(scopeUser)) && (
-            <select
-              className="vibrant-input mb-3"
+            <SearchableSelect
+              className="mb-3"
               value={selectedCampus}
-              onChange={(e) => {
-                setSelectedCampus(e.target.value);
+              onChange={(campusId) => {
+                setSelectedCampus(campusId);
                 setSelectedClass('all');
                 setSplitClassId('all');
                 setBatchIndex(0);
               }}
-            >
-              <option value="all">Select campus</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-            </select>
+              placeholder="Select campus"
+              searchPlaceholder="Search campuses…"
+              options={[
+                { value: 'all', label: 'Select campus' },
+                ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+              ]}
+            />
           )}
-          <select
-            className="vibrant-input mb-3"
+          <SearchableSelect
+            className="mb-3"
             value={splitClassId}
             disabled={selectedCampus === 'all'}
-            onChange={(e) => {
-              setSplitClassId(e.target.value);
-              setSelectedClass(e.target.value);
+            onChange={(classId) => {
+              setSplitClassId(classId);
+              setSelectedClass(classId);
               setSearchTerm('');
               setBatchIndex(0);
             }}
-          >
-            <option value="all">{selectedCampus === 'all' ? 'Select campus first' : 'Select class'}</option>
-            {classes.filter((c) => selectedCampus !== 'all' && c.campusId === selectedCampus).map((c) => (
-              <option key={c.id} value={c.id}>{c.className} {c.sectionName}</option>
-            ))}
-          </select>
+            placeholder={selectedCampus === 'all' ? 'Select campus first' : 'Select class'}
+            searchPlaceholder="Search classes…"
+            options={
+              selectedCampus === 'all'
+                ? []
+                : classes
+                    .filter((c) => c.campusId === selectedCampus)
+                    .map((c) => ({ value: c.id, label: `${c.className} ${c.sectionName}` }))
+            }
+          />
           <div className="flex gap-2 mb-3">
             <input type="number" min={5} max={200} className="vibrant-input flex-1" value={batchSize} onChange={(e) => { setBatchSize(Number(e.target.value) || 200); setBatchIndex(0); }} />
             <span className="text-[10px] font-black text-slate-400 uppercase self-center">cards per PDF</span>

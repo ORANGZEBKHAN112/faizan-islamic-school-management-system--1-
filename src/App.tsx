@@ -23,6 +23,7 @@ import Documents from './pages/Documents';
 import ExamAttendance from './pages/ExamAttendance';
 import PublicAdmissionApply from './pages/PublicAdmissionApply';
 import Layout from './components/Layout';
+import { ConfirmProvider } from './context/ConfirmContext';
 import { verifySession } from './services/dataService';
 
 export default function App() {
@@ -74,9 +75,10 @@ export default function App() {
   const isStudent = user?.role === 'Student';
 
   return (
-    <Router>
-      <Toaster position="top-right" richColors closeButton />
-      <Routes>
+    <ConfirmProvider>
+      <Router>
+        <Toaster position="top-right" richColors closeButton />
+        <Routes>
         <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
         <Route path="/apply" element={<PublicAdmissionApply />} />
 
@@ -129,7 +131,8 @@ export default function App() {
         </Route>
 
         <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </Router>
+        </Routes>
+      </Router>
+    </ConfirmProvider>
   );
 }

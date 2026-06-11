@@ -8,9 +8,15 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import sql from "mssql";
 import multer from "multer";
-import * as XLSX from "xlsx";
+import readXlsxFile from "read-excel-file/node";
 import { parse, format, isValid } from "date-fns";
 import crypto from "crypto";
+import {
+  ensureScalingSchema,
+  startScalingWorkers,
+  refreshDashboardCampusStats,
+  archiveOldFees,
+} from "./server/scalingJobs.js";
 
 interface JwtPayload {
   id: string;
@@ -130,11 +136,75 @@ async function assertClassCapacity(
   return { ok: true, enrolled, capacity };
 }
 
-function parsePagination(req: Request) {
+const DEFAULT_PAGE_LIMIT = 50;
+const MAX_PAGE_LIMIT = 200;
+
+function parsePagination(req: Request, opts?: { defaultLimit?: number; maxLimit?: number }) {
+  const defaultLimit = opts?.defaultLimit ?? DEFAULT_PAGE_LIMIT;
+  const maxLimit = opts?.maxLimit ?? MAX_PAGE_LIMIT;
   const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
-  const limitRaw = parseInt(String(req.query.limit || "0"), 10) || 0;
-  const limit = limitRaw > 0 ? Math.min(200, Math.max(1, limitRaw)) : 0;
-  return { page, limit, enabled: limit > 0, offset: limit > 0 ? (page - 1) * limit : 0 };
+  const limitRaw = parseInt(String(req.query.limit || String(defaultLimit)), 10) || defaultLimit;
+  const limit = Math.min(maxLimit, Math.max(1, limitRaw));
+  return { page, limit, enabled: true, offset: (page - 1) * limit };
+}
+
+function deriveAcademicSession(year: number, month = new Date().getMonth() + 1): string {
+  if (month >= 4) return `${year}-${year + 1}`;
+  return `${year - 1}-${year}`;
+}
+
+function normalizeSessionLabel(raw: unknown, fallbackYear?: number, fallbackMonth?: number): string {
+  const s = String(raw || "").trim();
+  if (/^\d{4}-\d{4}$/.test(s)) return s;
+  const y = fallbackYear ?? new Date().getFullYear();
+  const m = fallbackMonth ?? new Date().getMonth() + 1;
+  return deriveAcademicSession(y, m);
+}
+
+function buildFeeFilterClauses(req: Request, request: sql.Request, campusFilter: string | null) {
+  const whereParts: string[] = [];
+  if (campusFilter) {
+    whereParts.push("s.campus_id = @campusId");
+    request.input("campusId", campusFilter);
+  }
+
+  const studentId = String(req.query.studentId || "").trim();
+  if (studentId) {
+    whereParts.push("f.student_id = @studentId");
+    request.input("studentId", studentId);
+  }
+
+  const classId = String(req.query.classId || "").trim();
+  if (classId) {
+    whereParts.push("s.class_id = @classId");
+    request.input("classId", classId);
+  }
+
+  const status = String(req.query.status || "").trim();
+  if (status && status !== "all") {
+    whereParts.push("f.status = @status");
+    request.input("status", status);
+  }
+
+  const month = parseInt(String(req.query.month || ""), 10);
+  if (month >= 1 && month <= 12) {
+    whereParts.push("f.month = @month");
+    request.input("month", month);
+  }
+
+  const year = parseInt(String(req.query.year || ""), 10);
+  if (year >= 2000 && year <= 2100) {
+    whereParts.push("f.year = @year");
+    request.input("year", year);
+  }
+
+  const search = String(req.query.search || "").trim();
+  if (search) {
+    whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search)");
+    request.input("search", `%${search}%`);
+  }
+
+  return whereParts.length ? ` WHERE ${whereParts.join(" AND ")}` : "";
 }
 
 /** All /api routes require JWT except health, login, and the QuickPay webhook. */
@@ -292,7 +362,7 @@ const upload = multer({
 const parseExcelDate = (dateVal: any): string | null => {
   if (!dateVal) return null;
   
-  // If it's already a Date object (xlsx sometimes does this)
+  // Excel parsers may return date cells as Date objects.
   if (dateVal instanceof Date) {
     return format(dateVal, "yyyy-MM-dd");
   }
@@ -315,6 +385,31 @@ const parseExcelDate = (dateVal: any): string | null => {
   
   return null;
 };
+
+function normalizeExcelCell(value: unknown): unknown {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value;
+  if (typeof value !== "object") return value;
+  return String(value);
+}
+
+function excelRowsToJson(excelRows: unknown[][]): Record<string, unknown>[] {
+  const [headerRow, ...dataRows] = excelRows;
+  const headers = (headerRow || []).map((value) => String(normalizeExcelCell(value) || "").trim());
+  const rows: Record<string, unknown>[] = [];
+  dataRows.forEach((row) => {
+    const item: Record<string, unknown> = {};
+    let hasValue = false;
+    headers.forEach((header, index) => {
+      if (!header) return;
+      const value = normalizeExcelCell(row[index]);
+      if (value !== "" && value !== null && value !== undefined) hasValue = true;
+      item[header] = value;
+    });
+    if (hasValue) rows.push(item);
+  });
+  return rows;
+}
 
 // Robust value getter for Excel rows (handles spaces, casing, and multiple variations)
 const getVal = (row: any, ...keys: string[]) => {
@@ -393,7 +488,7 @@ let sqlConfig: sql.config = {
   server: process.env.SQL_SERVER || "51.79.177.9",
   port: parseInt(process.env.SQL_PORT || "1433"),
   pool: {
-    max: 10,
+    max: 30,
     min: 0,
     idleTimeoutMillis: 30000
   },
@@ -804,10 +899,12 @@ async function connectToDb() {
           AND NOT EXISTS (
             SELECT class_id
             FROM FeeStructures
+            WHERE class_id IS NOT NULL
             GROUP BY class_id
             HAVING COUNT(*) > 1
           )
-          CREATE UNIQUE INDEX UX_FeeStructures_class_id ON FeeStructures(class_id);
+          CREATE UNIQUE INDEX UX_FeeStructures_class_id ON FeeStructures(class_id)
+            WHERE class_id IS NOT NULL;
 
         IF NOT EXISTS (
           SELECT 1 FROM sys.indexes
@@ -897,6 +994,44 @@ async function connectToDb() {
             ALTER TABLE Expenses ADD campus_id NVARCHAR(50);
         END
 
+        -- Attendance (daily class attendance page and student portal summary)
+        IF OBJECT_ID('Attendance', 'U') IS NULL
+        BEGIN
+          CREATE TABLE Attendance (
+            id NVARCHAR(50) PRIMARY KEY,
+            student_id NVARCHAR(50) NOT NULL,
+            class_id NVARCHAR(50),
+            date DATE NOT NULL,
+            status NVARCHAR(20) NOT NULL,
+            recorded_by NVARCHAR(50),
+            created_at DATETIME DEFAULT GETDATE()
+          );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Attendance') AND name = 'class_id')
+            ALTER TABLE Attendance ADD class_id NVARCHAR(50);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Attendance') AND name = 'created_at')
+            ALTER TABLE Attendance ADD created_at DATETIME DEFAULT GETDATE();
+        END
+
+        IF OBJECT_ID('Attendance', 'U') IS NOT NULL
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM sys.indexes
+            WHERE name = 'IX_Attendance_student_date'
+              AND object_id = OBJECT_ID('Attendance')
+          )
+            CREATE INDEX IX_Attendance_student_date ON Attendance(student_id, date);
+
+          IF NOT EXISTS (
+            SELECT 1 FROM sys.indexes
+            WHERE name = 'IX_Attendance_class_date'
+              AND object_id = OBJECT_ID('Attendance')
+          )
+            CREATE INDEX IX_Attendance_class_date ON Attendance(class_id, date);
+        END
+
         -- FeeStructures: used by the Fee Structures tab and seed script
         IF OBJECT_ID('FeeStructures', 'U') IS NULL
         BEGIN
@@ -904,12 +1039,33 @@ async function connectToDb() {
             id NVARCHAR(50) PRIMARY KEY,
             campus_id NVARCHAR(50),
             class_id NVARCHAR(50),
+            session NVARCHAR(20),
             tuition_fee DECIMAL(18, 2) DEFAULT 0,
             admission_fee DECIMAL(18, 2) DEFAULT 0,
             exam_fee DECIMAL(18, 2) DEFAULT 0,
             transport_fee DECIMAL(18, 2) DEFAULT 0,
-            misc_fee DECIMAL(18, 2) DEFAULT 0
+            misc_fee DECIMAL(18, 2) DEFAULT 0,
+            security_fee DECIMAL(18, 2) DEFAULT 0,
+            summer_camp_fee DECIMAL(18, 2) DEFAULT 0,
+            id_card_fee DECIMAL(18, 2) DEFAULT 0,
+            trip_fee DECIMAL(18, 2) DEFAULT 0,
+            last_updated DATETIME DEFAULT GETDATE()
           );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'session')
+            ALTER TABLE FeeStructures ADD session NVARCHAR(20);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'security_fee')
+            ALTER TABLE FeeStructures ADD security_fee DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'summer_camp_fee')
+            ALTER TABLE FeeStructures ADD summer_camp_fee DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'id_card_fee')
+            ALTER TABLE FeeStructures ADD id_card_fee DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'trip_fee')
+            ALTER TABLE FeeStructures ADD trip_fee DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'last_updated')
+            ALTER TABLE FeeStructures ADD last_updated DATETIME DEFAULT GETDATE();
         END
 
         IF OBJECT_ID('Staff', 'U') IS NULL
@@ -1030,9 +1186,74 @@ async function connectToDb() {
     }
 
     await seedAdmin();
+    await migrateFeeStructuresSession(pool);
+    await ensureScalingSchema(pool);
   } catch (err) {
     console.error("Database connection failed:", err);
   }
+}
+
+async function migrateFeeStructuresSession(pool: sql.ConnectionPool): Promise<void> {
+  // Run in separate batches — SQL Server compiles the whole batch before execution,
+  // so index DDL referencing `session` must not share a batch with ADD COLUMN session.
+  await pool.request().query(`
+    IF OBJECT_ID('FeeStructures', 'U') IS NOT NULL
+    BEGIN
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'session')
+        ALTER TABLE FeeStructures ADD session NVARCHAR(20);
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'security_fee')
+        ALTER TABLE FeeStructures ADD security_fee DECIMAL(18, 2) DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'summer_camp_fee')
+        ALTER TABLE FeeStructures ADD summer_camp_fee DECIMAL(18, 2) DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'id_card_fee')
+        ALTER TABLE FeeStructures ADD id_card_fee DECIMAL(18, 2) DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'trip_fee')
+        ALTER TABLE FeeStructures ADD trip_fee DECIMAL(18, 2) DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'last_updated')
+        ALTER TABLE FeeStructures ADD last_updated DATETIME DEFAULT GETDATE();
+    END
+  `);
+
+  await pool.request().query(`
+    IF OBJECT_ID('FeeStructures', 'U') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'session')
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = 'UX_FeeStructures_class_id' AND object_id = OBJECT_ID('FeeStructures')
+          AND has_filter = 0
+      )
+        DROP INDEX UX_FeeStructures_class_id ON FeeStructures;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = 'UX_FeeStructures_campus_session' AND object_id = OBJECT_ID('FeeStructures')
+      )
+        AND NOT EXISTS (
+          SELECT campus_id, session
+          FROM FeeStructures
+          WHERE class_id IS NULL AND session IS NOT NULL
+          GROUP BY campus_id, session
+          HAVING COUNT(*) > 1
+        )
+        CREATE UNIQUE INDEX UX_FeeStructures_campus_session
+          ON FeeStructures(campus_id, session)
+          WHERE class_id IS NULL AND session IS NOT NULL;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = 'UX_FeeStructures_class_id' AND object_id = OBJECT_ID('FeeStructures')
+      )
+        AND NOT EXISTS (
+          SELECT class_id FROM FeeStructures
+          WHERE class_id IS NOT NULL
+          GROUP BY class_id
+          HAVING COUNT(*) > 1
+        )
+        CREATE UNIQUE INDEX UX_FeeStructures_class_id ON FeeStructures(class_id)
+          WHERE class_id IS NOT NULL;
+    END
+  `);
 }
 
 async function seedAdmin() {
@@ -1101,11 +1322,21 @@ async function startServer() {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+  const isAllowedOrigin = (origin?: string) => {
+    if (!origin || corsOrigins.includes(origin)) return true;
+    if (process.env.NODE_ENV === "production") return false;
+    try {
+      const hostname = new URL(origin).hostname;
+      return hostname.endsWith(".loca.lt") || hostname.endsWith(".trycloudflare.com");
+    } catch {
+      return false;
+    }
+  };
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || corsOrigins.includes(origin)) {
+        if (isAllowedOrigin(origin)) {
           callback(null, true);
         } else {
           callback(new Error("Not allowed by CORS"));
@@ -1260,13 +1491,11 @@ async function startServer() {
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
       if (denied) {
-        const { enabled, page, limit } = parsePagination(req);
-        return enabled
-          ? res.json({ data: [], page, limit, total: 0 })
-          : res.json([]);
+        const { page, limit } = parsePagination(req);
+        return res.json({ data: [], page, limit, total: 0 });
       }
 
-      const { page, limit, enabled, offset } = parsePagination(req);
+      const { page, limit, offset } = parsePagination(req);
       const request = pool.request();
       const whereParts: string[] = [];
 
@@ -1303,10 +1532,8 @@ async function startServer() {
       `;
 
       let total = 0;
-      if (enabled) {
-        const countResult = await request.query(`SELECT COUNT(*) AS total ${baseFrom}`);
-        total = countResult.recordset[0]?.total ?? 0;
-      }
+      const countResult = await request.query(`SELECT COUNT(*) AS total ${baseFrom}`);
+      total = countResult.recordset[0]?.total ?? 0;
 
       const query = `
         SELECT 
@@ -1336,14 +1563,11 @@ async function startServer() {
           'Physical Campus' AS campusType
         ${baseFrom}
         ORDER BY s.student_name ASC
-        ${enabled ? `OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY` : ""}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `;
 
       const result = await request.query(query);
-      if (enabled) {
-        return res.json({ data: result.recordset, page, limit, total });
-      }
-      res.json(result.recordset);
+      return res.json({ data: result.recordset, page, limit, total });
     } catch (err) {
       sendServerError(res, err, "Error fetching students");
     }
@@ -1611,6 +1835,252 @@ async function startServer() {
     } catch (err) {
       console.error("Error updating class:", err);
       res.status(500).json({ message: "Error updating class", error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Campus session fee structures (one structure per campus per academic session)
+  app.get("/api/fee-structures/campus", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.json([]);
+      if (!campusFilter) {
+        return res.status(400).json({ message: "campusId is required (cannot be 'all')" });
+      }
+
+      const session = String(req.query.session || "").trim();
+      const request = pool.request().input("campusId", campusFilter);
+      let query = `
+        SELECT
+          fs.id,
+          fs.campus_id AS campusId,
+          fs.session AS sessionLabel,
+          ISNULL(fs.tuition_fee, 0) AS tuitionFee,
+          ISNULL(fs.tuition_fee, 0) AS monthlyFee,
+          ISNULL(fs.admission_fee, 0) AS admissionFee,
+          ISNULL(fs.security_fee, 0) AS securityFee,
+          ISNULL(fs.exam_fee, 0) AS examFee,
+          ISNULL(fs.transport_fee, 0) AS transportFee,
+          ISNULL(fs.misc_fee, 0) AS miscFee,
+          ISNULL(fs.summer_camp_fee, 0) AS summerCampFee,
+          ISNULL(fs.id_card_fee, 0) AS idCardFee,
+          ISNULL(fs.trip_fee, 0) AS tripFee,
+          fs.last_updated AS lastUpdated
+        FROM FeeStructures fs
+        WHERE fs.campus_id = @campusId AND fs.class_id IS NULL
+      `;
+      if (session) {
+        query += " AND fs.session = @session";
+        request.input("session", session);
+      }
+      query += " ORDER BY fs.session DESC";
+      const result = await request.query(query);
+      res.json(result.recordset);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching campus fee structures");
+    }
+  });
+
+  app.get("/api/fee-structures/sessions", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.json([]);
+      if (!campusFilter) {
+        return res.status(400).json({ message: "campusId is required" });
+      }
+
+      const result = await pool.request()
+        .input("campusId", campusFilter)
+        .query(`
+          SELECT DISTINCT session AS sessionLabel
+          FROM FeeStructures
+          WHERE campus_id = @campusId AND class_id IS NULL AND session IS NOT NULL
+          ORDER BY session DESC
+        `);
+      res.json(result.recordset);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching fee structure sessions");
+    }
+  });
+
+  app.post("/api/fee-structures/campus", requireRoles(SUPER_ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const campusId = String(req.body.campusId || "").trim();
+      if (!campusId) return res.status(400).json({ message: "campusId is required" });
+
+      const campusErr = await assertCampusWrite(authUser, campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const sessionLabel = normalizeSessionLabel(
+        req.body.sessionLabel || req.body.session,
+        req.body.year ? Number(req.body.year) : undefined
+      );
+      const tuitionFee = Number(req.body.tuitionFee ?? req.body.monthlyFee ?? 0);
+      const admissionFee = Number(req.body.admissionFee ?? 0);
+      const securityFee = Number(req.body.securityFee ?? 0);
+      const examFee = Number(req.body.examFee ?? 0);
+      const transportFee = Number(req.body.transportFee ?? 0);
+      const miscFee = Number(req.body.miscFee ?? 0);
+      const summerCampFee = Number(req.body.summerCampFee ?? 0);
+      const idCardFee = Number(req.body.idCardFee ?? 0);
+      const tripFee = Number(req.body.tripFee ?? 0);
+
+      const existing = await pool.request()
+        .input("campusId", campusId)
+        .input("session", sessionLabel)
+        .query(`
+          SELECT id FROM FeeStructures
+          WHERE campus_id = @campusId AND session = @session AND class_id IS NULL
+        `);
+
+      if (existing.recordset[0]) {
+        const id = existing.recordset[0].id;
+        await pool.request()
+          .input("id", id)
+          .input("tuition_fee", tuitionFee)
+          .input("admission_fee", admissionFee)
+          .input("security_fee", securityFee)
+          .input("exam_fee", examFee)
+          .input("transport_fee", transportFee)
+          .input("misc_fee", miscFee)
+          .input("summer_camp_fee", summerCampFee)
+          .input("id_card_fee", idCardFee)
+          .input("trip_fee", tripFee)
+          .query(`
+            UPDATE FeeStructures SET
+              tuition_fee = @tuition_fee, admission_fee = @admission_fee, security_fee = @security_fee,
+              exam_fee = @exam_fee, transport_fee = @transport_fee, misc_fee = @misc_fee,
+              summer_camp_fee = @summer_camp_fee, id_card_fee = @id_card_fee, trip_fee = @trip_fee,
+              last_updated = GETDATE()
+            WHERE id = @id
+          `);
+        return res.json({ id, campusId, sessionLabel, message: "Campus fee structure updated" });
+      }
+
+      const id = crypto.randomUUID();
+      await pool.request()
+        .input("id", id)
+        .input("campus_id", campusId)
+        .input("session", sessionLabel)
+        .input("tuition_fee", tuitionFee)
+        .input("admission_fee", admissionFee)
+        .input("security_fee", securityFee)
+        .input("exam_fee", examFee)
+        .input("transport_fee", transportFee)
+        .input("misc_fee", miscFee)
+        .input("summer_camp_fee", summerCampFee)
+        .input("id_card_fee", idCardFee)
+        .input("trip_fee", tripFee)
+        .query(`
+          INSERT INTO FeeStructures (
+            id, campus_id, class_id, session, tuition_fee, admission_fee, security_fee,
+            exam_fee, transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
+          ) VALUES (
+            @id, @campus_id, NULL, @session, @tuition_fee, @admission_fee, @security_fee,
+            @exam_fee, @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE()
+          )
+        `);
+      res.status(201).json({ id, campusId, sessionLabel, message: "Campus fee structure created" });
+    } catch (err) {
+      sendServerError(res, err, "Error saving campus fee structure");
+    }
+  });
+
+  app.post("/api/fee-structures/apply-to-classes", requireRoles(SUPER_ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const campusId = String(req.body.campusId || "").trim();
+      const sessionLabel = normalizeSessionLabel(req.body.sessionLabel || req.body.session, req.body.year);
+      if (!campusId) return res.status(400).json({ message: "campusId is required" });
+
+      const campusErr = await assertCampusWrite(authUser, campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const structure = await pool.request()
+        .input("campusId", campusId)
+        .input("session", sessionLabel)
+        .query(`
+          SELECT TOP 1 * FROM FeeStructures
+          WHERE campus_id = @campusId AND session = @session AND class_id IS NULL
+        `);
+      const fs = structure.recordset[0];
+      if (!fs) return res.status(404).json({ message: "Campus session fee structure not found" });
+
+      const classes = await pool.request()
+        .input("campusId", campusId)
+        .query("SELECT id FROM Classes WHERE campus_id = @campusId");
+
+      let updatedCount = 0;
+      for (const row of classes.recordset) {
+        const existing = await pool.request()
+          .input("class_id", row.id)
+          .query("SELECT id FROM FeeSettings WHERE class_id = @class_id");
+        if (existing.recordset[0]) {
+          await pool.request()
+            .input("id", existing.recordset[0].id)
+            .input("monthly_fee", fs.tuition_fee ?? 0)
+            .input("admission_fee", fs.admission_fee ?? 0)
+            .input("security_fee", fs.security_fee ?? 0)
+            .input("exam_fee", fs.exam_fee ?? 0)
+            .input("transport_fee", fs.transport_fee ?? 0)
+            .input("misc_fee", fs.misc_fee ?? 0)
+            .input("summer_camp_fee", fs.summer_camp_fee ?? 0)
+            .input("id_card_fee", fs.id_card_fee ?? 0)
+            .input("trip_fee", fs.trip_fee ?? 0)
+            .query(`
+              UPDATE FeeSettings SET
+                monthly_fee = @monthly_fee, admission_fee = @admission_fee, security_fee = @security_fee,
+                exam_fee = @exam_fee, transport_fee = @transport_fee, misc_fee = @misc_fee,
+                summer_camp_fee = @summer_camp_fee, id_card_fee = @id_card_fee, trip_fee = @trip_fee,
+                last_updated = GETDATE()
+              WHERE id = @id
+            `);
+        } else {
+          await pool.request()
+            .input("id", crypto.randomUUID())
+            .input("class_id", row.id)
+            .input("monthly_fee", fs.tuition_fee ?? 0)
+            .input("admission_fee", fs.admission_fee ?? 0)
+            .input("security_fee", fs.security_fee ?? 0)
+            .input("exam_fee", fs.exam_fee ?? 0)
+            .input("transport_fee", fs.transport_fee ?? 0)
+            .input("misc_fee", fs.misc_fee ?? 0)
+            .input("summer_camp_fee", fs.summer_camp_fee ?? 0)
+            .input("id_card_fee", fs.id_card_fee ?? 0)
+            .input("trip_fee", fs.trip_fee ?? 0)
+            .query(`
+              INSERT INTO FeeSettings (
+                id, class_id, monthly_fee, admission_fee, security_fee, exam_fee,
+                transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
+              ) VALUES (
+                @id, @class_id, @monthly_fee, @admission_fee, @security_fee, @exam_fee,
+                @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE()
+              )
+            `);
+        }
+        updatedCount++;
+      }
+      res.json({ message: "Campus fee structure applied to all classes", sessionLabel, updatedCount });
+    } catch (err) {
+      sendServerError(res, err, "Error applying campus fee structure to classes");
     }
   });
 
@@ -2004,6 +2474,49 @@ async function startServer() {
   app.post("/api/feestructures/sync-all-classes", requireRoles(ADMIN_ROLES), syncAllClassFeeStructures);
   app.post("/api/feeStructures/sync-all-classes", requireRoles(ADMIN_ROLES), syncAllClassFeeStructures);
 
+  app.get("/api/fees/stats", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) {
+        return res.json({
+          totalCount: 0, totalPaid: 0, totalOutstanding: 0, defaulters: 0,
+        });
+      }
+
+      const request = pool.request();
+      const whereClause = buildFeeFilterClauses(req, request, campusFilter);
+      const baseFrom = `
+        FROM Fees f
+        JOIN Students s ON f.student_id = s.id
+        ${whereClause}
+      `;
+
+      const result = await request.query(`
+        SELECT
+          COUNT(*) AS totalCount,
+          ISNULL(SUM(f.paid_amount), 0) AS totalPaid,
+          ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS totalOutstanding,
+          COUNT(DISTINCT CASE WHEN f.status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending') THEN f.student_id END) AS defaulters
+        ${baseFrom}
+      `);
+
+      const row = result.recordset[0] || {};
+      res.json({
+        totalCount: row.totalCount ?? 0,
+        totalPaid: row.totalPaid ?? 0,
+        totalOutstanding: row.totalOutstanding ?? 0,
+        defaulters: row.defaulters ?? 0,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching fee stats");
+    }
+  });
+
   // Specialized Fee Vouchers Route (Updated for QuickPay)
   app.get("/api/fees", async (req, res) => {
     try {
@@ -2014,36 +2527,26 @@ async function startServer() {
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
       if (denied) {
-        const { enabled, page, limit } = parsePagination(req);
-        return enabled
-          ? res.json({ data: [], page, limit, total: 0 })
-          : res.json([]);
+        const { page, limit } = parsePagination(req);
+        return res.json({ data: [], page, limit, total: 0 });
       }
 
-      const { page, limit, enabled, offset } = parsePagination(req);
+      const { page, limit, offset } = parsePagination(req);
+      const request = pool.request();
+      const whereClause = buildFeeFilterClauses(req, request, campusFilter);
 
       const baseFrom = `
         FROM Fees f
         JOIN Students s ON f.student_id = s.id
         LEFT JOIN Classes cl ON s.class_id = cl.id
         LEFT JOIN Campuses cp ON s.campus_id = cp.id
+        ${whereClause}
       `;
-      const campusWhere = campusFilter ? " WHERE s.campus_id = @campusId" : "";
 
-      const request = pool.request();
-      if (campusFilter) {
-        request.input("campusId", campusFilter);
-      }
+      const countResult = await request.query(`SELECT COUNT(*) AS total ${baseFrom}`);
+      const total = countResult.recordset[0]?.total ?? 0;
 
-      let total = 0;
-      if (enabled) {
-        const countResult = await request.query(
-          `SELECT COUNT(*) AS total ${baseFrom}${campusWhere}`
-        );
-        total = countResult.recordset[0]?.total ?? 0;
-      }
-
-      let query = `
+      const query = `
         SELECT 
           f.id,
           f.student_id AS studentId,
@@ -2075,21 +2578,18 @@ async function startServer() {
           CONVERT(VARCHAR, f.due_date, 23) AS dueDate,
           CONVERT(VARCHAR, f.created_at, 23) AS createdAt,
           s.student_name AS studentName,
+          s.father_name AS fatherName,
           s.admission_no AS rollNumber,
           s.campus_id AS campusId,
           s.outstanding_fees AS outstandingFees,
           cl.class_name AS className
         ${baseFrom}
-        ${campusWhere}
         ORDER BY f.created_at DESC
-        ${enabled ? `OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY` : ""}
+        OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `;
 
       const result = await request.query(query);
-      if (enabled) {
-        return res.json({ data: result.recordset, page, limit, total });
-      }
-      res.json(result.recordset);
+      return res.json({ data: result.recordset, page, limit, total });
     } catch (err) {
       console.error("Error fetching fees:", err);
       res.status(500).json({ message: "Error fetching fees", error: err instanceof Error ? err.message : String(err) });
@@ -2321,12 +2821,12 @@ async function startServer() {
     }
   });
 
-  // Generate Monthly Fees Route
+  // Generate Monthly Fees Route — enqueues async background job
   app.post("/api/generate-monthly-fees", requireRoles(FEE_ROLES), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
-      
+
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const scope = resolveCampusScope(authUser);
@@ -2334,260 +2834,188 @@ async function startServer() {
         return res.status(403).json({ message: "User is not assigned to a campus" });
       }
 
-      const { campusId, month: reqMonth, months: reqMonths, year: reqYear, includeAdmissions, includeArrears } = req.body;
+      const { campusId, month: reqMonth, months: reqMonths, year: reqYear, session: reqSession, includeAdmissions, includeArrears } = req.body;
       const effectiveCampusId = scope || (campusId && campusId !== "all" ? campusId : null);
       if (effectiveCampusId) {
         const campusErr = await assertCampusWrite(authUser, String(effectiveCampusId));
         if (campusErr) return res.status(403).json({ message: campusErr });
       }
-      
+
       const year = reqYear || new Date().getFullYear();
-      const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const monthsToGenerate: number[] = Array.isArray(reqMonths) && reqMonths.length > 0
         ? reqMonths.map((m: unknown) => Number(m)).filter((m) => m >= 1 && m <= 12)
         : [reqMonth || (new Date().getMonth() + 1)];
-      const firstGenerationMonth = [...monthsToGenerate].sort((a, b) => a - b)[0];
+      const firstMonth = [...monthsToGenerate].sort((a, b) => a - b)[0];
+      const sessionLabel = normalizeSessionLabel(reqSession, year, firstMonth);
 
-      let query = `
-        SELECT 
-          s.id AS student_id, 
-          s.student_name, 
-          cl.class_name, 
-          cp.campus_name,
-          fs.monthly_fee, 
-          fs.admission_fee, 
-          fs.security_fee, 
-          fs.exam_fee,
-          fs.transport_fee,
-          fs.misc_fee,
-          s.outstanding_fees, 
-          s.admission_date,
-          ISNULL(arrearsAgg.legacy_arrears, 0) AS legacy_arrears
-        FROM Students s
-        LEFT JOIN Classes cl ON s.class_id = cl.id
-        LEFT JOIN Campuses cp ON s.campus_id = cp.id
-        OUTER APPLY (
-          SELECT TOP 1
-            sfs.monthly_fee,
-            sfs.admission_fee,
-            sfs.security_fee,
-            sfs.exam_fee,
-            sfs.transport_fee,
-            sfs.misc_fee
-          FROM FeeSettings sfs
-          LEFT JOIN Classes clsfs ON sfs.class_id = clsfs.id
-          WHERE sfs.class_id = s.class_id
-             OR (clsfs.campus_id = s.campus_id AND clsfs.class_name = cl.class_name)
-          ORDER BY CASE WHEN sfs.class_id = s.class_id THEN 0 ELSE 1 END
-        ) fs
-        OUTER APPLY (
-          SELECT SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END) AS legacy_arrears
-          FROM Fees f
-          WHERE f.student_id = s.id
-            AND f.fee_type = 'Arrears'
-            AND f.status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending')
-        ) arrearsAgg
-        WHERE s.status = 'Active'
-          AND cp.isActive = 1
-      `;
-      
-      const request = pool.request();
-      if (effectiveCampusId) {
-        query += " AND s.campus_id = @campusId";
-        request.input("campusId", effectiveCampusId);
-      }
-      
-      const result = await request.query(query);
-      const students = result.recordset;
+      const jobId = crypto.randomUUID();
+      await pool.request()
+        .input("id", jobId)
+        .input("campus_id", effectiveCampusId || null)
+        .input("session", sessionLabel)
+        .input("year", year)
+        .input("months_csv", monthsToGenerate.join(","))
+        .input("include_admissions", includeAdmissions !== false ? 1 : 0)
+        .input("include_arrears", includeArrears !== false ? 1 : 0)
+        .input("run_by", authUser.username)
+        .query(`
+          INSERT INTO FeeGenerationJobs (
+            id, campus_id, session, year, months_csv, include_admissions, include_arrears, status, run_by
+          ) VALUES (
+            @id, @campus_id, @session, @year, @months_csv, @include_admissions, @include_arrears, 'pending', @run_by
+          )
+        `);
 
-      let processedCount = 0;
-      let newAdmissionsCount = 0;
-      let arrearsCount = 0;
-      let skippedMissingFeeSettings = 0;
-      const skippedByClassMap = new Map<string, { className: string; campusName: string; count: number }>();
-
-      const transaction = new sql.Transaction(pool);
-      await transaction.begin();
-
-      try {
-      for (const month of monthsToGenerate) {
-        const dueDate = new Date(year, month - 1, 10).toISOString().split('T')[0];
-        const monthsLabel = `${monthNames[month]} ${year}`;
-
-        const existingResult = await new sql.Request(transaction)
-          .input("m", month)
-          .input("y", year)
-          .query(`SELECT student_id FROM Fees WHERE month = @m AND year = @y AND fee_type IN ('Monthly', 'Admission')`);
-        const existingStudentIds = new Set(
-          existingResult.recordset.map((r: { student_id: string }) => r.student_id)
-        );
-
-        for (const student of students) {
-          if (student.monthly_fee === null) {
-            skippedMissingFeeSettings++;
-            const className = String(student.class_name || "Unknown Class");
-            const campusName = String(student.campus_name || "Unknown Campus");
-            const key = `${campusName}::${className}`;
-            const prev = skippedByClassMap.get(key);
-            if (prev) {
-              prev.count += 1;
-            } else {
-              skippedByClassMap.set(key, { className, campusName, count: 1 });
-            }
-            continue;
-          }
-
-          if (existingStudentIds.has(student.student_id)) {
-            continue;
-          }
-
-          let arrears = 0;
-          if (includeArrears && month === firstGenerationMonth && Number(student.legacy_arrears || 0) > 0) {
-            arrears = Number(student.legacy_arrears || 0);
-            await new sql.Request(transaction)
-              .input("sId", student.student_id)
-              .query(`
-                UPDATE Fees
-                SET
-                  balance_amount = 0,
-                  status = 'Carried Forward',
-                  payment_method = 'Carried Forward'
-                WHERE student_id = @sId
-                  AND fee_type = 'Arrears'
-                  AND status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending')
-                  AND ISNULL(balance_amount, 0) > 0
-              `);
-            arrearsCount++;
-          }
-
-          // Carry forward previous dues into first generated month.
-          // We use Students.outstanding_fees as canonical due to avoid SQL edge-cases.
-          if (includeArrears && month === firstGenerationMonth) {
-            const carryForwardDue = Number(student.outstanding_fees || 0);
-            if (carryForwardDue > 0) {
-              arrears += carryForwardDue;
-              await new sql.Request(transaction)
-                .input("studentId", student.student_id)
-                .input("year", year)
-                .input("monthCutoff", firstGenerationMonth)
-                .query(`
-                  UPDATE Fees
-                  SET
-                    balance_amount = 0,
-                    status = 'Carried Forward',
-                    payment_method = 'Carried Forward'
-                  WHERE student_id = @studentId
-                    AND fee_type IN ('Monthly', 'Admission', 'Arrears')
-                    AND status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending')
-                    AND ISNULL(balance_amount, 0) > 0
-                    AND (year < @year OR (year = @year AND month < @monthCutoff))
-                `);
-              arrearsCount++;
-            }
-          }
-
-          let tuitionFee = student.monthly_fee || 0;
-          let admissionFee = 0;
-          let securityFee = 0;
-          let examFee = student.exam_fee || 0;
-          let transportFee = student.transport_fee || 0;
-          let miscFee = student.misc_fee || 0;
-          let feeType = 'Monthly';
-
-          if (includeAdmissions && student.admission_date) {
-            const admDate = new Date(student.admission_date);
-            if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
-              admissionFee = student.admission_fee || 0;
-              securityFee = student.security_fee || 0;
-              feeType = 'Admission';
-              newAdmissionsCount++;
-            }
-          }
-
-          const totalAmount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
-          const id = crypto.randomUUID();
-
-          await new sql.Request(transaction)
-            .input("id", id)
-            .input("student_id", student.student_id)
-            .input("amount", totalAmount)
-            .input("month", month)
-            .input("year", year)
-            .input("due_date", dueDate)
-            .input("fee_type", feeType)
-            .input("tuition_fee", tuitionFee)
-            .input("admission_fee", admissionFee)
-            .input("security_fee", securityFee)
-            .input("exam_fee", examFee)
-            .input("transport_fee", transportFee)
-            .input("misc_fee", miscFee)
-            .input("arrears", arrears)
-            .input("balance_amount", totalAmount + arrears)
-            .input("campus_name_snapshot", student.campus_name || null)
-            .input("months_label", monthsLabel)
-            .query(`
-              INSERT INTO Fees (
-                id, student_id, amount, month, year, status, due_date, fee_type,
-                tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee, arrears,
-                balance_amount, paid_amount, campus_name_snapshot, months_label
-              )
-              VALUES (
-                @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
-                @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee, @arrears,
-                @balance_amount, 0, @campus_name_snapshot, @months_label
-              )
-            `);
-          processedCount++;
-        }
-      }
-
-      await transaction.commit();
-      await recomputeOutstandingForScope(effectiveCampusId);
-
-      const skippedMissingFeeSettingsByClass = Array.from(skippedByClassMap.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 20);
-
-      try {
-        await pool.request()
-          .input("id", crypto.randomUUID())
-          .input("run_by", authUser.username)
-          .input("campus_id", effectiveCampusId || null)
-          .input("year", year)
-          .input("months_csv", monthsToGenerate.join(","))
-          .input("processed_count", processedCount)
-          .input("skipped_missing_fee_settings", skippedMissingFeeSettings)
-          .input("new_admissions_count", newAdmissionsCount)
-          .input("arrears_count", arrearsCount)
-          .input("notes", skippedMissingFeeSettingsByClass.length ? JSON.stringify(skippedMissingFeeSettingsByClass) : null)
-          .query(`
-            INSERT INTO FeeGenerationRuns (
-              id, run_on, run_by, campus_id, year, months_csv, processed_count,
-              skipped_missing_fee_settings, new_admissions_count, arrears_count, notes
-            ) VALUES (
-              @id, GETDATE(), @run_by, @campus_id, @year, @months_csv, @processed_count,
-              @skipped_missing_fee_settings, @new_admissions_count, @arrears_count, @notes
-            )
-          `);
-      } catch (logErr) {
-        console.warn("FeeGenerationRuns log skipped:", logErr);
-      }
-      res.json({
-        message: `Fee generation complete for ${monthsToGenerate.length} month(s).`,
-        processedCount,
-        newAdmissionsCount,
-        arrearsCount,
-        skippedMissingFeeSettings,
-        skippedMissingFeeSettingsByClass,
+      res.status(202).json({
+        message: `Fee generation queued for session ${sessionLabel}, ${monthsToGenerate.length} month(s). Poll job status for progress.`,
+        jobId,
+        session: sessionLabel,
         months: monthsToGenerate,
+        async: true,
       });
-      } catch (genErr) {
-        await transaction.rollback();
-        throw genErr;
-      }
     } catch (err) {
-      console.error("Error generating fees:", err);
-      res.status(500).json({ message: "Error generating fees", error: err instanceof Error ? err.message : String(err) });
+      console.error("Error queuing fee generation:", err);
+      res.status(500).json({ message: "Error queuing fee generation", error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/fee-generation-jobs/:id", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const result = await pool.request()
+        .input("id", req.params.id)
+        .query(`
+          SELECT
+            id, campus_id AS campusId, session AS sessionLabel, year, months_csv AS monthsCsv,
+            include_admissions AS includeAdmissions, include_arrears AS includeArrears,
+            status, processed_count AS processedCount, total_count AS totalCount,
+            skipped_missing_fee_settings AS skippedMissingFeeSettings,
+            new_admissions_count AS newAdmissionsCount,
+            arrears_count AS arrearsCount,
+            error_message AS errorMessage, run_by AS runBy,
+            CONVERT(VARCHAR, started_at, 120) AS startedAt,
+            CONVERT(VARCHAR, finished_at, 120) AS finishedAt,
+            CONVERT(VARCHAR, created_at, 120) AS createdAt
+          FROM FeeGenerationJobs WHERE id = @id
+        `);
+      const job = result.recordset[0];
+      if (!job) return res.status(404).json({ message: "Job not found" });
+
+      const scope = resolveCampusScope(authUser);
+      if (scope && job.campusId && job.campusId !== scope) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      res.json(job);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching fee generation job");
+    }
+  });
+
+  app.post("/api/fees/export", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.body?.campusId);
+      if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
+      if (campusFilter) {
+        const campusErr = await assertCampusWrite(authUser, campusFilter);
+        if (campusErr) return res.status(403).json({ message: campusErr });
+      }
+
+      const jobId = crypto.randomUUID();
+      await pool.request()
+        .input("id", jobId)
+        .input("campus_id", campusFilter || null)
+        .input("year", req.body?.year || null)
+        .input("month", req.body?.month || null)
+        .input("status_filter", req.body?.status || "all")
+        .input("search", req.body?.search || null)
+        .input("requested_by", authUser.username)
+        .query(`
+          INSERT INTO FeeExportJobs (id, campus_id, year, month, status_filter, search, requested_by, status)
+          VALUES (@id, @campus_id, @year, @month, @status_filter, @search, @requested_by, 'pending')
+        `);
+
+      res.status(202).json({ message: "Export queued", jobId, async: true });
+    } catch (err) {
+      sendServerError(res, err, "Error queuing fee export");
+    }
+  });
+
+  app.get("/api/fees/export/:id", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const result = await pool.request()
+        .input("id", req.params.id)
+        .query(`
+          SELECT
+            id, campus_id AS campusId, year, month, status_filter AS statusFilter,
+            status, processed_count AS processedCount, total_count AS totalCount,
+            file_path AS filePath, error_message AS errorMessage,
+            CONVERT(VARCHAR, started_at, 120) AS startedAt,
+            CONVERT(VARCHAR, finished_at, 120) AS finishedAt
+          FROM FeeExportJobs WHERE id = @id
+        `);
+      const job = result.recordset[0];
+      if (!job) return res.status(404).json({ message: "Export job not found" });
+      res.json(job);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching export job");
+    }
+  });
+
+  app.get("/api/fees/export/:id/download", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const result = await pool.request()
+        .input("id", req.params.id)
+        .query(`SELECT status, file_path FROM FeeExportJobs WHERE id = @id`);
+      const job = result.recordset[0];
+      if (!job || job.status !== "completed" || !job.file_path) {
+        return res.status(404).json({ message: "Export file not ready" });
+      }
+      const filePath = path.join(process.cwd(), "wwwroot", job.file_path.replace(/^\//, ""));
+      if (!fs.existsSync(filePath)) return res.status(404).json({ message: "Export file missing" });
+      res.download(filePath);
+    } catch (err) {
+      sendServerError(res, err, "Error downloading export");
+    }
+  });
+
+  app.post("/api/dashboard-stats/refresh", requireRoles(SUPER_ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const campusId = req.body?.campusId && req.body.campusId !== "all" ? String(req.body.campusId) : null;
+      const count = await refreshDashboardCampusStats(pool, campusId);
+      res.json({ message: "Dashboard stats refreshed", campusCount: count });
+    } catch (err) {
+      sendServerError(res, err, "Error refreshing dashboard stats");
+    }
+  });
+
+  app.post("/api/fees/archive", requireRoles(SUPER_ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const beforeYear = parseInt(String(req.body?.beforeYear || new Date().getFullYear() - 3), 10);
+      const archived = await archiveOldFees(pool, beforeYear);
+      res.json({ message: `Archived paid fees before ${beforeYear}`, archivedCount: archived });
+    } catch (err) {
+      sendServerError(res, err, "Error archiving fees");
     }
   });
 
@@ -3046,6 +3474,9 @@ async function startServer() {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded. Please select a valid .xlsx file." });
     }
+    if (!/\.xlsx$/i.test(req.file.originalname)) {
+      return res.status(400).json({ message: "Only .xlsx Excel workbooks are supported." });
+    }
 
     if (!pool || !pool.connected) {
       try {
@@ -3057,9 +3488,12 @@ async function startServer() {
     }
 
     try {
-      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-      const sheetName = workbook.SheetNames.find((n) => /enrolled/i.test(n)) || workbook.SheetNames[0];
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      const sheets = await readXlsxFile(req.file.buffer);
+      const sheet = sheets.find((item) => /enrolled/i.test(item.sheet)) || sheets[0];
+      if (!sheet) {
+        return res.status(400).json({ message: "The Excel file has no worksheets." });
+      }
+      const rows = excelRowsToJson(sheet.data);
 
       if (rows.length === 0) {
         return res.status(400).json({ message: "The Excel file has no data rows." });
@@ -4061,6 +4495,90 @@ async function startServer() {
     }
   });
 
+  // Network / campus report summary (uses materialized stats + bounded fee aggregates)
+  app.get("/api/reports/summary", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) {
+        return res.json({
+          totalExpected: 0, totalCollected: 0, totalPending: 0, totalExpenses: 0,
+          defaulters: 0, netProfit: 0, monthlyData: [], campusBreakdown: [],
+        });
+      }
+
+      const year = parseInt(String(req.query.year || new Date().getFullYear()), 10);
+      const request = pool.request().input("year", year).input("campusId", campusFilter || null);
+
+      const feeAgg = await request.query(`
+        SELECT
+          ISNULL(SUM(f.amount + ISNULL(f.arrears, 0)), 0) AS totalExpected,
+          ISNULL(SUM(f.paid_amount), 0) AS totalCollected,
+          ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS totalPending,
+          COUNT(DISTINCT CASE WHEN f.status IN ('Unpaid','Partially Paid') THEN f.student_id END) AS defaulters
+        FROM Fees f
+        JOIN Students s ON f.student_id = s.id
+        WHERE f.year = @year AND (@campusId IS NULL OR s.campus_id = @campusId)
+      `);
+
+      const expenseAgg = await request.query(`
+        SELECT ISNULL(SUM(e.amount), 0) AS totalExpenses
+        FROM Expenses e
+        WHERE YEAR(e.date) = @year AND (@campusId IS NULL OR e.campus_id = @campusId)
+      `);
+
+      const monthly = await request.query(`
+        SELECT f.month,
+          ISNULL(SUM(f.paid_amount), 0) AS collected,
+          ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS pending
+        FROM Fees f
+        JOIN Students s ON f.student_id = s.id
+        WHERE f.year = @year AND f.month > 0
+          AND (@campusId IS NULL OR s.campus_id = @campusId)
+        GROUP BY f.month
+        ORDER BY f.month
+      `);
+
+      let campusBreakdown: unknown[] = [];
+      if (!campusFilter) {
+        const campusRows = await pool.request().query(`
+          SELECT d.campus_id AS campusId, c.campus_name AS campusName,
+            d.total_collected AS collected, d.total_outstanding AS pending, d.defaulters
+          FROM DashboardCampusStats d
+          JOIN Campuses c ON c.id = d.campus_id
+          ORDER BY d.total_collected DESC
+        `);
+        campusBreakdown = campusRows.recordset;
+      }
+
+      const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const fees = feeAgg.recordset[0] || {};
+      const expenses = Number(expenseAgg.recordset[0]?.totalExpenses || 0);
+      const collected = Number(fees.totalCollected || 0);
+
+      res.json({
+        totalExpected: Number(fees.totalExpected || 0),
+        totalCollected: collected,
+        totalPending: Number(fees.totalPending || 0),
+        totalExpenses: expenses,
+        defaulters: Number(fees.defaulters || 0),
+        netProfit: collected - expenses,
+        monthlyData: monthly.recordset.map((r: { month: number; collected: number; pending: number }) => ({
+          month: monthNames[r.month] || `M${r.month}`,
+          Collected: r.collected,
+          Pending: r.pending,
+        })),
+        campusBreakdown,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching report summary");
+    }
+  });
+
   // Dashboard Stats Route (single source of truth for KPIs)
   app.get("/api/dashboard-stats", async (req, res) => {
     try {
@@ -4079,19 +4597,79 @@ async function startServer() {
       }
 
       const request = pool.request().input("campusId", campusFilter || null);
-      const stats = await request.query(`
-        SELECT 
-          (SELECT COUNT(*) FROM Students WHERE status = 'Active' AND (@campusId IS NULL OR campus_id = @campusId)) as activeStudents,
-          (SELECT ISNULL(SUM(f.paid_amount), 0) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE (@campusId IS NULL OR s.campus_id = @campusId)) as totalCollected,
-          (SELECT ISNULL(SUM(f.balance_amount), 0) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE (@campusId IS NULL OR s.campus_id = @campusId)) as totalOutstanding,
-          (SELECT COUNT(*) FROM Campuses WHERE (@campusId IS NULL OR id = @campusId) AND isActive = 1) as campusCount,
-          (SELECT COUNT(*) FROM Classes WHERE (@campusId IS NULL OR campus_id = @campusId)) as classCount,
-          (SELECT COUNT(DISTINCT f.student_id) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE f.status IN ('Unpaid','Partially Paid') AND (@campusId IS NULL OR s.campus_id = @campusId)) as defaulters,
-          (SELECT COUNT(*) FROM AdmissionApplications WHERE status IN ('Pending','Under Review','Approved') AND (@campusId IS NULL OR campus_id = @campusId)) as pendingAdmissions,
-          (SELECT COUNT(*) FROM Exams e WHERE MONTH(e.exam_date) = MONTH(GETDATE()) AND YEAR(e.exam_date) = YEAR(GETDATE()) AND (@campusId IS NULL OR e.campus_id = @campusId)) as examsScheduled,
-          (SELECT ISNULL(SUM(t.amount), 0) FROM Transactions t JOIN Students s ON t.student_id = s.id WHERE t.status = 'Success' AND (@campusId IS NULL OR s.campus_id = @campusId)) as onlineCollections,
-          (SELECT ISNULL(SUM(e.amount), 0) FROM Expenses e WHERE (@campusId IS NULL OR e.campus_id = @campusId)) as totalExpenses
-      `);
+
+      let statsData: Record<string, unknown>;
+      if (!campusFilter) {
+        const matResult = await pool.request().query(`
+          SELECT
+            ISNULL(SUM(active_students), 0) AS activeStudents,
+            ISNULL(SUM(total_collected), 0) AS totalCollected,
+            ISNULL(SUM(total_outstanding), 0) AS totalOutstanding,
+            (SELECT COUNT(*) FROM Campuses WHERE isActive = 1) AS campusCount,
+            (SELECT COUNT(*) FROM Classes) AS classCount,
+            ISNULL(SUM(defaulters), 0) AS defaulters,
+            ISNULL(SUM(pending_admissions), 0) AS pendingAdmissions,
+            ISNULL(SUM(exams_scheduled), 0) AS examsScheduled,
+            ISNULL(SUM(online_collections), 0) AS onlineCollections,
+            ISNULL(SUM(total_expenses), 0) AS totalExpenses
+          FROM DashboardCampusStats
+        `);
+        statsData = matResult.recordset[0] || {};
+        const matCount = await pool.request().query(`SELECT COUNT(*) AS n FROM DashboardCampusStats`);
+        if ((matCount.recordset[0]?.n ?? 0) === 0) {
+          await refreshDashboardCampusStats(pool);
+          const retry = await pool.request().query(`
+            SELECT
+              ISNULL(SUM(active_students), 0) AS activeStudents,
+              ISNULL(SUM(total_collected), 0) AS totalCollected,
+              ISNULL(SUM(total_outstanding), 0) AS totalOutstanding,
+              (SELECT COUNT(*) FROM Campuses WHERE isActive = 1) AS campusCount,
+              (SELECT COUNT(*) FROM Classes) AS classCount,
+              ISNULL(SUM(defaulters), 0) AS defaulters,
+              ISNULL(SUM(pending_admissions), 0) AS pendingAdmissions,
+              ISNULL(SUM(exams_scheduled), 0) AS examsScheduled,
+              ISNULL(SUM(online_collections), 0) AS onlineCollections,
+              ISNULL(SUM(total_expenses), 0) AS totalExpenses
+            FROM DashboardCampusStats
+          `);
+          statsData = retry.recordset[0] || statsData;
+        }
+      } else {
+        const matCampus = await pool.request()
+          .input("campusId", campusFilter)
+          .query(`
+            SELECT TOP 1
+              active_students AS activeStudents,
+              total_collected AS totalCollected,
+              total_outstanding AS totalOutstanding,
+              1 AS campusCount,
+              (SELECT COUNT(*) FROM Classes WHERE campus_id = @campusId) AS classCount,
+              defaulters,
+              pending_admissions AS pendingAdmissions,
+              exams_scheduled AS examsScheduled,
+              online_collections AS onlineCollections,
+              total_expenses AS totalExpenses
+            FROM DashboardCampusStats WHERE campus_id = @campusId
+          `);
+        if (matCampus.recordset[0]) {
+          statsData = matCampus.recordset[0];
+        } else {
+          const stats = await request.query(`
+            SELECT 
+              (SELECT COUNT(*) FROM Students WHERE status = 'Active' AND campus_id = @campusId) as activeStudents,
+              (SELECT ISNULL(SUM(f.paid_amount), 0) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE s.campus_id = @campusId) as totalCollected,
+              (SELECT ISNULL(SUM(f.balance_amount), 0) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE s.campus_id = @campusId) as totalOutstanding,
+              1 as campusCount,
+              (SELECT COUNT(*) FROM Classes WHERE campus_id = @campusId) as classCount,
+              (SELECT COUNT(DISTINCT f.student_id) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE f.status IN ('Unpaid','Partially Paid') AND s.campus_id = @campusId) as defaulters,
+              (SELECT COUNT(*) FROM AdmissionApplications WHERE status IN ('Pending','Under Review','Approved') AND campus_id = @campusId) as pendingAdmissions,
+              (SELECT COUNT(*) FROM Exams e WHERE MONTH(e.exam_date) = MONTH(GETDATE()) AND YEAR(e.exam_date) = YEAR(GETDATE()) AND e.campus_id = @campusId) as examsScheduled,
+              (SELECT ISNULL(SUM(t.amount), 0) FROM Transactions t JOIN Students s ON t.student_id = s.id WHERE t.status = 'Success' AND s.campus_id = @campusId) as onlineCollections,
+              (SELECT ISNULL(SUM(e.amount), 0) FROM Expenses e WHERE e.campus_id = @campusId) as totalExpenses
+          `);
+          statsData = stats.recordset[0] || {};
+        }
+      }
 
       const monthly = await request.query(`
         SELECT f.month, f.year,
@@ -4115,9 +4693,8 @@ async function startServer() {
       `);
 
       const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const data = stats.recordset[0];
       res.json({
-        ...data,
+        ...statsData,
         monthlyFees: monthly.recordset.map((r: { month: number; collected: number; pending: number }) => ({
           month: r.month,
           monthName: monthNames[r.month] || `M${r.month}`,
@@ -4509,6 +5086,8 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  if (pool) startScalingWorkers(pool);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);

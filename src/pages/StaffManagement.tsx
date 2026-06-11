@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import Pagination from '../components/ui/Pagination';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 const scopeUser = getStoredUser();
 
@@ -183,14 +184,21 @@ export default function StaffManagement() {
                 <input className="vibrant-input" placeholder="Full name" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} required />
                 <input className="vibrant-input" placeholder="CNIC" value={formData.cnic} onChange={(e) => setFormData({ ...formData, cnic: e.target.value })} required />
                 <div className="grid grid-cols-2 gap-4">
-                  <select className="vibrant-input" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
-                    {['Teacher', 'Admin', 'Accountant', 'Principal', 'Coordinator'].map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={formData.role}
+                    onChange={(role) => setFormData({ ...formData, role })}
+                    searchPlaceholder="Search role…"
+                    options={['Teacher', 'Admin', 'Accountant', 'Principal', 'Coordinator'].map((r) => ({ value: r, label: r }))}
+                  />
                   {(!scopeUser || canPickCampus(scopeUser)) ? (
-                    <select className="vibrant-input" value={formData.campusId} onChange={(e) => setFormData({ ...formData, campusId: e.target.value })} required>
-                      <option value="">Select campus</option>
-                      {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}</option>)}
-                    </select>
+                    <SearchableSelect
+                      required
+                      value={formData.campusId}
+                      onChange={(campusId) => setFormData({ ...formData, campusId })}
+                      placeholder="Select campus"
+                      searchPlaceholder="Search campuses…"
+                      options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                    />
                   ) : (
                     <div className="vibrant-input text-sm font-bold">{campuses.find((c) => c.id === formData.campusId)?.campusName}</div>
                   )}

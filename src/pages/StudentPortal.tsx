@@ -3,6 +3,7 @@ import { User, StudentPortalData as PortalData } from '../types';
 import { dataService } from '../services/dataService';
 import { feeCollectedTotal, feeOutstandingTotal } from '../utils/feeStats';
 import { User as UserIcon, CreditCard, CalendarCheck, School, AlertCircle } from 'lucide-react';
+import PageHeader from '../components/ui/PageHeader';
 import { motion } from 'motion/react';
 
 interface StudentPortalProps {
@@ -54,10 +55,10 @@ export default function StudentPortal({ user }: StudentPortalProps) {
 
   return (
     <div className="space-y-8 pb-12">
-      <div>
-        <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Student Portal</h2>
-        <p className="text-slate-500 font-medium mt-1">Welcome, <span className="text-primary font-bold">{user.fullName}</span></p>
-      </div>
+      <PageHeader
+        title="Student Portal"
+        description={<>Welcome, <span className="text-primary font-bold">{user.fullName}</span></>}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="vibrant-card p-8">

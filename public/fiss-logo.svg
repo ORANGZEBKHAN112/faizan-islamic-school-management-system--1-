@@ -1,0 +1,16 @@
+<svg width="500" height="500" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="500" height="500" fill="white"/>
+  <path d="M250 28C307 62 335 95 335 150L250 191L165 150C165 95 193 62 250 28Z" fill="#20B0AD"/>
+  <text x="250" y="128" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="900" fill="white">FISS</text>
+  <path d="M75 164L250 232V327C190 305 133 285 75 277V164Z" fill="#155D89"/>
+  <path d="M425 164L250 232V327C310 305 367 285 425 277V164Z" fill="#155D89"/>
+  <path d="M101 166V292C154 302 199 318 250 344C301 318 346 302 399 292V166" stroke="#1CB0AE" stroke-width="16" fill="none"/>
+  <path d="M125 168V306C170 315 211 331 250 354C289 331 330 315 375 306V168" stroke="#155D89" stroke-width="13" fill="none"/>
+  <path d="M250 213L214 304H286L250 213Z" fill="white"/>
+  <path d="M221 315C221 293 236 280 250 300C264 280 279 293 279 315V352H265V316C265 305 259 305 257 316V352H243V316C241 305 235 305 235 316V352H221V315Z" fill="#155D89"/>
+  <text x="250" y="394" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="900" fill="#155D89">FAIZAN ISLAMIC</text>
+  <text x="250" y="432" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="900" fill="#155D89">SCHOOL SYSTEM</text>
+  <text x="250" y="457" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="500" fill="#155D89">DAWAT-E-ISLAMI</text>
+  <rect x="83" y="468" width="334" height="24" fill="#20B0AD"/>
+  <text x="250" y="485" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="white">ESSENTIAL EDUCATION WITH TARBIYAH</text>
+</svg>
