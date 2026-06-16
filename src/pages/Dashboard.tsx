@@ -14,6 +14,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import SetupChecklist from '../components/ui/SetupChecklist';
 import { CHART_PRIMARY, CHART_SECONDARY } from '../utils/chartTheme';
 import { motion } from 'motion/react';
+import { useI18n } from '../context/I18nContext';
 
 interface DashboardProps {
   user: User;
@@ -27,6 +28,7 @@ const emptyStats: DashboardStats = {
 
 export default function Dashboard({ user }: DashboardProps) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [dbError, setDbError] = useState<string | null>(null);
@@ -144,8 +146,8 @@ export default function Dashboard({ user }: DashboardProps) {
       )}
 
       <PageHeader
-        title="Dashboard"
-        description={<>Welcome back, <span className="text-primary font-bold">{user.fullName}</span></>}
+        title={t('pages.dashboard.title')}
+        description={<>{t('pages.dashboard.welcome')} <span className="text-primary font-bold">{user.fullName}</span></>}
         filters={
           <>
             {canPickCampus(user) && (

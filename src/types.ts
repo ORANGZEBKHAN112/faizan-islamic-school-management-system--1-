@@ -1,4 +1,13 @@
-export type UserRole = 'Super Admin' | 'Admin' | 'Teacher' | 'Accountant' | 'Student';
+export type UserRole = 'Super Admin' | 'Admin' | 'Teacher' | 'Accountant' | 'Student' | (string & {});
+
+export interface ModulePermission {
+  view: boolean;
+  create: boolean;
+  update: boolean;
+  delete: boolean;
+}
+
+export type PermissionMap = Record<string, ModulePermission>;
 
 export interface User {
   id: string;
@@ -10,6 +19,23 @@ export interface User {
   isActive: boolean;
   createdOn: string;
   uid?: string;
+  permissions?: PermissionMap;
+  linkedStudentRoll?: string;
+}
+
+export interface AppRole {
+  id: string;
+  name: string;
+  description?: string;
+  isSystem: boolean;
+  isActive: boolean;
+  createdOn?: string;
+}
+
+export interface PermissionModuleDef {
+  key: string;
+  label: string;
+  group: string;
 }
 
 export interface Campus {
@@ -23,6 +49,8 @@ export interface Campus {
   email?: string;
   isActive: boolean;
   createdOn: string;
+  siblingDiscount2nd?: number;
+  siblingDiscount3rd?: number;
 }
 
 export interface Class {
@@ -310,12 +338,15 @@ export interface FeeStats {
 
 export interface AdmissionApplication {
   id: string;
+  trackingNo?: string;
   campusId: string;
   campusName?: string;
   classId?: string;
   className?: string;
   applicantName: string;
   fatherName?: string;
+  fatherCnic?: string;
+  studentBform?: string;
   dateOfBirth?: string;
   gender?: string;
   contactNumber?: string;
@@ -328,11 +359,127 @@ export interface AdmissionApplication {
   reviewedBy?: string;
   reviewedOn?: string;
   studentId?: string;
+  linkedStudentId?: string;
+  reviewMatchType?: 'new' | 're_enrollment' | 'sibling' | 'duplicate_active' | 'duplicate_application';
+  reviewSnapshot?: string;
+  waiveAdmissionFee?: boolean;
+  feeDiscountAmount?: number;
+  feeDiscountPercent?: number;
+  siblingDiscountPercent?: number;
+  rejectionReason?: string;
   interviewAt?: string;
   interviewSmsSent?: boolean;
   interviewSmsSentOn?: string;
   campusAddress?: string;
   campusPhone?: string;
+}
+
+export interface UnpaidFeeMonth {
+  month: number;
+  year: number;
+  balanceAmount: number;
+  label?: string;
+}
+
+export interface AdmissionFeePreview {
+  classAssigned: boolean;
+  tuitionFee: number;
+  admissionFee: number;
+  securityFee: number;
+  examFee: number;
+  transportFee: number;
+  miscFee: number;
+  subtotal: number;
+  manualDiscountAmount: number;
+  manualDiscountPercent: number;
+  siblingDiscountPercent: number;
+  siblingDiscountAmount: number;
+  totalDiscount: number;
+  carryArrears: number;
+  totalDue: number;
+  lines: Array<{ label: string; amount: number }>;
+}
+
+export interface AdmissionMatchedStudent {
+  id: string;
+  firstName: string;
+  rollNumber: string;
+  fatherName?: string;
+  status: string;
+  className?: string;
+  campusName?: string;
+  dateOfBirth?: string;
+  outstandingFees: number;
+  unpaidBalance: number;
+  unpaidMonths: UnpaidFeeMonth[];
+  nameScore: number;
+  dobMatch: boolean;
+  isExactMatch: boolean;
+}
+
+export interface AdmissionReviewCheckResult {
+  matchType: 'new' | 're_enrollment' | 'sibling' | 'duplicate_active' | 'duplicate_application';
+  cnicEntriesCount: number;
+  normalizedCnic: string;
+  matchedStudents: AdmissionMatchedStudent[];
+  duplicateApplications: Array<{ id: string; applicantName: string; status: string; appliedOn?: string }>;
+  suggestedLinkedStudentId: string | null;
+  totalFamilyOutstanding: number;
+  message: string;
+  activeSiblingCount: number;
+  suggestedSiblingDiscountPercent: number;
+  feePreview: AdmissionFeePreview | null;
+  fatherCnic?: string;
+}
+
+export interface AdmissionDocument {
+  id: string;
+  applicationId: string;
+  docType: 'b_form' | 'birth_certificate' | 'previous_school' | 'other';
+  fileName?: string;
+  fileUrl: string;
+  uploadedBy?: string;
+  uploadedOn?: string;
+}
+
+export interface AdmissionTrackResult {
+  trackingNo: string;
+  applicantName: string;
+  status: string;
+  appliedOn?: string;
+  interviewAt?: string;
+  rejectionReason?: string;
+  campusName?: string;
+  className?: string;
+}
+
+export interface AdmissionReport {
+  summary: {
+    totalApplications?: number;
+    enrolled?: number;
+    matchNew?: number;
+    matchSibling?: number;
+    matchReEnrollment?: number;
+    waivedAdmissionFee?: number;
+    totalDiscountAmount?: number;
+  };
+  rows: Array<{
+    trackingNo?: string;
+    applicantName: string;
+    campusName?: string;
+    className?: string;
+    status: string;
+    reviewMatchType?: string;
+    testMarks?: number;
+    waiveAdmissionFee?: boolean;
+    feeDiscountAmount?: number;
+    feeDiscountPercent?: number;
+    siblingDiscountPercent?: number;
+    rejectionReason?: string;
+    appliedOn?: string;
+    reviewedOn?: string;
+  }>;
+  testPassMarks: number;
 }
 
 export interface DashboardStats {

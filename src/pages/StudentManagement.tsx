@@ -7,18 +7,21 @@ import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStoredUser } from '../utils/campusScope';
 import { useCollection } from '../hooks/useCollection';
-import PageHeader from '../components/ui/PageHeader';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Pagination from '../components/ui/Pagination';
 import TableShell from '../components/ui/TableShell';
 import EmptyState from '../components/ui/EmptyState';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import { usePermissions } from '../context/PermissionContext';
+import { useI18n } from '../context/I18nContext';
 
 const scopeUser = getStoredUser();
-const canWriteStudents = scopeUser?.role === 'Super Admin' || scopeUser?.role === 'Admin';
 
 export default function StudentManagement() {
   const navigate = useNavigate();
+  const { canCreate, canUpdate, canDelete } = usePermissions();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [vouchers, setVouchers] = useState<Fee[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -510,9 +513,8 @@ export default function StudentManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader
-        title="Students"
-        description="Manage student records, profiles, and fee history."
+      <TranslatedPageHeader
+        module="students"
         actions={
           <>
             <input
@@ -522,7 +524,7 @@ export default function StudentManagement() {
               accept=".xlsx"
               className="hidden"
             />
-            {canWriteStudents && (
+            {canCreate('students') && (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -531,7 +533,7 @@ export default function StudentManagement() {
                 className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold disabled:opacity-50"
               >
                 <Share2 className="w-4 h-4" />
-                {isImporting ? 'Importing…' : 'Import students'}
+                {isImporting ? t('pages.students.importing') : t('pages.students.importStudents')}
               </motion.button>
             )}
             <motion.button
@@ -541,9 +543,9 @@ export default function StudentManagement() {
               className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
             >
               <Download className="w-4 h-4" />
-              Export
+              {t('pages.students.export')}
             </motion.button>
-            {canWriteStudents && (
+            {canCreate('students') && (
               <motion.button
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.98 }}
@@ -554,7 +556,7 @@ export default function StudentManagement() {
                 className="vibrant-btn-primary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold shadow-xl shadow-primary/20"
               >
                 <Plus className="w-4 h-4" />
-                Register student
+                {t('pages.students.registerStudent')}
               </motion.button>
             )}
           </>
@@ -567,7 +569,7 @@ export default function StudentManagement() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder={t('pages.students.searchPlaceholder')}
               className="vibrant-input pl-12"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -650,9 +652,9 @@ export default function StudentManagement() {
                           ? 'Try clearing search or filters to see more results.'
                           : 'Register your first student or import a list from Excel.'
                       }
-                      actionLabel={!hasActiveFilters && canWriteStudents ? 'Register student' : undefined}
+                      actionLabel={!hasActiveFilters && canCreate('students') ? 'Register student' : undefined}
                       onAction={
-                        !hasActiveFilters && canWriteStudents
+                        !hasActiveFilters && canCreate('students')
                           ? () => {
                               setEditingId(null);
                               setIsModalOpen(true);
@@ -709,7 +711,7 @@ export default function StudentManagement() {
                       >
                         <Eye className="w-5 h-5" />
                       </motion.button>
-                      {canWriteStudents && (
+                      {canUpdate('students') && (
                       <motion.button 
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
@@ -719,7 +721,7 @@ export default function StudentManagement() {
                         <Edit2 className="w-5 h-5" />
                       </motion.button>
                       )}
-                      {canWriteStudents && (
+                      {canDelete('students') && (
                       <motion.button 
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
@@ -1114,7 +1116,7 @@ export default function StudentManagement() {
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address</label>
                   <textarea className="vibrant-input" rows={3} value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
                 </div>
-                {canWriteStudents && (
+                {(canCreate('students') || canUpdate('students')) && (
                   <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Profile photo (ID card)</label>
                     <div className="flex items-center gap-6">

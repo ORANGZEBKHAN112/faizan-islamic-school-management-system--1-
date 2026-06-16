@@ -10,12 +10,13 @@ import { useSearchParams } from 'react-router-dom';
 import { canPickCampus, getStoredUser, getUserCampusScope, resolveCampusFilter } from '../utils/campusScope';
 import { deriveAcademicSession, normalizeSessionLabel } from '../utils/academicSession';
 import { useCollection } from '../hooks/useCollection';
-import PageHeader from '../components/ui/PageHeader';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import PageLoader from '../components/ui/PageLoader';
 import Pagination from '../components/ui/Pagination';
 import TableShell from '../components/ui/TableShell';
 import EmptyState from '../components/ui/EmptyState';
 import { useConfirm } from '../context/ConfirmContext';
+import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 
 const scopeUser = getStoredUser();
@@ -24,6 +25,7 @@ const VOUCHERS_PAGE_SIZE = 50;
 
 export default function FeeManagement() {
   const confirm = useConfirm();
+  const { canCreate } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlCampusId = searchParams.get('campusId');
   const urlStudentId = searchParams.get('studentId') || '';
@@ -668,20 +670,21 @@ export default function FeeManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader
-        title="Fee Management"
-        description="Generate vouchers, record payments, and track collections. Fee amounts are set per campus and session in Fee Settings."
+      <TranslatedPageHeader
+        module="fees"
         actions={
           <>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setIsExtraChargeOpen(true)}
-              className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
-            >
-              <Plus className="w-4 h-4" />
-              Extra charge
-            </motion.button>
+            <PermissionGate module="fees" action="create">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setIsExtraChargeOpen(true)}
+                className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
+              >
+                <Plus className="w-4 h-4" />
+                Extra charge
+              </motion.button>
+            </PermissionGate>
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -790,6 +793,7 @@ export default function FeeManagement() {
             Run Logs
           </div>
         </button>
+        {canCreate('fees') && (
         <button
           onClick={() => setActiveTab('generate')}
           className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
@@ -803,6 +807,7 @@ export default function FeeManagement() {
             Bulk Generate
           </div>
         </button>
+        )}
       </div>
 
       {activeTab === 'generate' && (
@@ -1200,15 +1205,17 @@ export default function FeeManagement() {
                       <td className="px-8 py-5 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {voucher.status !== 'Paid' && (
-                            <motion.button 
-                              whileHover={{ scale: 1.05, y: -2 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => openPaymentModal(voucher)}
-                              className="flex items-center gap-2 px-4 py-2 bg-success/10 text-success rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-success hover:text-white transition-all"
-                            >
-                              <CreditCard className="w-4 h-4" />
-                              Pay
-                            </motion.button>
+                            <PermissionGate module="fees" action="update">
+                              <motion.button 
+                                whileHover={{ scale: 1.05, y: -2 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => openPaymentModal(voucher)}
+                                className="flex items-center gap-2 px-4 py-2 bg-success/10 text-success rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-success hover:text-white transition-all"
+                              >
+                                <CreditCard className="w-4 h-4" />
+                                Pay
+                              </motion.button>
+                            </PermissionGate>
                           )}
                           <motion.button 
                             whileHover={{ scale: 1.1 }}

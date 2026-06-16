@@ -9,7 +9,9 @@ import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import Pagination from '../components/ui/Pagination';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { useConfirm } from '../context/ConfirmContext';
+import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 
 export default function ClassManagement() {
@@ -113,25 +115,26 @@ export default function ClassManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Class Management</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Define and organize school classes and sections.</p>
-        </div>
-        <motion.button
-          whileHover={{ scale: 1.02, y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => {
-            setEditingId(null);
-            setFormData({ campusId: '', className: '', sectionName: '', capacity: 40, shift: 'Morning' });
-            setIsModalOpen(true);
-          }}
-          className="vibrant-btn-primary px-8 py-4 rounded-2xl flex items-center gap-2 shadow-xl shadow-primary/20 text-[10px] font-black uppercase tracking-widest"
-        >
-          <Plus className="w-5 h-5" />
-          Add New Class
-        </motion.button>
-      </div>
+      <TranslatedPageHeader
+        module="classes"
+        actions={
+          <PermissionGate module="classes" action="create">
+            <motion.button
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setEditingId(null);
+                setFormData({ campusId: '', className: '', sectionName: '', capacity: 40, shift: 'Morning' });
+                setIsModalOpen(true);
+              }}
+              className="vibrant-btn-primary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
+            >
+              <Plus className="w-4 h-4" />
+              Add class
+            </motion.button>
+          </PermissionGate>
+        }
+      />
 
       <div className="vibrant-card overflow-hidden">
         <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 dark:bg-slate-900/50">
@@ -208,22 +211,26 @@ export default function ClassManagement() {
                   </td>
                   <td className="px-8 py-5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <motion.button 
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleEdit(cls)}
-                        className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </motion.button>
-                      <motion.button 
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleDelete(cls?.id)}
-                        className="p-2.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-xl transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </motion.button>
+                      <PermissionGate module="classes" action="update">
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleEdit(cls)}
+                          className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </motion.button>
+                      </PermissionGate>
+                      <PermissionGate module="classes" action="delete">
+                        <motion.button 
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleDelete(cls?.id)}
+                          className="p-2.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-xl transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </motion.button>
+                      </PermissionGate>
                     </div>
                   </td>
                 </tr>

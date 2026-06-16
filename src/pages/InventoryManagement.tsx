@@ -5,6 +5,8 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 export default function InventoryManagement() {
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -71,16 +73,17 @@ export default function InventoryManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Inventory</h2>
-          <p className="text-slate-500 font-medium mt-1">Track school supplies and stock levels</p>
-        </div>
-        <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="vibrant-btn-primary flex items-center gap-2">
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Add Item</span>
-        </button>
-      </div>
+      <TranslatedPageHeader
+        module="inventory"
+        actions={
+          <PermissionGate module="inventory" action="create">
+            <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="vibrant-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+              <Plus className="w-4 h-4" />
+              Add item
+            </button>
+          </PermissionGate>
+        }
+      />
 
       {lowStock.length > 0 && (
         <div className="vibrant-card p-6 flex items-center gap-4 border-warning/20 bg-warning/5">
@@ -118,7 +121,9 @@ export default function InventoryManagement() {
                   <td className="px-8 py-5 font-black">{item.quantity} {item.unit}</td>
                   <td className="px-8 py-5 text-sm text-slate-400">{item.minThreshold}</td>
                   <td className="px-8 py-5 text-right">
-                    <button onClick={() => handleEdit(item)} className="p-2 hover:text-primary text-slate-400"><Edit2 className="w-4 h-4" /></button>
+                    <PermissionGate module="inventory" action="update">
+                      <button onClick={() => handleEdit(item)} className="p-2 hover:text-primary text-slate-400"><Edit2 className="w-4 h-4" /></button>
+                    </PermissionGate>
                   </td>
                 </tr>
               ))}

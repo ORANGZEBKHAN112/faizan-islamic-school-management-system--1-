@@ -5,6 +5,18 @@ export function feeCollectedTotal(fees: Fee[]): number {
   return fees.reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
 }
 
+/** Per-voucher balance for display (matches feeOutstandingTotal logic). */
+export function feeLineBalance(f: Fee): number {
+  const balance = Number(f.balanceAmount);
+  if (!Number.isNaN(balance) && balance > 0) return balance;
+  if (f.status === 'Unpaid' || f.status === 'Partially Paid' || f.status === 'Overdue' || f.status === 'Pending') {
+    const base = (Number(f.amount) || 0) + (Number(f.arrears) || 0);
+    const paid = Number(f.paidAmount) || 0;
+    return Math.max(0, base - paid);
+  }
+  return 0;
+}
+
 /** Outstanding balance (balance_amount when set, else unpaid / partial remainder). */
 export function feeOutstandingTotal(fees: Fee[]): number {
   return fees.reduce((sum, f) => {

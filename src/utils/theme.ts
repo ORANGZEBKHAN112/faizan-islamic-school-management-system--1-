@@ -14,7 +14,9 @@ export function resolveDark(mode: ThemeMode): boolean {
 
 export function applyTheme(mode: ThemeMode): void {
   const root = document.documentElement;
-  root.classList.toggle('dark', resolveDark(mode));
+  const isDark = resolveDark(mode);
+  root.classList.toggle('dark', isDark);
+  root.style.colorScheme = isDark ? 'dark' : 'light';
   localStorage.setItem(STORAGE_KEY, mode);
 }
 

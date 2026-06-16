@@ -5,6 +5,8 @@ import { dataService } from '../services/dataService';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 type AttStatus = 'Present' | 'Absent' | 'Leave' | 'Late';
 
@@ -107,10 +109,7 @@ export default function ExamAttendance() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div>
-        <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Exam Attendance</h2>
-        <p className="text-slate-500 font-medium mt-1">Track student and staff presence during examinations</p>
-      </div>
+      <TranslatedPageHeader module="exam-attendance" />
 
       <div className="vibrant-card p-6 flex flex-wrap items-center gap-4">
         <ClipboardList className="w-5 h-5 text-primary" />
@@ -152,10 +151,12 @@ export default function ExamAttendance() {
               <button onClick={() => markAll('Present')} className="px-4 py-2 bg-success/10 text-success rounded-xl text-[10px] font-black uppercase">Mark All Present</button>
               <button onClick={() => markAll('Absent')} className="px-4 py-2 bg-danger/10 text-danger rounded-xl text-[10px] font-black uppercase">Mark All Absent</button>
             </div>
-            <motion.button whileTap={{ scale: 0.98 }} onClick={save} disabled={saving} className="vibrant-btn-primary flex items-center gap-2">
-              <Save className="w-4 h-4" />
-              {saving ? 'Saving…' : 'Save Attendance'}
-            </motion.button>
+            <PermissionGate module="exam-attendance" action="update">
+              <motion.button whileTap={{ scale: 0.98 }} onClick={save} disabled={saving} className="vibrant-btn-primary flex items-center gap-2">
+                <Save className="w-4 h-4" />
+                {saving ? 'Saving…' : 'Save Attendance'}
+              </motion.button>
+            </PermissionGate>
           </div>
 
           <div className="vibrant-card overflow-hidden">

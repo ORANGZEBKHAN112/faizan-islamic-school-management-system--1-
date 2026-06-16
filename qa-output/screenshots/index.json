@@ -1,0 +1,62 @@
+[
+  {
+    "name": "login-en",
+    "ok": true,
+    "url": "http://localhost:3000/login",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\login-en.png"
+  },
+  {
+    "name": "login-ur",
+    "ok": true,
+    "url": "http://localhost:3000/login",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\login-ur.png"
+  },
+  {
+    "name": "admin-dashboard",
+    "ok": true,
+    "url": "http://localhost:3000/",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\admin-dashboard.png"
+  },
+  {
+    "name": "admin-students",
+    "ok": true,
+    "url": "http://localhost:3000/students",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\admin-students.png"
+  },
+  {
+    "name": "admin-admissions",
+    "ok": true,
+    "url": "http://localhost:3000/admissions",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\admin-admissions.png"
+  },
+  {
+    "name": "principle-students",
+    "ok": true,
+    "url": "http://localhost:3000/students",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\principle-students.png"
+  },
+  {
+    "name": "principle-no-admissions-nav",
+    "ok": true,
+    "url": "http://localhost:3000/students",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\principle-no-admissions-nav.png"
+  },
+  {
+    "name": "student-portal",
+    "ok": true,
+    "url": "http://localhost:3000/",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\student-portal.png"
+  },
+  {
+    "name": "public-apply",
+    "ok": true,
+    "url": "http://localhost:3000/apply",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\public-apply.png"
+  },
+  {
+    "name": "public-track",
+    "ok": true,
+    "url": "http://localhost:3000/track",
+    "file": "C:\\Users\\DELL\\Downloads\\faizan-islamic-school-management-system (1)\\qa-output\\screenshots\\public-track.png"
+  }
+]

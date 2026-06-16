@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Edit2, Save, XCircle, Banknote, School, Calendar, Copy } from 'lucide-react';
 import { FeeStructure, Campus } from '../types';
 import { dataService } from '../services/dataService';
-import PageHeader from '../components/ui/PageHeader';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import EmptyState from '../components/ui/EmptyState';
 import TableShell from '../components/ui/TableShell';
 import { useConfirm } from '../context/ConfirmContext';
+import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { deriveAcademicSession, normalizeSessionLabel } from '../utils/academicSession';
@@ -25,6 +26,7 @@ const emptyForm = {
 
 export default function FeeSettings() {
   const confirm = useConfirm();
+  const { canCreate } = usePermissions();
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [selectedCampusId, setSelectedCampusId] = useState<string>('');
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -156,9 +158,8 @@ export default function FeeSettings() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader
-        title="Fee Settings"
-        description="One fee structure per campus per academic session (e.g. 2026-2027). All students on that campus use the session structure for voucher generation."
+      <TranslatedPageHeader
+        module="fee-settings"
         filters={
           <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
             <div className="p-2 bg-primary/10 rounded-xl text-primary">
@@ -175,15 +176,17 @@ export default function FeeSettings() {
           </div>
         }
         actions={
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={openCreate}
-            disabled={!selectedCampusId}
-            className="vibrant-btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
-          >
-            Add session
-          </motion.button>
+          <PermissionGate module="fee-settings" action="create">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={openCreate}
+              disabled={!selectedCampusId}
+              className="vibrant-btn-primary px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
+            >
+              Add session
+            </motion.button>
+          </PermissionGate>
         }
       />
 
@@ -192,8 +195,8 @@ export default function FeeSettings() {
           icon={Banknote}
           title="No fee structure for this campus"
           description={`Add a session for ${campusName} (e.g. ${defaultSession}) before generating vouchers.`}
-          actionLabel="Add session"
-          onAction={openCreate}
+          actionLabel={canCreate('fee-settings') ? 'Add session' : undefined}
+          onAction={canCreate('fee-settings') ? openCreate : undefined}
         />
       ) : (
       <div className="vibrant-card overflow-hidden">
@@ -254,28 +257,30 @@ export default function FeeSettings() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <motion.button
-                          whileHover={{ scale: 1.06 }}
-                          whileTap={{ scale: 0.96 }}
-                          onClick={() => handleApplyToClasses(row.sessionLabel)}
-                          disabled={applyingToClasses}
-                          className="p-2.5 text-slate-400 hover:text-secondary hover:bg-secondary/10 rounded-xl transition-all flex items-center gap-2 disabled:opacity-60"
-                          title="Copy to per-class fee settings (legacy)"
-                        >
-                          <Copy className="w-4 h-4" />
-                          <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">
-                            Sync Classes
-                          </span>
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => openEdit(row)}
-                          className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all flex items-center gap-2"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          <span className="text-[10px] font-black uppercase tracking-widest">Edit</span>
-                        </motion.button>
+                        <PermissionGate module="fee-settings" action="update">
+                          <motion.button
+                            whileHover={{ scale: 1.06 }}
+                            whileTap={{ scale: 0.96 }}
+                            onClick={() => handleApplyToClasses(row.sessionLabel)}
+                            disabled={applyingToClasses}
+                            className="p-2.5 text-slate-400 hover:text-secondary hover:bg-secondary/10 rounded-xl transition-all flex items-center gap-2 disabled:opacity-60"
+                            title="Copy to per-class fee settings (legacy)"
+                          >
+                            <Copy className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">
+                              Sync Classes
+                            </span>
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => openEdit(row)}
+                            className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all flex items-center gap-2"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Edit</span>
+                          </motion.button>
+                        </PermissionGate>
                       </div>
                     </td>
                   </tr>

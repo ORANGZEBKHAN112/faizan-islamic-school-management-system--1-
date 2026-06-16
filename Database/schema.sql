@@ -14,6 +14,8 @@ CREATE TABLE Campuses (
     phone NVARCHAR(50),
     email NVARCHAR(255),
     isActive BIT DEFAULT 1,
+    sibling_discount_2nd DECIMAL(5, 2) DEFAULT 10,
+    sibling_discount_3rd DECIMAL(5, 2) DEFAULT 15,
     createdOn DATETIME DEFAULT GETDATE()
 );
 
@@ -54,6 +56,7 @@ CREATE TABLE Students (
 );
 
 CREATE UNIQUE INDEX UX_Students_admission_no ON Students(admission_no);
+CREATE INDEX IX_Students_father_cnic ON Students(father_cnic);
 
 -- 4. Users
 CREATE TABLE Users (
@@ -226,6 +229,7 @@ CREATE TABLE AdmissionApplications (
     class_id NVARCHAR(50),
     applicant_name NVARCHAR(255) NOT NULL,
     father_name NVARCHAR(255),
+    father_cnic NVARCHAR(50),
     date_of_birth DATE,
     gender NVARCHAR(20),
     contact_number NVARCHAR(50),
@@ -241,8 +245,32 @@ CREATE TABLE AdmissionApplications (
     interview_at DATETIME,
     interview_sms_sent BIT DEFAULT 0,
     interview_sms_sent_on DATETIME,
+    linked_student_id NVARCHAR(50),
+    review_match_type NVARCHAR(30),
+    review_snapshot NVARCHAR(MAX),
+    waive_admission_fee BIT DEFAULT 0,
+    fee_discount_amount DECIMAL(18, 2) DEFAULT 0,
+    sibling_discount_percent DECIMAL(5, 2) DEFAULT 0,
+    rejection_reason NVARCHAR(100),
+    tracking_no NVARCHAR(30),
+    student_bform NVARCHAR(50),
     CONSTRAINT FK_Admission_Campuses FOREIGN KEY (campus_id) REFERENCES Campuses(id)
 );
+
+CREATE UNIQUE INDEX UX_AdmissionApplications_tracking_no ON AdmissionApplications(tracking_no) WHERE tracking_no IS NOT NULL;
+CREATE INDEX IX_AdmissionApplications_father_cnic ON AdmissionApplications(father_cnic);
+
+-- 14b. AdmissionDocuments
+CREATE TABLE AdmissionDocuments (
+    id NVARCHAR(50) PRIMARY KEY,
+    application_id NVARCHAR(50) NOT NULL,
+    doc_type NVARCHAR(50) NOT NULL,
+    file_name NVARCHAR(255),
+    file_url NVARCHAR(500) NOT NULL,
+    uploaded_by NVARCHAR(255),
+    uploaded_on DATETIME DEFAULT GETDATE()
+);
+CREATE INDEX IX_AdmissionDocuments_application ON AdmissionDocuments(application_id);
 
 -- 15. Exams
 CREATE TABLE Exams (
@@ -360,6 +388,29 @@ CREATE TABLE DashboardCampusStats (
     total_expenses DECIMAL(18, 2) DEFAULT 0,
     refreshed_at DATETIME DEFAULT GETDATE()
 );
+
+-- Role-based access control
+CREATE TABLE AppRoles (
+    id NVARCHAR(50) PRIMARY KEY,
+    name NVARCHAR(100) NOT NULL,
+    description NVARCHAR(500) NULL,
+    isSystem BIT NOT NULL DEFAULT 0,
+    isActive BIT NOT NULL DEFAULT 1,
+    createdOn DATETIME NOT NULL DEFAULT GETDATE()
+);
+CREATE UNIQUE INDEX UX_AppRoles_name ON AppRoles(name);
+
+CREATE TABLE AppRolePermissions (
+    id NVARCHAR(50) PRIMARY KEY,
+    roleId NVARCHAR(50) NOT NULL,
+    moduleKey NVARCHAR(50) NOT NULL,
+    canView BIT NOT NULL DEFAULT 0,
+    canCreate BIT NOT NULL DEFAULT 0,
+    canUpdate BIT NOT NULL DEFAULT 0,
+    canDelete BIT NOT NULL DEFAULT 0,
+    CONSTRAINT FK_AppRolePermissions_Role FOREIGN KEY (roleId) REFERENCES AppRoles(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX UX_AppRolePermissions_role_module ON AppRolePermissions(roleId, moduleKey);
 
 -- Fee module stability indexes/constraints
 CREATE INDEX IX_Fees_student_year_month_status ON Fees(student_id, year, month, status);

@@ -10,7 +10,7 @@ import { CHART_PALETTE, CHART_PRIMARY, CHART_SECONDARY } from '../utils/chartThe
 import { useNavigate } from 'react-router-dom';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { useCollection } from '../hooks/useCollection';
-import PageHeader from '../components/ui/PageHeader';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageLoader from '../components/ui/PageLoader';
 import TableShell from '../components/ui/TableShell';
@@ -128,9 +128,8 @@ export default function Reports() {
 
   return (
     <div className="space-y-8 pb-12">
-      <PageHeader
-        title="Reports"
-        description="Analyze school financial performance and metrics."
+      <TranslatedPageHeader
+        module="reports"
         filters={
           <div className="flex flex-wrap items-center gap-3 bg-white/50 dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-100 dark:border-slate-800">
             {(!user || canPickCampus(user)) && (

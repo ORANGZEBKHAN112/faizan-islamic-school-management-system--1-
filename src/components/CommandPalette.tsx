@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Campus, UserRole } from '../types';
 import { dataService } from '../services/dataService';
 import { getFlatNavItems, getQuickActions } from '../config/navigation';
+import { usePermissions } from '../context/PermissionContext';
+import { useI18n } from '../context/I18nContext';
 
 interface CommandPaletteProps {
   userRole: UserRole;
@@ -27,8 +29,10 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
   const [students, setStudents] = useState<StudentHit[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const navigate = useNavigate();
-  const navItems = useMemo(() => getFlatNavItems(userRole), [userRole]);
-  const quickLinks = useMemo(() => getQuickActions(userRole).slice(0, 6), [userRole]);
+  const { canView } = usePermissions();
+  const { t } = useI18n();
+  const navItems = useMemo(() => getFlatNavItems(userRole, canView, t), [userRole, canView, t]);
+  const quickLinks = useMemo(() => getQuickActions(userRole, canView, t).slice(0, 6), [userRole, canView, t]);
 
   useEffect(() => {
     const unsubCampuses = dataService.subscribe('campuses', setCampuses);
@@ -72,7 +76,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
 
     students.forEach((s) => {
       searchResults.push({
-        type: 'Student',
+        type: t('commandPalette.student'),
         title: `${s.firstName} ${s.lastName || ''}`.trim(),
         subtitle: s.rollNumber,
         icon: User,
@@ -92,7 +96,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
       .slice(0, 3)
       .forEach((c) => {
         searchResults.push({
-          type: 'Campus',
+          type: t('commandPalette.campus'),
           title: c.campusName,
           subtitle: c.campusCode,
           icon: School,
@@ -107,7 +111,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
       .filter((item) => item.name.toLowerCase().includes(q))
       .forEach((item) => {
         searchResults.push({
-          type: 'Navigate',
+          type: t('commandPalette.navigate'),
           title: item.name,
           subtitle: item.path,
           icon: item.icon,
@@ -119,7 +123,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
       });
 
     return searchResults;
-  }, [query, students, campuses, navigate, navItems]);
+  }, [query, students, campuses, navigate, navItems, t]);
 
   return (
     <AnimatePresence>
@@ -136,7 +140,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
               <input
                 autoFocus
                 type="text"
-                placeholder="Search students, campuses, or modules…"
+                placeholder={t('commandPalette.placeholder')}
                 className="w-full bg-transparent text-lg outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -181,11 +185,11 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
               ) : query.trim() !== '' ? (
                 <div className="p-10 text-center text-slate-400">
                   <Search className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">No results for &ldquo;{query}&rdquo;</p>
+                  <p className="text-sm">{t('commandPalette.noResultsFor', { query })}</p>
                 </div>
               ) : (
                 <div className="p-4">
-                  <p className="nav-module-label mb-3">Quick navigation</p>
+                  <p className="nav-module-label mb-3">{t('commandPalette.quickNavigation')}</p>
                   <div className="grid grid-cols-2 gap-2">
                     {quickLinks.map((item) => (
                       <button
@@ -209,8 +213,8 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
             </div>
 
             <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest">
-              <span>Esc to close</span>
-              <span>Ctrl+K toggle</span>
+              <span>{t('commandPalette.escClose')}</span>
+              <span>{t('commandPalette.ctrlToggle')}</span>
             </div>
           </motion.div>
         </div>

@@ -7,11 +7,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useConfirm } from '../context/ConfirmContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { gradeFromMarks } from '../utils/examGrades';
 
 const scopeUser = getStoredUser();
-const canCreateExam = scopeUser?.role === 'Super Admin' || scopeUser?.role === 'Admin';
 
 export default function Exams() {
   const confirm = useConfirm();
@@ -151,18 +152,17 @@ export default function Exams() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Exams & Results</h2>
-          <p className="text-slate-500 font-medium mt-1">Schedule exams and record student marks</p>
-        </div>
-        {canCreateExam && (
-          <button onClick={() => setIsModalOpen(true)} className="vibrant-btn-primary flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            <span className="text-[10px] font-black uppercase tracking-widest">New Exam</span>
-          </button>
-        )}
-      </div>
+      <TranslatedPageHeader
+        module="exams"
+        actions={
+          <PermissionGate module="exams" action="create">
+            <button onClick={() => setIsModalOpen(true)} className="vibrant-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+              <Plus className="w-4 h-4" />
+              New exam
+            </button>
+          </PermissionGate>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="vibrant-card overflow-hidden">
@@ -185,7 +185,7 @@ export default function Exams() {
                     <p className="text-xs text-slate-500 mt-1">{exam.className} · {exam.campusName}</p>
                     <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-2">{exam.examType} · {exam.examDate || 'TBD'}</p>
                   </div>
-                  {scopeUser?.role === 'Super Admin' && (
+                  <PermissionGate module="exams" action="delete">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.id); }}
@@ -193,7 +193,7 @@ export default function Exams() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                  )}
+                  </PermissionGate>
                 </div>
               </button>
             ))}
@@ -227,10 +227,12 @@ export default function Exams() {
                   <Download className="w-4 h-4" />
                   <span className="text-[10px] font-black uppercase">PDF</span>
                 </button>
-                <button onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
-                  <Save className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase">Save</span>
-                </button>
+                <PermissionGate module="exams" action="update">
+                  <button onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
+                    <Save className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase">Save</span>
+                  </button>
+                </PermissionGate>
               </div>
             )}
           </div>

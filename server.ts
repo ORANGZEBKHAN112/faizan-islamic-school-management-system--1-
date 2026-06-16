@@ -17,6 +17,42 @@ import {
   refreshDashboardCampusStats,
   archiveOldFees,
 } from "./server/scalingJobs.js";
+import {
+  APP_MODULES,
+  COLLECTION_TO_MODULE,
+  ensureRoleSchema,
+  seedAppRoles,
+  fetchPermissionsForRole,
+  hasPermission,
+  invalidatePermissionCache,
+  permissionsToRows,
+  emptyPermissionMap,
+  isSuperAdminRole,
+  fullPermissionMap,
+  migrateRoleNameTypo,
+  type PermissionAction,
+  type PermissionMap,
+} from "./server/rolePermissions.js";
+import {
+  runAdmissionCnicReview,
+  normalizeCnic,
+  createEnrollmentFeeVoucher,
+  type AdmissionReviewResult,
+} from "./server/admissionReview.js";
+import {
+  ADMISSION_TEST_PASS_MARKS,
+  ADMISSION_DOC_TYPES,
+  generateAdmissionTrackingNo,
+  sendAdmissionSms,
+  contactMatchesApplication,
+  type AdmissionDocType,
+} from "./server/admissionHelpers.js";
+import {
+  isStudentRollUsername,
+  suggestLoginUsername,
+  pickUniqueLoginUsername,
+  normalizeStaffUsernames,
+} from "./server/userLogin.js";
 
 interface JwtPayload {
   id: string;
@@ -89,6 +125,55 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   return requireRoles(ADMIN_ROLES)(req, res, next);
 }
 
+async function getRolePermissions(role: string): Promise<PermissionMap> {
+  if (!pool || !pool.connected) await connectToDb();
+  if (!pool) return emptyPermissionMap();
+  return fetchPermissionsForRole(pool, role);
+}
+
+function requireModulePermission(moduleKey: string, action: PermissionAction) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    if (isSuperAdminRole(req.auth.role)) {
+      next();
+      return;
+    }
+    getRolePermissions(req.auth.role)
+      .then((perms) => {
+        if (!hasPermission(perms, moduleKey, action, req.auth.role)) {
+          res.status(403).json({ message: "Forbidden — insufficient permissions" });
+          return;
+        }
+        next();
+      })
+      .catch((err) => next(err));
+  };
+}
+
+async function assertCollectionPermission(
+  req: Request,
+  res: Response,
+  collection: string,
+  action: PermissionAction
+): Promise<boolean> {
+  const moduleKey = COLLECTION_TO_MODULE[collection];
+  if (!moduleKey) return true;
+  if (!req.auth) {
+    res.status(401).json({ message: "Unauthorized" });
+    return false;
+  }
+  if (isSuperAdminRole(req.auth.role)) return true;
+  const perms = await getRolePermissions(req.auth.role);
+  if (!hasPermission(perms, moduleKey, action, req.auth.role)) {
+    res.status(403).json({ message: "Forbidden — insufficient permissions" });
+    return false;
+  }
+  return true;
+}
+
 function isPublicApiRoute(req: Request): boolean {
   const path = getApiPath(req);
   if (path === "/api/health") return true;
@@ -97,6 +182,7 @@ function isPublicApiRoute(req: Request): boolean {
   if (path === "/api/public/campuses" && req.method === "GET") return true;
   if (path === "/api/public/classes" && req.method === "GET") return true;
   if (path === "/api/public/admissions" && req.method === "POST") return true;
+  if (path === "/api/public/admissions/track" && req.method === "GET") return true;
   return false;
 }
 
@@ -233,52 +319,19 @@ async function sendInterviewScheduleSms(payload: {
   campusPhone?: string | null;
   interviewAt: string;
   applicationId: string;
+  trackingNo?: string;
 }) {
-  const webhookUrl = process.env.SMS_WEBHOOK_URL || "";
-  if (!webhookUrl) {
-    console.log("[SMS SKIP] SMS_WEBHOOK_URL not configured", {
-      applicationId: payload.applicationId,
-      phone: payload.phoneNumber,
-    });
-    return { sent: false as const, reason: "SMS_WEBHOOK_URL not configured" };
-  }
-
-  const interviewDate = new Date(payload.interviewAt);
-  const dateText = Number.isNaN(interviewDate.getTime())
-    ? payload.interviewAt
-    : interviewDate.toLocaleString("en-PK", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-
-  const message = [
-    `Dear Parent/Guardian,`,
-    `Admission interview for ${payload.applicantName} is scheduled on ${dateText}.`,
-    `Campus: ${payload.campusName}`,
-    payload.campusAddress ? `Address: ${payload.campusAddress}` : "",
-    payload.campusPhone ? `Campus Contact: ${payload.campusPhone}` : "",
-    `Application Ref: ${payload.applicationId}`,
-    `Please arrive 15 minutes earlier.`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const resp = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      to: payload.phoneNumber,
-      message,
-      template: "admission_interview_schedule",
-      applicationId: payload.applicationId,
-    }),
+  return sendAdmissionSms({
+    phoneNumber: payload.phoneNumber,
+    template: "admission_interview_schedule",
+    applicationId: payload.applicationId,
+    trackingNo: payload.trackingNo,
+    applicantName: payload.applicantName,
+    campusName: payload.campusName,
+    campusAddress: payload.campusAddress,
+    campusPhone: payload.campusPhone,
+    interviewAt: payload.interviewAt,
   });
-
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`SMS API failed (${resp.status}): ${body.slice(0, 240)}`);
-  }
-  return { sent: true as const };
 }
 
 function redactQuickPayConfig(row: Record<string, unknown>) {
@@ -322,6 +375,29 @@ function resolveCampusFilter(
   if (scope) return { filter: scope, denied: false };
   const q = queryCampusId && queryCampusId !== "all" ? String(queryCampusId) : null;
   return { filter: q, denied: false };
+}
+
+function mapUserFromRow(user: Record<string, unknown>) {
+  const createdOnRaw = user.createdOn ?? user.created_on ?? user.CreatedOn;
+  return {
+    id: String(user.id ?? ""),
+    fullName: String(user.fullName ?? user.full_name ?? user.FullName ?? ""),
+    username: String(user.username ?? user.Username ?? ""),
+    email: (user.email ?? user.Email ?? null) as string | null,
+    role: String(user.role ?? user.Role ?? ""),
+    campusId: (user.campusId ?? user.campus_id ?? null) as string | null,
+    isActive: Boolean(user.isActive ?? user.is_active ?? user.IsActive ?? true),
+    createdOn: createdOnRaw
+      ? new Date(createdOnRaw as string | number | Date).toISOString().slice(0, 10)
+      : null,
+    uid: (user.uid ?? user.UID ?? null) as string | null,
+  };
+}
+
+function isUserActive(user: Record<string, unknown>): boolean {
+  const active = user.isActive ?? user.is_active ?? user.IsActive;
+  if (active === false || active === 0 || active === "0") return false;
+  return active === undefined ? true : Boolean(active);
 }
 
 async function assertCampusWrite(user: AuthUserRow, targetCampusId: string): Promise<string | null> {
@@ -707,6 +783,43 @@ const TABLE_INSERT_WHITELIST: Record<string, Set<string>> = {
 
 let pool: sql.ConnectionPool;
 
+async function ensureAdmissionExtendedSchema(pool: sql.ConnectionPool): Promise<void> {
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'tracking_no')
+      ALTER TABLE AdmissionApplications ADD tracking_no NVARCHAR(30);
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'student_bform')
+      ALTER TABLE AdmissionApplications ADD student_bform NVARCHAR(50);
+  `);
+
+  await pool.request().query(`
+    IF OBJECT_ID('AdmissionDocuments', 'U') IS NULL
+    BEGIN
+      CREATE TABLE AdmissionDocuments (
+        id NVARCHAR(50) PRIMARY KEY,
+        application_id NVARCHAR(50) NOT NULL,
+        doc_type NVARCHAR(50) NOT NULL,
+        file_name NVARCHAR(255),
+        file_url NVARCHAR(500) NOT NULL,
+        uploaded_by NVARCHAR(255),
+        uploaded_on DATETIME DEFAULT GETDATE()
+      );
+    END
+  `);
+
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AdmissionDocuments_application' AND object_id = OBJECT_ID('AdmissionDocuments'))
+      CREATE INDEX IX_AdmissionDocuments_application ON AdmissionDocuments(application_id);
+  `);
+
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_AdmissionApplications_tracking_no' AND object_id = OBJECT_ID('AdmissionApplications'))
+      AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'tracking_no')
+    BEGIN
+      EXEC('CREATE UNIQUE INDEX UX_AdmissionApplications_tracking_no ON AdmissionApplications(tracking_no) WHERE tracking_no IS NOT NULL');
+    END
+  `);
+}
+
 async function connectToDb() {
   try {
     if (!sqlConfig.user || !sqlConfig.server || sqlConfig.server.includes('localdb')) {
@@ -715,7 +828,13 @@ async function connectToDb() {
     
     pool = await sql.connect(sqlConfig);
     console.log("✅ Connected to MSSQL successfully");
-    
+
+    try {
+      await ensureAdmissionExtendedSchema(pool);
+    } catch (admissionSchemaEarlyErr) {
+      console.error("Error applying admission extended schema (early):", admissionSchemaEarlyErr);
+    }
+
     // Ensure outstanding_fees column exists in Students table
     try {
       await pool.request().query(`
@@ -950,6 +1069,8 @@ async function connectToDb() {
             EXEC sp_rename 'Users.campus_id', 'campusId', 'COLUMN';
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'campusId')
             ALTER TABLE Users ADD campusId NVARCHAR(50);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'uid')
+            ALTER TABLE Users ADD uid NVARCHAR(255);
         END
 
         -- Staff: same campus column naming
@@ -1136,6 +1257,7 @@ async function connectToDb() {
             class_id NVARCHAR(50),
             applicant_name NVARCHAR(255) NOT NULL,
             father_name NVARCHAR(255),
+            father_cnic NVARCHAR(50),
             date_of_birth DATE,
             gender NVARCHAR(20),
             contact_number NVARCHAR(50),
@@ -1150,7 +1272,17 @@ async function connectToDb() {
             student_id NVARCHAR(50),
             interview_at DATETIME,
             interview_sms_sent BIT DEFAULT 0,
-            interview_sms_sent_on DATETIME
+            interview_sms_sent_on DATETIME,
+            linked_student_id NVARCHAR(50),
+            review_match_type NVARCHAR(30),
+            review_snapshot NVARCHAR(MAX),
+            waive_admission_fee BIT DEFAULT 0,
+            fee_discount_amount DECIMAL(18, 2) DEFAULT 0,
+            fee_discount_percent DECIMAL(5, 2) DEFAULT 0,
+            sibling_discount_percent DECIMAL(5, 2) DEFAULT 0,
+            rejection_reason NVARCHAR(100),
+            tracking_no NVARCHAR(30),
+            student_bform NVARCHAR(50)
           );
         END
         ELSE
@@ -1161,7 +1293,39 @@ async function connectToDb() {
             ALTER TABLE AdmissionApplications ADD interview_sms_sent BIT DEFAULT 0;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'interview_sms_sent_on')
             ALTER TABLE AdmissionApplications ADD interview_sms_sent_on DATETIME;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'father_cnic')
+            ALTER TABLE AdmissionApplications ADD father_cnic NVARCHAR(50);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'linked_student_id')
+            ALTER TABLE AdmissionApplications ADD linked_student_id NVARCHAR(50);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'review_match_type')
+            ALTER TABLE AdmissionApplications ADD review_match_type NVARCHAR(30);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'review_snapshot')
+            ALTER TABLE AdmissionApplications ADD review_snapshot NVARCHAR(MAX);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'waive_admission_fee')
+            ALTER TABLE AdmissionApplications ADD waive_admission_fee BIT DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'fee_discount_amount')
+            ALTER TABLE AdmissionApplications ADD fee_discount_amount DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'fee_discount_percent')
+            ALTER TABLE AdmissionApplications ADD fee_discount_percent DECIMAL(5, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'sibling_discount_percent')
+            ALTER TABLE AdmissionApplications ADD sibling_discount_percent DECIMAL(5, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'rejection_reason')
+            ALTER TABLE AdmissionApplications ADD rejection_reason NVARCHAR(100);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'tracking_no')
+            ALTER TABLE AdmissionApplications ADD tracking_no NVARCHAR(30);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'student_bform')
+            ALTER TABLE AdmissionApplications ADD student_bform NVARCHAR(50);
         END
+
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Campuses') AND name = 'sibling_discount_2nd')
+          ALTER TABLE Campuses ADD sibling_discount_2nd DECIMAL(5, 2) DEFAULT 10;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Campuses') AND name = 'sibling_discount_3rd')
+          ALTER TABLE Campuses ADD sibling_discount_3rd DECIMAL(5, 2) DEFAULT 15;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Students_father_cnic' AND object_id = OBJECT_ID('Students'))
+          CREATE INDEX IX_Students_father_cnic ON Students(father_cnic);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AdmissionApplications_father_cnic' AND object_id = OBJECT_ID('AdmissionApplications'))
+          CREATE INDEX IX_AdmissionApplications_father_cnic ON AdmissionApplications(father_cnic);
 
         IF OBJECT_ID('FeeGenerationRuns', 'U') IS NULL
         BEGIN
@@ -1186,8 +1350,28 @@ async function connectToDb() {
     }
 
     await seedAdmin();
+    await seedDemoUsers();
     await migrateFeeStructuresSession(pool);
     await ensureScalingSchema(pool);
+    await ensureRoleSchema(pool);
+    try {
+      await ensureAdmissionExtendedSchema(pool);
+      console.log("Admission extended schema verified (tracking_no, student_bform, documents)");
+    } catch (admissionSchemaErr) {
+      console.error("Error applying admission extended schema:", admissionSchemaErr);
+    }
+    try {
+      const renamed = await normalizeStaffUsernames(pool);
+      if (renamed > 0) console.log(`Normalized ${renamed} staff login username(s) away from student roll numbers`);
+    } catch (usernameErr) {
+      console.error("Error normalizing staff usernames:", usernameErr);
+    }
+    await seedAppRoles(pool);
+    try {
+      await migrateRoleNameTypo(pool);
+    } catch (roleTypoErr) {
+      console.error("Error migrating Principle → Principal role name:", roleTypoErr);
+    }
   } catch (err) {
     console.error("Database connection failed:", err);
   }
@@ -1286,6 +1470,41 @@ async function seedAdmin() {
   }
 }
 
+/** Demo staff accounts for QA (mirrors Database/02_seed_users_roles.sql). */
+async function seedDemoUsers() {
+  const demoUsers = [
+    { id: "usr-super-2", fullName: "System Super Admin", username: "superadmin", email: "superadmin@faizan.com", password: "superadmin123", role: "Super Admin" },
+    { id: "usr-accountant", fullName: "Head Accountant", username: "accountant", email: "accountant@faizan.com", password: "accountant123", role: "Accountant" },
+    { id: "usr-teacher", fullName: "Demo Teacher", username: "teacher", email: "teacher@faizan.com", password: "teacher123", role: "Teacher" },
+    { id: "usr-campus-admin", fullName: "Campus Administrator", username: "campusadmin", email: "campusadmin@faizan.com", password: "campusadmin123", role: "Admin" },
+  ];
+
+  try {
+    for (const u of demoUsers) {
+      const existing = await pool.request()
+        .input("username", u.username)
+        .query("SELECT id FROM Users WHERE username = @username");
+      if (existing.recordset.length > 0) continue;
+
+      const hashedPassword = await bcrypt.hash(u.password, 10);
+      await pool.request()
+        .input("id", u.id)
+        .input("fullName", u.fullName)
+        .input("username", u.username)
+        .input("email", u.email)
+        .input("passwordHash", hashedPassword)
+        .input("role", u.role)
+        .query(`
+          INSERT INTO Users (id, fullName, username, email, passwordHash, role, isActive, createdOn)
+          VALUES (@id, @fullName, @username, @email, @passwordHash, @role, 1, GETDATE())
+        `);
+      console.log(`Seeded demo user: ${u.username}`);
+    }
+  } catch (err) {
+    console.error("Error seeding demo users:", err);
+  }
+}
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'wwwroot', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -1296,6 +1515,27 @@ const studentPhotosDir = path.join(uploadsDir, "students");
 if (!fs.existsSync(studentPhotosDir)) {
   fs.mkdirSync(studentPhotosDir, { recursive: true });
 }
+
+const admissionDocsDir = path.join(uploadsDir, "admissions");
+if (!fs.existsSync(admissionDocsDir)) {
+  fs.mkdirSync(admissionDocsDir, { recursive: true });
+}
+
+const uploadAdmissionDoc = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, admissionDocsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || ".pdf";
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^(image\/(jpeg|jpg|png|webp|gif|bmp)|application\/pdf)$/.test(file.mimetype);
+    if (ok) cb(null, true);
+    else cb(new Error("Only PDF or image files are allowed"));
+  },
+});
 
 const uploadStudentPhoto = multer({
   storage: multer.diskStorage({
@@ -1412,19 +1652,27 @@ async function startServer() {
       if (!a.campusId) return res.status(400).json({ message: "Campus is required" });
       if (!a.applicantName?.trim()) return res.status(400).json({ message: "Applicant name is required" });
       if (!a.contactNumber?.trim()) return res.status(400).json({ message: "Contact number is required" });
+      const fatherCnic = normalizeCnic(a.fatherCnic);
+      if (fatherCnic.length !== 13) return res.status(400).json({ message: "Father CNIC (13 digits) is required" });
+      const studentBform = a.studentBform ? String(a.studentBform).trim() : null;
 
       const campusCheck = await pool.request()
         .input("campusId", a.campusId)
-        .query("SELECT id FROM Campuses WHERE id = @campusId AND isActive = 1");
-      if (!campusCheck.recordset[0]) return res.status(400).json({ message: INACTIVE_CAMPUS_ACTION_MESSAGE });
+        .query("SELECT id, campus_name, phone FROM Campuses WHERE id = @campusId AND isActive = 1");
+      const campusRow = campusCheck.recordset[0];
+      if (!campusRow) return res.status(400).json({ message: INACTIVE_CAMPUS_ACTION_MESSAGE });
 
       const id = crypto.randomUUID();
+      const trackingNo = await generateAdmissionTrackingNo(pool);
       await pool.request()
         .input("id", id)
+        .input("tracking_no", trackingNo)
         .input("campus_id", a.campusId)
         .input("class_id", a.classId || null)
         .input("applicant_name", a.applicantName.trim())
         .input("father_name", a.fatherName || null)
+        .input("father_cnic", fatherCnic)
+        .input("student_bform", studentBform)
         .input("date_of_birth", a.dateOfBirth || null)
         .input("gender", a.gender || null)
         .input("contact_number", a.contactNumber || null)
@@ -1432,16 +1680,87 @@ async function startServer() {
         .input("previous_school", a.previousSchool || null)
         .query(`
           INSERT INTO AdmissionApplications (
-            id, campus_id, class_id, applicant_name, father_name, date_of_birth,
-            gender, contact_number, address, previous_school, status
+            id, tracking_no, campus_id, class_id, applicant_name, father_name, father_cnic, student_bform,
+            date_of_birth, gender, contact_number, address, previous_school, status
           ) VALUES (
-            @id, @campus_id, @class_id, @applicant_name, @father_name, @date_of_birth,
-            @gender, @contact_number, @address, @previous_school, 'Pending'
+            @id, @tracking_no, @campus_id, @class_id, @applicant_name, @father_name, @father_cnic, @student_bform,
+            @date_of_birth, @gender, @contact_number, @address, @previous_school, 'Pending'
           )
         `);
-      res.status(201).json({ id, status: "Pending", message: "Application submitted successfully" });
+
+      let smsSent = false;
+      let smsError: string | null = null;
+      try {
+        const smsResult = await sendAdmissionSms({
+          phoneNumber: String(a.contactNumber),
+          template: "admission_application_received",
+          applicationId: id,
+          trackingNo,
+          applicantName: a.applicantName.trim(),
+          campusName: String(campusRow.campus_name),
+          campusPhone: campusRow.phone || null,
+        });
+        smsSent = smsResult.sent;
+        if (!smsResult.sent) smsError = smsResult.reason || null;
+      } catch (smsErr) {
+        smsError = smsErr instanceof Error ? smsErr.message : String(smsErr);
+        console.warn("Application received SMS failed:", smsErr);
+      }
+
+      res.status(201).json({
+        id,
+        trackingNo,
+        status: "Pending",
+        message: "Application submitted successfully",
+        smsSent,
+        smsError,
+      });
     } catch (err) {
       sendServerError(res, err, "Error submitting application");
+    }
+  });
+
+  app.get("/api/public/admissions/track", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const trackingNo = String(req.query.trackingNo || "").trim().toUpperCase();
+      const contact = String(req.query.contact || "").trim();
+      if (!trackingNo) return res.status(400).json({ message: "Tracking number is required" });
+      if (!contact) return res.status(400).json({ message: "Contact number is required for verification" });
+
+      const result = await pool.request()
+        .input("tracking_no", trackingNo)
+        .query(`
+          SELECT a.tracking_no AS trackingNo, a.applicant_name AS applicantName, a.status,
+                 CONVERT(VARCHAR, a.applied_on, 120) AS appliedOn,
+                 CONVERT(VARCHAR, a.interview_at, 120) AS interviewAt,
+                 a.rejection_reason AS rejectionReason,
+                 a.contact_number AS contactNumber,
+                 c.campus_name AS campusName, cl.class_name AS className
+          FROM AdmissionApplications a
+          LEFT JOIN Campuses c ON c.id = a.campus_id
+          LEFT JOIN Classes cl ON cl.id = a.class_id
+          WHERE a.tracking_no = @tracking_no
+        `);
+      const row = result.recordset[0];
+      if (!row) return res.status(404).json({ message: "Application not found" });
+      if (!contactMatchesApplication(contact, String(row.contactNumber || ""))) {
+        return res.status(403).json({ message: "Contact number does not match this application" });
+      }
+
+      res.json({
+        trackingNo: row.trackingNo,
+        applicantName: row.applicantName,
+        status: row.status,
+        appliedOn: row.appliedOn,
+        interviewAt: row.interviewAt,
+        rejectionReason: row.rejectionReason,
+        campusName: row.campusName,
+        className: row.className,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error tracking application");
     }
   });
 
@@ -1461,23 +1780,217 @@ async function startServer() {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      if (!user.isActive) {
+      if (!isUserActive(user)) {
         return res.status(403).json({ message: "Account is disabled" });
       }
 
+      const permissions = await getRolePermissions(user.role);
+      const mapped = mapUserFromRow(user);
+
       res.json({
-        id: user.id,
-        fullName: user.fullName,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        campusId: user.campusId,
-        isActive: user.isActive,
-        createdOn: user.createdOn,
-        uid: user.uid
+        ...mapped,
+        permissions,
       });
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.get("/api/permission-modules", requireModulePermission("roles", "view"), (_req, res) => {
+    res.json(APP_MODULES);
+  });
+
+  app.get("/api/app-roles", requireModulePermission("roles", "view"), async (_req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const result = await pool.request().query(`
+        SELECT id, name, description, isSystem, isActive, createdOn
+        FROM AppRoles
+        ORDER BY isSystem DESC, name ASC
+      `);
+      res.json(result.recordset.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        isSystem: Boolean(row.isSystem),
+        isActive: Boolean(row.isActive),
+        createdOn: row.createdOn,
+      })));
+    } catch (err) {
+      sendServerError(res, err, "Error fetching roles");
+    }
+  });
+
+  app.get("/api/app-roles/:id/permissions", requireModulePermission("roles", "view"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const roleRow = await pool.request()
+        .input("roleId", req.params.id)
+        .query("SELECT name FROM AppRoles WHERE id = @roleId");
+      const roleName = roleRow.recordset[0]?.name as string | undefined;
+      if (isSuperAdminRole(roleName)) {
+        return res.json(fullPermissionMap());
+      }
+      const result = await pool.request()
+        .input("roleId", req.params.id)
+        .query(`
+          SELECT moduleKey, canView, canCreate, canUpdate, canDelete
+          FROM AppRolePermissions WHERE roleId = @roleId
+        `);
+      const map = emptyPermissionMap();
+      for (const row of result.recordset) {
+        map[String(row.moduleKey)] = {
+          view: Boolean(row.canView),
+          create: Boolean(row.canCreate),
+          update: Boolean(row.canUpdate),
+          delete: Boolean(row.canDelete),
+        };
+      }
+      res.json(map);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching role permissions");
+    }
+  });
+
+  app.post("/api/app-roles", requireModulePermission("roles", "create"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const name = String(req.body.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Role name is required" });
+      const dup = await pool.request().input("name", name).query("SELECT id FROM AppRoles WHERE name = @name");
+      if (dup.recordset.length) return res.status(409).json({ message: "Role name already exists" });
+
+      const id = crypto.randomUUID();
+      await pool.request()
+        .input("id", id)
+        .input("name", name)
+        .input("description", String(req.body.description || "").trim() || null)
+        .input("isSystem", 0)
+        .query(`
+          INSERT INTO AppRoles (id, name, description, isSystem, isActive, createdOn)
+          VALUES (@id, @name, @description, @isSystem, 1, GETDATE())
+        `);
+
+      const permissions = (req.body.permissions || emptyPermissionMap()) as PermissionMap;
+      for (const row of permissionsToRows(id, permissions)) {
+        await pool.request()
+          .input("id", row.id)
+          .input("roleId", row.roleId)
+          .input("moduleKey", row.moduleKey)
+          .input("canView", row.canView ? 1 : 0)
+          .input("canCreate", row.canCreate ? 1 : 0)
+          .input("canUpdate", row.canUpdate ? 1 : 0)
+          .input("canDelete", row.canDelete ? 1 : 0)
+          .query(`
+            INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
+            VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
+          `);
+      }
+      invalidatePermissionCache(name);
+      res.status(201).json({ id, name, description: req.body.description || "", isSystem: false, isActive: true });
+    } catch (err) {
+      sendServerError(res, err, "Error creating role");
+    }
+  });
+
+  app.put("/api/app-roles/:id", requireModulePermission("roles", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const existing = await pool.request()
+        .input("id", req.params.id)
+        .query("SELECT * FROM AppRoles WHERE id = @id");
+      const role = existing.recordset[0];
+      if (!role) return res.status(404).json({ message: "Role not found" });
+
+      const name = String(req.body.name ?? role.name).trim();
+      const description = req.body.description !== undefined ? String(req.body.description || "").trim() : role.description;
+      const isActive = req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : role.isActive;
+
+      if (Boolean(role.isSystem) && name !== role.name) {
+        return res.status(400).json({ message: "System role name cannot be changed" });
+      }
+
+      await pool.request()
+        .input("id", req.params.id)
+        .input("name", name)
+        .input("description", description || null)
+        .input("isActive", isActive)
+        .query(`
+          UPDATE AppRoles SET name = @name, description = @description, isActive = @isActive
+          WHERE id = @id
+        `);
+
+      invalidatePermissionCache(role.name);
+      if (name !== role.name) invalidatePermissionCache(name);
+      res.json({ id: req.params.id, name, description, isSystem: Boolean(role.isSystem), isActive: Boolean(isActive) });
+    } catch (err) {
+      sendServerError(res, err, "Error updating role");
+    }
+  });
+
+  app.put("/api/app-roles/:id/permissions", requireModulePermission("roles", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const existing = await pool.request()
+        .input("id", req.params.id)
+        .query("SELECT name FROM AppRoles WHERE id = @id");
+      const role = existing.recordset[0];
+      if (!role) return res.status(404).json({ message: "Role not found" });
+      if (isSuperAdminRole(role.name)) {
+        return res.status(403).json({ message: "Super Admin permissions cannot be modified" });
+      }
+
+      const permissions = (req.body.permissions || req.body || emptyPermissionMap()) as PermissionMap;
+      await pool.request().input("roleId", req.params.id).query("DELETE FROM AppRolePermissions WHERE roleId = @roleId");
+      for (const row of permissionsToRows(req.params.id, permissions)) {
+        await pool.request()
+          .input("id", row.id)
+          .input("roleId", row.roleId)
+          .input("moduleKey", row.moduleKey)
+          .input("canView", row.canView ? 1 : 0)
+          .input("canCreate", row.canCreate ? 1 : 0)
+          .input("canUpdate", row.canUpdate ? 1 : 0)
+          .input("canDelete", row.canDelete ? 1 : 0)
+          .query(`
+            INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
+            VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
+          `);
+      }
+      invalidatePermissionCache(role.name);
+      res.json({ ok: true });
+    } catch (err) {
+      sendServerError(res, err, "Error saving role permissions");
+    }
+  });
+
+  app.delete("/api/app-roles/:id", requireModulePermission("roles", "delete"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const existing = await pool.request()
+        .input("id", req.params.id)
+        .query("SELECT name, isSystem FROM AppRoles WHERE id = @id");
+      const role = existing.recordset[0];
+      if (!role) return res.status(404).json({ message: "Role not found" });
+      if (role.isSystem) return res.status(400).json({ message: "System roles cannot be deleted" });
+
+      const users = await pool.request()
+        .input("role", role.name)
+        .query("SELECT COUNT(*) AS cnt FROM Users WHERE role = @role");
+      if (Number(users.recordset[0]?.cnt || 0) > 0) {
+        return res.status(400).json({ message: "Role is assigned to users and cannot be deleted" });
+      }
+
+      await pool.request().input("id", req.params.id).query("DELETE FROM AppRoles WHERE id = @id");
+      invalidatePermissionCache(role.name);
+      res.status(204).send();
+    } catch (err) {
+      sendServerError(res, err, "Error deleting role");
     }
   });
 
@@ -1489,6 +2002,10 @@ async function startServer() {
 
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const studentPerms = await getRolePermissions(authUser.role);
+      if (!hasPermission(studentPerms, "students", "view", authUser.role)) {
+        return res.status(403).json({ message: "Forbidden — insufficient permissions" });
+      }
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
       if (denied) {
         const { page, limit } = parsePagination(req);
@@ -1640,6 +2157,8 @@ async function startServer() {
           phone,
           email,
           isActive,
+          ISNULL(sibling_discount_2nd, 10) AS siblingDiscount2nd,
+          ISNULL(sibling_discount_3rd, 15) AS siblingDiscount3rd,
           CONVERT(VARCHAR, createdOn, 23) AS createdOn
         FROM Campuses
         ${campusWhere}
@@ -1671,9 +2190,11 @@ async function startServer() {
         .input("phone", c.phone || null)
         .input("email", c.email || null)
         .input("isActive", c.isActive === false ? 0 : 1)
+        .input("sibling_discount_2nd", c.siblingDiscount2nd ?? 10)
+        .input("sibling_discount_3rd", c.siblingDiscount3rd ?? 15)
         .query(`
-          INSERT INTO Campuses (id, campus_code, campus_name, city, region, address, phone, email, isActive)
-          VALUES (@id, @campus_code, @campus_name, @city, @region, @address, @phone, @email, @isActive)
+          INSERT INTO Campuses (id, campus_code, campus_name, city, region, address, phone, email, isActive, sibling_discount_2nd, sibling_discount_3rd)
+          VALUES (@id, @campus_code, @campus_name, @city, @region, @address, @phone, @email, @isActive, @sibling_discount_2nd, @sibling_discount_3rd)
         `);
       
       res.status(201).json({ ...c, id });
@@ -1720,10 +2241,13 @@ async function startServer() {
         .input("phone", c.phone || null)
         .input("email", c.email || null)
         .input("isActive", c.isActive === false ? 0 : 1)
+        .input("sibling_discount_2nd", c.siblingDiscount2nd ?? 10)
+        .input("sibling_discount_3rd", c.siblingDiscount3rd ?? 15)
         .query(`
           UPDATE Campuses 
           SET campus_code = @campus_code, campus_name = @campus_name, city = @city, region = @region, 
-              address = @address, phone = @phone, email = @email, isActive = @isActive
+              address = @address, phone = @phone, email = @email, isActive = @isActive,
+              sibling_discount_2nd = @sibling_discount_2nd, sibling_discount_3rd = @sibling_discount_3rd
           WHERE id = @id
         `);
       
@@ -3304,7 +3828,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/students", requireRoles(ADMIN_ROLES), async (req, res) => {
+  app.post("/api/students", requireModulePermission("students", "create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -3366,7 +3890,7 @@ async function startServer() {
     }
   });
 
-  app.put("/api/students/:id", requireRoles(ADMIN_ROLES), async (req, res) => {
+  app.put("/api/students/:id", requireModulePermission("students", "update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -3808,33 +4332,46 @@ async function startServer() {
     }
   });
 
-  // User management (Super Admin only — never expose password hashes)
-  app.get("/api/users", requireRoles(SUPER_ADMIN_ROLES), async (_req, res) => {
+  // User management (permission-gated; never expose password hashes)
+  app.get("/api/users", requireModulePermission("users", "view"), async (_req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const result = await pool.request().query(`
-        SELECT id, fullName, username, email, role, campusId, isActive,
-               CONVERT(VARCHAR, createdOn, 23) AS createdOn, uid
-        FROM Users
-        ORDER BY createdOn DESC
+        SELECT u.*,
+          CASE WHEN s.id IS NOT NULL THEN s.admission_no ELSE NULL END AS linkedStudentRoll
+        FROM Users u
+        LEFT JOIN Students s ON s.admission_no = u.username AND s.status = 'Active'
       `);
-      res.json(result.recordset);
+      const users = result.recordset
+        .map((row) => {
+          const mapped = mapUserFromRow(row as Record<string, unknown>);
+          const linkedStudentRoll = row.linkedStudentRoll as string | null;
+          return linkedStudentRoll ? { ...mapped, linkedStudentRoll } : mapped;
+        })
+        .sort((a, b) => String(b.createdOn || "").localeCompare(String(a.createdOn || "")));
+      res.json(users);
     } catch (err) {
       sendServerError(res, err, "Error fetching users");
     }
   });
 
-  app.put("/api/users/:id", requireRoles(SUPER_ADMIN_ROLES), async (req, res) => {
+  app.put("/api/users/:id", requireModulePermission("users", "update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const { id } = req.params;
-      const { fullName, email, role, campusId, isActive, password } = req.body;
+      const { fullName, email, role, campusId, isActive, password, username } = req.body;
 
       if (req.auth?.id === id && isActive === false) {
         return res.status(400).json({ message: "Cannot deactivate your own account" });
       }
+
+      const existingUser = await pool.request()
+        .input("id", id)
+        .query("SELECT fullName, username, role FROM Users WHERE id = @id");
+      const existing = existingUser.recordset[0];
+      if (!existing) return res.status(404).json({ message: "User not found" });
 
       const request = pool.request().input("id", id);
       const updates: string[] = [];
@@ -3852,6 +4389,32 @@ async function startServer() {
         }
         request.input("role", role);
         updates.push("role = @role");
+        if (role !== "Student" && username === undefined && isStudentRollUsername(String(existing.username))) {
+          const newUsername = await pickUniqueLoginUsername(
+            pool,
+            suggestLoginUsername(fullName ?? existing.fullName),
+            id,
+          );
+          request.input("username", newUsername);
+          updates.push("username = @username");
+        }
+      }
+      if (username !== undefined) {
+        const nextUsername = String(username).trim();
+        if (!nextUsername) return res.status(400).json({ message: "Username cannot be empty" });
+        const targetRole = role ?? (await pool.request().input("id", id).query("SELECT role FROM Users WHERE id = @id")).recordset[0]?.role;
+        if (targetRole && targetRole !== "Student" && isStudentRollUsername(nextUsername)) {
+          return res.status(400).json({
+            message: "Staff login username cannot use student roll format (STU-YYYY-####). Use a name-based username.",
+          });
+        }
+        const dup = await pool.request()
+          .input("username", nextUsername)
+          .input("id", id)
+          .query("SELECT id FROM Users WHERE username = @username AND id <> @id");
+        if (dup.recordset[0]) return res.status(409).json({ message: "Username already in use" });
+        request.input("username", nextUsername);
+        updates.push("username = @username");
       }
       if (campusId !== undefined) {
         request.input("campusId", campusId || null);
@@ -3872,8 +4435,8 @@ async function startServer() {
       await request.query(`UPDATE Users SET ${updates.join(", ")} WHERE id = @id`);
       const updated = await pool.request()
         .input("id", id)
-        .query(`SELECT id, fullName, username, email, role, campusId, isActive, CONVERT(VARCHAR, createdOn, 23) AS createdOn FROM Users WHERE id = @id`);
-      res.json(updated.recordset[0]);
+        .query(`SELECT * FROM Users WHERE id = @id`);
+      res.json(mapUserFromRow(updated.recordset[0] as Record<string, unknown>));
     } catch (err) {
       sendServerError(res, err, "Error updating user");
     }
@@ -4244,7 +4807,7 @@ async function startServer() {
   });
 
   // Admissions workflow
-  app.get("/api/admissions", async (req, res) => {
+  app.get("/api/admissions", requireModulePermission("admissions", "view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4260,7 +4823,9 @@ async function startServer() {
       const result = await request.query(`
         SELECT a.id, a.campus_id AS campusId, c.campus_name AS campusName,
                a.class_id AS classId, cl.class_name AS className,
+               a.tracking_no AS trackingNo,
                a.applicant_name AS applicantName, a.father_name AS fatherName,
+               a.father_cnic AS fatherCnic, a.student_bform AS studentBform,
                CONVERT(VARCHAR, a.date_of_birth, 23) AS dateOfBirth,
                a.gender, a.contact_number AS contactNumber, a.address,
                a.previous_school AS previousSchool,
@@ -4268,6 +4833,14 @@ async function startServer() {
                a.status, a.test_marks AS testMarks, a.remarks,
                a.reviewed_by AS reviewedBy, CONVERT(VARCHAR, a.reviewed_on, 120) AS reviewedOn,
                a.student_id AS studentId,
+               a.linked_student_id AS linkedStudentId,
+               a.review_match_type AS reviewMatchType,
+               a.review_snapshot AS reviewSnapshot,
+               ISNULL(a.waive_admission_fee, 0) AS waiveAdmissionFee,
+               ISNULL(a.fee_discount_amount, 0) AS feeDiscountAmount,
+               ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
+               ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
+               a.rejection_reason AS rejectionReason,
                CONVERT(VARCHAR, a.interview_at, 120) AS interviewAt,
                ISNULL(a.interview_sms_sent, 0) AS interviewSmsSent,
                CONVERT(VARCHAR, a.interview_sms_sent_on, 120) AS interviewSmsSentOn,
@@ -4285,7 +4858,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/admissions", requireRoles(ADMIN_ROLES), async (req, res) => {
+  app.post("/api/admissions", requireModulePermission("admissions", "create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4294,13 +4867,19 @@ async function startServer() {
       const a = req.body;
       const campusErr = await assertCampusWrite(authUser, a.campusId);
       if (campusErr) return res.status(403).json({ message: campusErr });
+      const fatherCnic = normalizeCnic(a.fatherCnic);
+      if (fatherCnic.length !== 13) return res.status(400).json({ message: "Father CNIC (13 digits) is required" });
       const id = crypto.randomUUID();
+      const trackingNo = await generateAdmissionTrackingNo(pool);
       await pool.request()
         .input("id", id)
+        .input("tracking_no", trackingNo)
         .input("campus_id", a.campusId)
         .input("class_id", a.classId || null)
         .input("applicant_name", a.applicantName)
         .input("father_name", a.fatherName || null)
+        .input("father_cnic", fatherCnic)
+        .input("student_bform", a.studentBform || null)
         .input("date_of_birth", a.dateOfBirth || null)
         .input("gender", a.gender || null)
         .input("contact_number", a.contactNumber || null)
@@ -4310,20 +4889,20 @@ async function startServer() {
         .input("remarks", a.remarks || null)
         .query(`
           INSERT INTO AdmissionApplications (
-            id, campus_id, class_id, applicant_name, father_name, date_of_birth,
-            gender, contact_number, address, previous_school, test_marks, remarks, status
+            id, tracking_no, campus_id, class_id, applicant_name, father_name, father_cnic, student_bform,
+            date_of_birth, gender, contact_number, address, previous_school, test_marks, remarks, status
           ) VALUES (
-            @id, @campus_id, @class_id, @applicant_name, @father_name, @date_of_birth,
-            @gender, @contact_number, @address, @previous_school, @test_marks, @remarks, 'Pending'
+            @id, @tracking_no, @campus_id, @class_id, @applicant_name, @father_name, @father_cnic, @student_bform,
+            @date_of_birth, @gender, @contact_number, @address, @previous_school, @test_marks, @remarks, 'Pending'
           )
         `);
-      res.status(201).json({ ...a, id, status: "Pending" });
+      res.status(201).json({ ...a, id, trackingNo, status: "Pending" });
     } catch (err) {
       sendServerError(res, err, "Error creating admission application");
     }
   });
 
-  app.put("/api/admissions/:id", requireRoles(ADMIN_ROLES), async (req, res) => {
+  app.put("/api/admissions/:id", requireModulePermission("admissions", "update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4334,6 +4913,7 @@ async function startServer() {
 
       const existing = await pool.request().input("id", id).query(`
         SELECT a.campus_id, a.status, a.interview_at, a.contact_number, a.applicant_name,
+               a.test_marks, a.tracking_no, a.rejection_reason,
                c.campus_name, c.address AS campus_address, c.phone AS campus_phone
         FROM AdmissionApplications a
         LEFT JOIN Campuses c ON c.id = a.campus_id
@@ -4346,8 +4926,15 @@ async function startServer() {
 
       const nextStatus = a.status || row.status;
       const interviewAt = a.interviewAt || null;
+      const testMarks = a.testMarks != null ? Number(a.testMarks) : (row.test_marks != null ? Number(row.test_marks) : null);
+
       if (nextStatus === "Approved" && !interviewAt) {
         return res.status(400).json({ message: "Interview date/time is required when approving an application" });
+      }
+      if (nextStatus === "Approved" && (testMarks == null || Number.isNaN(testMarks) || testMarks < ADMISSION_TEST_PASS_MARKS)) {
+        return res.status(400).json({
+          message: `Test marks must be at least ${ADMISSION_TEST_PASS_MARKS} to approve (current: ${testMarks ?? "not set"})`,
+        });
       }
 
       const shouldSendInterviewSms = Boolean(
@@ -4356,21 +4943,32 @@ async function startServer() {
         row.contact_number &&
         (row.status !== "Approved" || String(row.interview_at || "") !== String(interviewAt))
       );
+      const shouldSendRejectSms = Boolean(
+        nextStatus === "Rejected" &&
+        row.status !== "Rejected" &&
+        row.contact_number
+      );
 
       await pool.request()
         .input("id", id)
         .input("class_id", a.classId || null)
+        .input("father_cnic", a.fatherCnic != null ? normalizeCnic(String(a.fatherCnic)) || null : null)
+        .input("student_bform", a.studentBform != null ? String(a.studentBform).trim() || null : null)
         .input("status", nextStatus)
         .input("test_marks", a.testMarks ?? null)
         .input("remarks", a.remarks || null)
+        .input("rejection_reason", a.rejectionReason || a.rejection_reason || null)
         .input("interview_at", interviewAt)
         .input("reviewed_by", req.auth?.username || null)
         .query(`
           UPDATE AdmissionApplications SET
             class_id = COALESCE(@class_id, class_id),
+            father_cnic = COALESCE(@father_cnic, father_cnic),
+            student_bform = COALESCE(@student_bform, student_bform),
             status = @status,
-            test_marks = @test_marks,
+            test_marks = COALESCE(@test_marks, test_marks),
             remarks = @remarks,
+            rejection_reason = COALESCE(@rejection_reason, rejection_reason),
             interview_at = COALESCE(@interview_at, interview_at),
             reviewed_by = @reviewed_by,
             reviewed_on = GETDATE()
@@ -4389,6 +4987,7 @@ async function startServer() {
             campusPhone: row.campus_phone || null,
             interviewAt: String(interviewAt),
             applicationId: id,
+            trackingNo: row.tracking_no || undefined,
           });
           smsSent = smsResult.sent;
           if (smsResult.sent) {
@@ -4404,15 +5003,395 @@ async function startServer() {
           smsError = smsErr instanceof Error ? smsErr.message : String(smsErr);
           console.warn("Interview SMS failed:", smsErr);
         }
+      } else if (shouldSendRejectSms) {
+        try {
+          const smsResult = await sendAdmissionSms({
+            phoneNumber: String(row.contact_number),
+            template: "admission_rejected",
+            applicationId: id,
+            trackingNo: row.tracking_no || undefined,
+            applicantName: String(row.applicant_name || "Applicant"),
+            campusName: String(row.campus_name || "Campus"),
+            campusPhone: row.campus_phone || null,
+            rejectionReason: String(a.rejectionReason || a.rejection_reason || row.rejection_reason || ""),
+          });
+          smsSent = smsResult.sent;
+          if (!smsResult.sent) smsError = smsResult.reason || "SMS was not sent";
+        } catch (smsErr) {
+          smsError = smsErr instanceof Error ? smsErr.message : String(smsErr);
+          console.warn("Rejection SMS failed:", smsErr);
+        }
       }
 
-      res.json({ ...a, id, interviewAt, interviewSmsSent: smsSent, interviewSmsError: smsError });
+      res.json({ ...a, id, interviewAt, testMarks, interviewSmsSent: smsSent, interviewSmsError: smsError });
     } catch (err) {
       sendServerError(res, err, "Error updating admission");
     }
   });
 
-  app.post("/api/admissions/:id/enroll", requireRoles(ADMIN_ROLES), async (req, res) => {
+  app.get("/api/admissions/policy", async (_req, res) => {
+    res.json({
+      rejectionReasons: ["Incomplete documents", "Eligibility not met", "Failed entrance test", "Capacity full", "Duplicate application", "Already enrolled", "Other"],
+      siblingDiscountDefaults: { secondChildPercent: 10, thirdChildPercent: 15 },
+      testPassMarks: ADMISSION_TEST_PASS_MARKS,
+      documentTypes: ADMISSION_DOC_TYPES,
+    });
+  });
+
+  app.get("/api/admissions/report", requireModulePermission("admissions", "view"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.json({ summary: {}, rows: [] });
+
+      const request = pool.request();
+      const campusWhere = campusFilter ? " WHERE a.campus_id = @campusId" : "";
+      if (campusFilter) request.input("campusId", campusFilter);
+
+      const summaryResult = await request.query(`
+        SELECT
+          COUNT(*) AS totalApplications,
+          SUM(CASE WHEN a.status = 'Enrolled' THEN 1 ELSE 0 END) AS enrolled,
+          SUM(CASE WHEN a.review_match_type = 'new' THEN 1 ELSE 0 END) AS matchNew,
+          SUM(CASE WHEN a.review_match_type = 'sibling' THEN 1 ELSE 0 END) AS matchSibling,
+          SUM(CASE WHEN a.review_match_type = 're_enrollment' THEN 1 ELSE 0 END) AS matchReEnrollment,
+          SUM(CASE WHEN ISNULL(a.waive_admission_fee, 0) = 1 THEN 1 ELSE 0 END) AS waivedAdmissionFee,
+          SUM(ISNULL(a.fee_discount_amount, 0)) AS totalDiscountAmount,
+          SUM(ISNULL(a.sibling_discount_percent, 0)) AS totalSiblingDiscountPercent
+        FROM AdmissionApplications a
+        ${campusWhere}
+      `);
+
+      const rowsRequest = pool.request();
+      if (campusFilter) rowsRequest.input("campusId", campusFilter);
+      const rowsResult = await rowsRequest.query(`
+          SELECT a.tracking_no AS trackingNo, a.applicant_name AS applicantName,
+                 c.campus_name AS campusName, cl.class_name AS className,
+                 a.status, a.review_match_type AS reviewMatchType,
+                 a.test_marks AS testMarks,
+                 ISNULL(a.waive_admission_fee, 0) AS waiveAdmissionFee,
+                 ISNULL(a.fee_discount_amount, 0) AS feeDiscountAmount,
+                 ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
+                 ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
+                 a.rejection_reason AS rejectionReason,
+                 CONVERT(VARCHAR, a.applied_on, 120) AS appliedOn,
+                 CONVERT(VARCHAR, a.reviewed_on, 120) AS reviewedOn
+          FROM AdmissionApplications a
+          LEFT JOIN Campuses c ON c.id = a.campus_id
+          LEFT JOIN Classes cl ON cl.id = a.class_id
+          ${campusWhere}
+          ORDER BY a.applied_on DESC
+        `);
+
+      res.json({
+        summary: summaryResult.recordset[0] || {},
+        rows: rowsResult.recordset,
+        testPassMarks: ADMISSION_TEST_PASS_MARKS,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error generating admission report");
+    }
+  });
+
+  app.post("/api/admissions/:id/review-check", requireModulePermission("admissions", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+
+      const appResult = await pool.request().input("id", id).query(`
+        SELECT id, campus_id, class_id, applicant_name, father_cnic, date_of_birth, status
+        FROM AdmissionApplications WHERE id = @id
+      `);
+      const app = appResult.recordset[0];
+      if (!app) return res.status(404).json({ message: "Application not found" });
+      const campusErr = await assertCampusWrite(authUser, app.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const bodyCnic = req.body?.fatherCnic != null ? normalizeCnic(String(req.body.fatherCnic)) : "";
+      const storedCnic = normalizeCnic(app.father_cnic);
+      const fatherCnic = bodyCnic.length === 13 ? bodyCnic : storedCnic;
+
+      if (fatherCnic.length !== 13) {
+        return res.status(400).json({
+          message: storedCnic
+            ? "Father CNIC on record is invalid — please enter a valid 13-digit CNIC"
+            : "Father CNIC is missing on this application — please enter a valid 13-digit CNIC",
+        });
+      }
+
+      if (fatherCnic !== storedCnic) {
+        await pool.request()
+          .input("id", id)
+          .input("father_cnic", fatherCnic)
+          .query("UPDATE AdmissionApplications SET father_cnic = @father_cnic WHERE id = @id");
+      }
+
+      const result = await runAdmissionCnicReview(pool, {
+        fatherCnic,
+        applicantName: String(app.applicant_name),
+        dateOfBirth: app.date_of_birth ? String(app.date_of_birth).slice(0, 10) : null,
+        excludeApplicationId: id,
+        classId: req.body?.classId || app.class_id || null,
+        campusId: app.campus_id,
+        waiveAdmissionFee: Boolean(req.body?.waiveAdmissionFee),
+        discountAmount: Number(req.body?.feeDiscountAmount) || 0,
+        discountPercent: Number(req.body?.feeDiscountPercent) || 0,
+        siblingDiscountPercent: req.body?.siblingDiscountPercent != null
+          ? Number(req.body.siblingDiscountPercent)
+          : undefined,
+      });
+      res.json({ ...result, fatherCnic });
+    } catch (err) {
+      console.error("Error checking admission CNIC:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("CNIC")) return res.status(400).json({ message: msg });
+      res.status(500).json({ message: `CNIC check failed: ${msg}` });
+    }
+  });
+
+  app.post("/api/admissions/:id/review", requireModulePermission("admissions", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+      const body = req.body || {};
+
+      const appResult = await pool.request().input("id", id).query(`
+        SELECT id, campus_id, class_id, applicant_name, father_cnic, date_of_birth, status,
+               contact_number, tracking_no
+        FROM AdmissionApplications WHERE id = @id
+      `);
+      const app = appResult.recordset[0];
+      if (!app) return res.status(404).json({ message: "Application not found" });
+      if (app.status !== "Pending") {
+        return res.status(400).json({ message: "Only pending applications can be moved to review" });
+      }
+      const campusErr = await assertCampusWrite(authUser, app.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const bodyCnic = body.fatherCnic != null ? normalizeCnic(String(body.fatherCnic)) : "";
+      const storedCnic = normalizeCnic(app.father_cnic);
+      const fatherCnic = bodyCnic.length === 13 ? bodyCnic : storedCnic;
+      if (fatherCnic.length !== 13) {
+        return res.status(400).json({ message: "Father CNIC (13 digits) is required" });
+      }
+
+      const reviewResult: AdmissionReviewResult = body.reviewResult || await runAdmissionCnicReview(pool, {
+        fatherCnic,
+        applicantName: String(app.applicant_name),
+        dateOfBirth: app.date_of_birth ? String(app.date_of_birth).slice(0, 10) : null,
+        excludeApplicationId: id,
+      });
+
+      if (reviewResult.matchType === "duplicate_active") {
+        return res.status(409).json({
+          message: reviewResult.message,
+          reviewResult,
+        });
+      }
+
+      const linkedStudentId = body.linkedStudentId ?? reviewResult.suggestedLinkedStudentId ?? null;
+      const waiveAdmissionFee = Boolean(body.waiveAdmissionFee);
+      const feeDiscountAmount = Number(body.feeDiscountAmount) || 0;
+      const feeDiscountPercent = Number(body.feeDiscountPercent) || 0;
+      const siblingDiscountPercent = Number(
+        body.siblingDiscountPercent ?? reviewResult.suggestedSiblingDiscountPercent ?? 0,
+      );
+      const reviewSnapshot = JSON.stringify({
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: authUser.username,
+        ...reviewResult,
+      });
+
+      await pool.request()
+        .input("id", id)
+        .input("father_cnic", fatherCnic)
+        .input("status", "Under Review")
+        .input("linked_student_id", linkedStudentId)
+        .input("review_match_type", reviewResult.matchType)
+        .input("review_snapshot", reviewSnapshot)
+        .input("waive_admission_fee", waiveAdmissionFee ? 1 : 0)
+        .input("fee_discount_amount", feeDiscountAmount)
+        .input("fee_discount_percent", feeDiscountPercent)
+        .input("sibling_discount_percent", siblingDiscountPercent)
+        .input("reviewed_by", authUser.username)
+        .query(`
+          UPDATE AdmissionApplications SET
+            father_cnic = @father_cnic,
+            status = @status,
+            linked_student_id = @linked_student_id,
+            review_match_type = @review_match_type,
+            review_snapshot = @review_snapshot,
+            waive_admission_fee = @waive_admission_fee,
+            fee_discount_amount = @fee_discount_amount,
+            fee_discount_percent = @fee_discount_percent,
+            sibling_discount_percent = @sibling_discount_percent,
+            reviewed_by = @reviewed_by,
+            reviewed_on = GETDATE()
+          WHERE id = @id
+        `);
+
+      let reviewSmsSent = false;
+      let reviewSmsError: string | null = null;
+      if (app.contact_number) {
+        try {
+          const campusRow = await pool.request()
+            .input("campus_id", app.campus_id)
+            .query("SELECT campus_name, phone FROM Campuses WHERE id = @campus_id");
+          const campus = campusRow.recordset[0];
+          const smsResult = await sendAdmissionSms({
+            phoneNumber: String(app.contact_number),
+            template: "admission_under_review",
+            applicationId: id,
+            trackingNo: app.tracking_no || undefined,
+            applicantName: String(app.applicant_name),
+            campusName: campus?.campus_name || "Campus",
+            campusPhone: campus?.phone || null,
+          });
+          reviewSmsSent = smsResult.sent;
+          if (!smsResult.sent) reviewSmsError = smsResult.reason || null;
+        } catch (smsErr) {
+          reviewSmsError = smsErr instanceof Error ? smsErr.message : String(smsErr);
+          console.warn("Under review SMS failed:", smsErr);
+        }
+      }
+
+      res.json({
+        id,
+        status: "Under Review",
+        reviewMatchType: reviewResult.matchType,
+        linkedStudentId,
+        waiveAdmissionFee,
+        feeDiscountAmount,
+        feeDiscountPercent,
+        siblingDiscountPercent,
+        message: reviewResult.message,
+        reviewSmsSent,
+        reviewSmsError,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error completing admission review");
+    }
+  });
+
+  app.get("/api/admissions/:id/documents", requireModulePermission("admissions", "view"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+      const appRow = await pool.request().input("id", id).query("SELECT campus_id FROM AdmissionApplications WHERE id = @id");
+      const app = appRow.recordset[0];
+      if (!app) return res.status(404).json({ message: "Application not found" });
+      const campusErr = await assertCampusWrite(authUser, app.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const docs = await pool.request().input("application_id", id).query(`
+        SELECT id, application_id AS applicationId, doc_type AS docType, file_name AS fileName,
+               file_url AS fileUrl, uploaded_by AS uploadedBy,
+               CONVERT(VARCHAR, uploaded_on, 120) AS uploadedOn
+        FROM AdmissionDocuments WHERE application_id = @application_id
+        ORDER BY uploaded_on DESC
+      `);
+      res.json(docs.recordset);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching admission documents");
+    }
+  });
+
+  app.post("/api/admissions/:id/documents", requireModulePermission("admissions", "update"), (req, res) => {
+    uploadAdmissionDoc.single("file")(req, res, async (err) => {
+      try {
+        if (err) return res.status(400).json({ message: err instanceof Error ? err.message : String(err) });
+        if (!pool || !pool.connected) await connectToDb();
+        if (!pool) return res.status(503).json({ message: "Database connection not available" });
+        const authUser = await loadAuthUser(req);
+        if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+        const { id } = req.params;
+        if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+        const appRow = await pool.request().input("id", id).query("SELECT campus_id FROM AdmissionApplications WHERE id = @id");
+        const app = appRow.recordset[0];
+        if (!app) return res.status(404).json({ message: "Application not found" });
+        const campusErr = await assertCampusWrite(authUser, app.campus_id);
+        if (campusErr) return res.status(403).json({ message: campusErr });
+
+        const docTypeRaw = String(req.body?.docType || "other").toLowerCase();
+        const docType: AdmissionDocType = ADMISSION_DOC_TYPES.includes(docTypeRaw as AdmissionDocType)
+          ? (docTypeRaw as AdmissionDocType)
+          : "other";
+        const docId = crypto.randomUUID();
+        const fileUrl = `/uploads/admissions/${req.file.filename}`;
+
+        await pool.request()
+          .input("id", docId)
+          .input("application_id", id)
+          .input("doc_type", docType)
+          .input("file_name", req.file.originalname)
+          .input("file_url", fileUrl)
+          .input("uploaded_by", req.auth?.username || null)
+          .query(`
+            INSERT INTO AdmissionDocuments (id, application_id, doc_type, file_name, file_url, uploaded_by)
+            VALUES (@id, @application_id, @doc_type, @file_name, @file_url, @uploaded_by)
+          `);
+
+        res.status(201).json({
+          id: docId,
+          applicationId: id,
+          docType,
+          fileName: req.file.originalname,
+          fileUrl,
+          uploadedBy: req.auth?.username || null,
+        });
+      } catch (uploadErr) {
+        sendServerError(res, uploadErr, "Error uploading admission document");
+      }
+    });
+  });
+
+  app.delete("/api/admissions/:id/documents/:docId", requireModulePermission("admissions", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id, docId } = req.params;
+
+      const docRow = await pool.request()
+        .input("docId", docId)
+        .input("application_id", id)
+        .query(`
+          SELECT d.file_url, a.campus_id
+          FROM AdmissionDocuments d
+          JOIN AdmissionApplications a ON a.id = d.application_id
+          WHERE d.id = @docId AND d.application_id = @application_id
+        `);
+      const doc = docRow.recordset[0];
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+      const campusErr = await assertCampusWrite(authUser, doc.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      await pool.request().input("docId", docId).query("DELETE FROM AdmissionDocuments WHERE id = @docId");
+      if (doc.file_url) {
+        const diskPath = path.join(process.cwd(), "wwwroot", String(doc.file_url).replace(/^\//, ""));
+        if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+      }
+      res.json({ message: "Document deleted" });
+    } catch (err) {
+      sendServerError(res, err, "Error deleting admission document");
+    }
+  });
+
+  app.post("/api/admissions/:id/enroll", requireModulePermission("admissions", "update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4427,7 +5406,16 @@ async function startServer() {
       const app = appResult.recordset[0];
       if (!app) return res.status(404).json({ message: "Application not found" });
       if (app.status === "Enrolled") return res.status(400).json({ message: "Already enrolled" });
+      if (app.status !== "Approved") {
+        return res.status(400).json({ message: "Application must be approved before enrollment" });
+      }
       if (!app.class_id) return res.status(400).json({ message: "Assign a class before enrolling" });
+      if (!app.review_match_type) {
+        return res.status(400).json({ message: "Complete CNIC review before enrolling" });
+      }
+      if (app.review_match_type === "duplicate_active") {
+        return res.status(409).json({ message: "Cannot enroll — an active student with matching details already exists" });
+      }
 
       const campusErr = await assertCampusWrite(authUser, app.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
@@ -4435,50 +5423,118 @@ async function startServer() {
       const cap = await assertClassCapacity(app.class_id);
       if (!cap.ok) return res.status(400).json({ message: cap.message });
 
-      const year = new Date().getFullYear();
-      const countResult = await pool.request()
-        .input("pattern", `STU-${year}-%`)
-        .query("SELECT COUNT(*) AS cnt FROM Students WHERE admission_no LIKE @pattern");
-      const seq = (countResult.recordset[0]?.cnt ?? 0) + 1;
-      const rollNumber = `STU-${year}-${String(seq).padStart(4, "0")}`;
+      const fatherCnic = normalizeCnic(app.father_cnic);
+      const admissionDate = new Date().toISOString().split("T")[0];
+      let studentId: string;
+      let rollNumber: string;
+      let reactivated = false;
+      let carryArrears = 0;
 
-      const studentId = crypto.randomUUID();
-      await pool.request()
-        .input("id", studentId)
-        .input("campus_id", app.campus_id)
-        .input("class_id", app.class_id)
-        .input("admission_no", rollNumber)
-        .input("student_name", app.applicant_name)
-        .input("father_name", app.father_name)
-        .input("father_mobile", app.contact_number)
-        .input("dob", app.date_of_birth)
-        .input("admission_date", new Date().toISOString().split("T")[0])
-        .input("gender", app.gender)
-        .input("address", app.address)
-        .input("status", "Active")
-        .query(`
-          INSERT INTO Students (id, campus_id, class_id, admission_no, student_name, father_name,
-            father_mobile, dob, admission_date, gender, address, status, outstanding_fees)
-          VALUES (@id, @campus_id, @class_id, @admission_no, @student_name, @father_name,
-            @father_mobile, @dob, @admission_date, @gender, @address, @status, 0)
-        `);
-
-      try {
-        const hashed = await bcrypt.hash(rollNumber, 10);
-        await pool.request()
-          .input("id", crypto.randomUUID())
-          .input("fullName", app.applicant_name)
-          .input("username", rollNumber)
-          .input("passwordHash", hashed)
-          .input("role", "Student")
-          .input("campusId", app.campus_id)
+      if (app.review_match_type === "re_enrollment" && app.linked_student_id) {
+        const linkedResult = await pool.request()
+          .input("id", app.linked_student_id)
           .query(`
-            INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
-            VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 1, GETDATE())
+            SELECT id, admission_no, status, outstanding_fees FROM Students WHERE id = @id
           `);
-      } catch {
-        // Student record created; login account is optional
+        const linked = linkedResult.recordset[0];
+        if (!linked) return res.status(400).json({ message: "Linked student record not found" });
+        if (linked.status === "Active") {
+          return res.status(409).json({ message: "Linked student is already active" });
+        }
+
+        studentId = String(linked.id);
+        rollNumber = String(linked.admission_no);
+        carryArrears = Number(linked.outstanding_fees) || 0;
+        reactivated = true;
+
+        await pool.request()
+          .input("id", studentId)
+          .input("campus_id", app.campus_id)
+          .input("class_id", app.class_id)
+          .input("student_name", app.applicant_name)
+          .input("father_name", app.father_name)
+          .input("father_cnic", fatherCnic || null)
+          .input("father_mobile", app.contact_number)
+          .input("registration_no", app.student_bform || null)
+          .input("dob", app.date_of_birth)
+          .input("admission_date", admissionDate)
+          .input("gender", app.gender)
+          .input("address", app.address)
+          .query(`
+            UPDATE Students SET
+              campus_id = @campus_id,
+              class_id = @class_id,
+              student_name = @student_name,
+              father_name = @father_name,
+              father_cnic = @father_cnic,
+              father_mobile = @father_mobile,
+              registration_no = COALESCE(@registration_no, registration_no),
+              dob = @dob,
+              admission_date = @admission_date,
+              gender = @gender,
+              address = @address,
+              status = 'Active'
+            WHERE id = @id
+          `);
+      } else {
+        const year = new Date().getFullYear();
+        const countResult = await pool.request()
+          .input("pattern", `STU-${year}-%`)
+          .query("SELECT COUNT(*) AS cnt FROM Students WHERE admission_no LIKE @pattern");
+        const seq = (countResult.recordset[0]?.cnt ?? 0) + 1;
+        rollNumber = `STU-${year}-${String(seq).padStart(4, "0")}`;
+        studentId = crypto.randomUUID();
+
+        await pool.request()
+          .input("id", studentId)
+          .input("campus_id", app.campus_id)
+          .input("class_id", app.class_id)
+          .input("admission_no", rollNumber)
+          .input("student_name", app.applicant_name)
+          .input("father_name", app.father_name)
+          .input("father_cnic", fatherCnic || null)
+          .input("father_mobile", app.contact_number)
+          .input("registration_no", app.student_bform || null)
+          .input("dob", app.date_of_birth)
+          .input("admission_date", admissionDate)
+          .input("gender", app.gender)
+          .input("address", app.address)
+          .input("status", "Active")
+          .query(`
+            INSERT INTO Students (id, campus_id, class_id, admission_no, registration_no, student_name, father_name,
+              father_cnic, father_mobile, dob, admission_date, gender, address, status, outstanding_fees)
+            VALUES (@id, @campus_id, @class_id, @admission_no, @registration_no, @student_name, @father_name,
+              @father_cnic, @father_mobile, @dob, @admission_date, @gender, @address, @status, 0)
+          `);
+
+        if (!reactivated) {
+          try {
+            const hashed = await bcrypt.hash(rollNumber, 10);
+            await pool.request()
+              .input("id", crypto.randomUUID())
+              .input("fullName", app.applicant_name)
+              .input("username", rollNumber)
+              .input("passwordHash", hashed)
+              .input("role", "Student")
+              .input("campusId", app.campus_id)
+              .query(`
+                INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
+                VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 1, GETDATE())
+              `);
+          } catch {
+            // Student record created; login account is optional
+          }
+        }
       }
+
+      const feeVoucher = await createEnrollmentFeeVoucher(pool, studentId, app.class_id, {
+        waiveAdmissionFee: Boolean(app.waive_admission_fee),
+        discountAmount: Number(app.fee_discount_amount) || 0,
+        discountPercent: Number(app.fee_discount_percent) || 0,
+        siblingDiscountPercent: Number(app.sibling_discount_percent) || 0,
+        carryArrears: app.review_match_type === "re_enrollment" ? carryArrears : 0,
+      });
+      await recomputeStudentOutstanding(studentId);
 
       await pool.request()
         .input("id", id)
@@ -4489,7 +5545,15 @@ async function startServer() {
             reviewed_by = @reviewed_by, reviewed_on = GETDATE() WHERE id = @id
         `);
 
-      res.json({ message: "Student enrolled successfully", studentId, rollNumber });
+      res.json({
+        message: reactivated ? "Student reactivated and enrolled" : "Student enrolled successfully",
+        studentId,
+        rollNumber,
+        reactivated,
+        feeVoucherId: feeVoucher.feeId,
+        totalDue: feeVoucher.totalDue,
+        carryArrears: app.review_match_type === "re_enrollment" ? carryArrears : 0,
+      });
     } catch (err) {
       sendServerError(res, err, "Error enrolling student");
     }
@@ -4726,9 +5790,13 @@ async function startServer() {
     const tableName = TABLE_MAP[collection];
     if (!tableName) return res.status(404).json({ message: "Collection not supported in SQL yet" });
 
-    const readRoles = collection === "quickpay-config" ? QUICKPAY_ROLES : null;
-    if (readRoles && (!req.auth || !readRoles.has(req.auth.role))) {
-      return res.status(403).json({ message: "Forbidden — insufficient role" });
+    if (COLLECTION_TO_MODULE[collection]) {
+      if (!(await assertCollectionPermission(req, res, collection, "view"))) return;
+    } else {
+      const readRoles = collection === "quickpay-config" ? QUICKPAY_ROLES : null;
+      if (readRoles && (!req.auth || !readRoles.has(req.auth.role))) {
+        return res.status(403).json({ message: "Forbidden — insufficient role" });
+      }
     }
 
     try {
@@ -4787,9 +5855,13 @@ async function startServer() {
     const tableName = TABLE_MAP[collection];
     if (!tableName) return res.status(404).json({ message: "Collection not supported in SQL yet" });
 
-    const writeRoles = GENERIC_WRITE_ROLES[collection] || ADMIN_ROLES;
-    if (!req.auth || !writeRoles.has(req.auth.role)) {
-      return res.status(403).json({ message: "Forbidden — insufficient role" });
+    if (COLLECTION_TO_MODULE[collection]) {
+      if (!(await assertCollectionPermission(req, res, collection, "create"))) return;
+    } else {
+      const writeRoles = GENERIC_WRITE_ROLES[collection] || ADMIN_ROLES;
+      if (!req.auth || !writeRoles.has(req.auth.role)) {
+        return res.status(403).json({ message: "Forbidden — insufficient role" });
+      }
     }
 
     if (collection === "expenses" && req.body.campusId) {
@@ -4847,9 +5919,13 @@ async function startServer() {
     const tableName = TABLE_MAP[col];
     if (!tableName) return res.status(404).json({ message: "Collection not supported in SQL yet" });
 
-    const writeRoles = GENERIC_WRITE_ROLES[col] || ADMIN_ROLES;
-    if (!req.auth || !writeRoles.has(req.auth.role)) {
-      return res.status(403).json({ message: "Forbidden — insufficient role" });
+    if (COLLECTION_TO_MODULE[col]) {
+      if (!(await assertCollectionPermission(req, res, col, "update"))) return;
+    } else {
+      const writeRoles = GENERIC_WRITE_ROLES[col] || ADMIN_ROLES;
+      if (!req.auth || !writeRoles.has(req.auth.role)) {
+        return res.status(403).json({ message: "Forbidden — insufficient role" });
+      }
     }
 
     const body = { ...req.body };
@@ -4903,11 +5979,16 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/:collection/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/:collection/:id", async (req, res) => {
     const { collection, id } = req.params;
     const col = collection.toLowerCase();
     const tableName = TABLE_MAP[col];
     if (!tableName) return res.status(404).json({ message: "Collection not supported in SQL yet" });
+
+    if (!(await assertCollectionPermission(req, res, col, "delete"))) return;
+    if (!COLLECTION_TO_MODULE[col] && (!req.auth || !ADMIN_ROLES.has(req.auth.role))) {
+      return res.status(403).json({ message: "Forbidden — insufficient role" });
+    }
 
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -4954,7 +6035,7 @@ async function startServer() {
         return res.status(401).json({ message: "Invalid username or password" });
       }
 
-      if (!user.isActive) {
+      if (!isUserActive(user)) {
         return res.status(403).json({ message: "Account is disabled" });
       }
 
@@ -4969,17 +6050,15 @@ async function startServer() {
         { expiresIn: '24h' }
       );
 
+      const permissions = await getRolePermissions(user.role);
+      const mapped = mapUserFromRow(user);
+
       res.json({
         token,
         user: {
-          id: user.id,
-          fullName: user.fullName,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-          campusId: user.campusId || undefined,
-          isActive: user.isActive,
-          createdOn: user.createdOn
+          ...mapped,
+          campusId: mapped.campusId || undefined,
+          permissions,
         }
       });
     } catch (error) {
@@ -5001,6 +6080,11 @@ async function startServer() {
       }
 
       const targetRole = String(role);
+      if (targetRole !== "Student" && isStudentRollUsername(String(username))) {
+        return res.status(400).json({
+          message: "Staff accounts must use a name-based login username, not a student roll number (STU-YYYY-####).",
+        });
+      }
       if (targetRole === "Super Admin" && req.auth?.role !== "Super Admin") {
         return res.status(403).json({ message: "Forbidden — only Super Admin can create Super Admin accounts" });
       }

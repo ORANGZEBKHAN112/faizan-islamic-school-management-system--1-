@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { LogIn, UserPlus, ShieldCheck, X, Sun, Moon, Monitor } from 'lucide-react';
@@ -7,7 +7,9 @@ import { toast } from 'sonner';
 import FormField from '../components/ui/FormField';
 import DevCredit from '../components/ui/DevCredit';
 import { collectErrors, hasErrors, required } from '../utils/validation';
-import { ThemeMode, getStoredTheme, cycleTheme, themeLabel } from '../utils/theme';
+import { ThemeMode, getStoredTheme, cycleTheme, applyTheme } from '../utils/theme';
+import LanguageSwitcher from '../components/LanguageSwitcher';
+import { useI18n } from '../context/I18nContext';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -16,19 +18,34 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
+  const { t } = useI18n();
 
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
+  const themeName = t(`theme.${themeMode}`);
+
+  useEffect(() => {
+    applyTheme(themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => {
+      if (themeMode === 'system') applyTheme('system');
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themeMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const errors = collectErrors({
-      username: required(username, 'Username'),
-      password: required(password, 'Password'),
+      username: required(username, t('login.username')),
+      password: required(password, t('login.password')),
     });
     setFieldErrors(errors);
     if (hasErrors(errors)) {
-      toast.error('Please fix the highlighted fields');
+      toast.error(t('login.fixFields'));
       return;
     }
 
@@ -37,16 +54,16 @@ export default function Login() {
     try {
       const response = await authService.login({ username, passwordHash: password });
       if (!response?.token) {
-        toast.error('Login failed: no session token received. Please try again.');
+        toast.error(t('login.noToken'));
         return;
       }
       localStorage.setItem('token', response.token.trim());
       localStorage.setItem('user', JSON.stringify(response.user));
-      toast.success('Successfully logged in!');
+      toast.success(t('login.success'));
       window.location.reload();
     } catch (err: any) {
-      const errorMessage = err.response?.data?.message || err.response?.data || 'Authentication failed';
-      const finalError = typeof errorMessage === 'string' ? errorMessage : 'Authentication failed';
+      const errorMessage = err.response?.data?.message || err.response?.data || t('login.authFailed');
+      const finalError = typeof errorMessage === 'string' ? errorMessage : t('login.authFailed');
       setError(finalError);
       toast.error(finalError);
     } finally {
@@ -73,8 +90,8 @@ export default function Login() {
           <div className="flex items-center gap-4">
             <img src="/fiss-logo.svg" alt="FISS Logo" className="w-16 h-16 object-contain bg-white/10 rounded-2xl p-2" />
             <div>
-              <p className="text-white font-black text-xl tracking-tight">FISS</p>
-              <p className="text-white/70 text-sm font-medium">Faizan Islamic School System</p>
+              <p className="text-white font-black text-xl tracking-tight">{t('login.title')}</p>
+              <p className="text-white/70 text-sm font-medium">{t('login.subtitle')}</p>
             </div>
           </div>
           <motion.div
@@ -84,10 +101,10 @@ export default function Login() {
             className="max-w-lg"
           >
             <h2 className="text-4xl xl:text-5xl font-black text-white mb-6 leading-tight tracking-tight">
-              Essential education with tarbiyah
+              {t('login.heroTitle')}
             </h2>
             <p className="text-white/80 text-lg font-medium leading-relaxed">
-              A balanced approach to modern education and Islamic values for every campus in the network.
+              {t('login.heroBody')}
             </p>
           </motion.div>
           <DevCredit compact className="!text-white/50 !justify-start [&_strong]:!text-white/70" />
@@ -96,15 +113,18 @@ export default function Login() {
 
       {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
-        <button
-          type="button"
-          onClick={() => setThemeMode(cycleTheme(themeMode))}
-          className="absolute top-6 right-6 flex items-center gap-2 p-2.5 bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-primary transition-all z-20"
-          title={`Theme: ${themeLabel(themeMode)}`}
-        >
-          <ThemeIcon className="w-4 h-4" />
-          <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">{themeLabel(themeMode)}</span>
-        </button>
+        <div className="absolute top-6 end-6 flex items-center gap-2 z-20">
+          <LanguageSwitcher compact />
+          <button
+            type="button"
+            onClick={() => setThemeMode(cycleTheme(themeMode))}
+            className="flex items-center gap-2 p-2.5 bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 hover:text-primary transition-all"
+            title={`${themeName} — ${t('theme.change')}`}
+          >
+            <ThemeIcon className="w-4 h-4" />
+            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">{themeName}</span>
+          </button>
+        </div>
         {/* Background Decorative Elements */}
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
           <div className="absolute -top-24 -left-24 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
@@ -129,9 +149,9 @@ export default function Login() {
                 className="w-full h-full object-contain p-3"
               />
             </motion.div>
-            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">FISS</h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 text-sm">Faizan Islamic School System</p>
-            <span className="beta-badge mt-3 inline-flex">Beta</span>
+            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{t('login.title')}</h1>
+            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 text-sm">{t('login.subtitle')}</p>
+            <span className="beta-badge mt-3 inline-flex">{t('app.beta')}</span>
           </div>
 
           <AnimatePresence mode="wait">
@@ -151,7 +171,7 @@ export default function Login() {
           </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            <FormField label="Username" htmlFor="username" required error={fieldErrors.username}>
+            <FormField label={t('login.username')} htmlFor="username" required error={fieldErrors.username}>
               <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
                   <UserPlus className="w-5 h-5" />
@@ -166,12 +186,15 @@ export default function Login() {
                     setUsername(e.target.value);
                     if (fieldErrors.username) setFieldErrors((p) => ({ ...p, username: '' }));
                   }}
-                  placeholder="Enter your username"
+                  placeholder={t('login.usernamePlaceholder')}
                 />
               </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                {t('login.usernameHint')}
+              </p>
             </FormField>
 
-            <FormField label="Password" htmlFor="password" required error={fieldErrors.password}>
+            <FormField label={t('login.password')} htmlFor="password" required error={fieldErrors.password}>
               <div className="relative group">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
                   <ShieldCheck className="w-5 h-5" />
@@ -201,7 +224,7 @@ export default function Login() {
               ) : (
                 <>
                   <LogIn className="w-5 h-5" />
-                  Sign In
+                  {t('login.signIn')}
                 </>
               )}
             </button>
@@ -213,7 +236,7 @@ export default function Login() {
               className="text-sm font-semibold text-primary hover:underline inline-flex items-center gap-2"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              Apply for admission online
+              {t('login.applyLink')}
             </Link>
           </div>
 

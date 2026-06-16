@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Search, Edit2, UserCog, Shield } from 'lucide-react';
-import { User, Campus, UserRole } from '../types';
+import { User, Campus, UserRole, AppRole } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import Pagination from '../components/ui/Pagination';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import EmptyState from '../components/ui/EmptyState';
+import { PermissionGate } from '../context/PermissionContext';
+import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
 
 const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Teacher', 'Accountant', 'Student'];
 
@@ -17,6 +21,7 @@ export default function UserManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [roleOptions, setRoleOptions] = useState<AppRole[]>([]);
   const [formData, setFormData] = useState({
     fullName: '',
     username: '',
@@ -30,12 +35,14 @@ export default function UserManagement() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [userList, campusList] = await Promise.all([
+        const [userList, campusList, roles] = await Promise.all([
           dataService.fetchUsers(),
           dataService.fetchCampuses(),
+          dataService.fetchAppRoles().catch(() => []),
         ]);
         setUsers(userList);
         setCampuses(campusList);
+        setRoleOptions(roles.filter((r) => r.isActive));
       } catch (err) {
         console.error(err);
         toast.error('Failed to load users');
@@ -47,6 +54,14 @@ export default function UserManagement() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
+
+  useEffect(() => {
+    if (editingId || formData.role === 'Student') return;
+    if (!formData.fullName.trim()) return;
+    if (!formData.username.trim() || isStudentRollUsername(formData.username)) {
+      setFormData((prev) => ({ ...prev, username: suggestLoginUsername(formData.fullName) }));
+    }
+  }, [formData.fullName, formData.role, editingId]);
 
   const resetForm = () => {
     setFormData({
@@ -82,6 +97,9 @@ export default function UserManagement() {
           isActive: formData.isActive,
         };
         if (formData.password.trim()) payload.password = formData.password;
+        if (formData.username.trim() && formData.username !== users.find((u) => u.id === editingId)?.username) {
+          payload.username = formData.username.trim();
+        }
         await dataService.updateUser(editingId, payload);
         toast.success('User updated');
       } else {
@@ -130,19 +148,20 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">User Management</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Create and manage login accounts for staff and students</p>
-        </div>
-        <button
-          onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="vibrant-btn-primary flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Add User</span>
-        </button>
-      </div>
+      <TranslatedPageHeader
+        module="users"
+        actions={
+          <PermissionGate module="users" action="create">
+            <button
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="vibrant-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold"
+            >
+              <Plus className="w-4 h-4" />
+              Add user
+            </button>
+          </PermissionGate>
+        }
+      />
 
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800">
@@ -162,8 +181,8 @@ export default function UserManagement() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                <th className="px-8 py-5">User</th>
-                <th className="px-8 py-5">Username</th>
+                <th className="px-8 py-5">Name</th>
+                <th className="px-8 py-5">Login username</th>
                 <th className="px-8 py-5">Role</th>
                 <th className="px-8 py-5">Campus</th>
                 <th className="px-8 py-5">Status</th>
@@ -171,7 +190,19 @@ export default function UserManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {paginated.map((user) => (
+              {paginated.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-8 py-4">
+                    <EmptyState
+                      compact
+                      title={searchTerm ? 'No users match your search' : 'No users yet'}
+                      description={searchTerm ? 'Try a different name, username, or role.' : 'Add staff or student login accounts to get started.'}
+                      icon={UserCog}
+                    />
+                  </td>
+                </tr>
+              ) : (
+                paginated.map((user) => (
                 <tr key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-3">
@@ -184,7 +215,15 @@ export default function UserManagement() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-8 py-5 font-mono text-sm text-slate-600 dark:text-slate-300">{user.username}</td>
+                  <td className="px-8 py-5">
+                    <p className="font-mono text-sm text-slate-600 dark:text-slate-300">{user.username}</p>
+                    {user.linkedStudentRoll && user.role !== 'Student' && (
+                      <p className="text-[10px] text-slate-400 mt-0.5">Student roll: {user.linkedStudentRoll}</p>
+                    )}
+                    {staffUsernameFromRoll(user.role, user.username) && (
+                      <p className="text-[10px] text-accent font-bold mt-0.5">Uses student roll as login — edit to fix</p>
+                    )}
+                  </td>
                   <td className="px-8 py-5">
                     <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-black uppercase tracking-widest">
                       {user.role}
@@ -199,12 +238,15 @@ export default function UserManagement() {
                     </span>
                   </td>
                   <td className="px-8 py-5 text-right">
-                    <button onClick={() => handleEdit(user)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary transition-colors">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    <PermissionGate module="users" action="update">
+                      <button onClick={() => handleEdit(user)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary transition-colors">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </PermissionGate>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -233,8 +275,20 @@ export default function UserManagement() {
                   <input className="vibrant-input" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} required />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Username</label>
-                  <input className="vibrant-input" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required disabled={!!editingId} />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                    Login username
+                  </label>
+                  <input
+                    className="vibrant-input font-mono"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value.replace(/\s+/g, '').toLowerCase() })}
+                    required
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {formData.role === 'Student'
+                      ? 'Students use their roll number (e.g. STU-2026-0001) to log in.'
+                      : 'Staff use a short name (e.g. danish2), not a student roll number.'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Email</label>
@@ -245,9 +299,20 @@ export default function UserManagement() {
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role</label>
                     <SearchableSelect
                       value={formData.role}
-                      onChange={(role) => setFormData({ ...formData, role: role as UserRole })}
+                      onChange={(role) => {
+                        const nextRole = role as UserRole;
+                        const nextUsername = nextRole === 'Student'
+                          ? formData.username
+                          : (isStudentRollUsername(formData.username)
+                            ? suggestLoginUsername(formData.fullName)
+                            : formData.username);
+                        setFormData({ ...formData, role: nextRole, username: nextUsername });
+                      }}
                       searchPlaceholder="Search role…"
-                      options={ROLES.map((r) => ({ value: r, label: r }))}
+                      options={(roleOptions.length > 0
+                        ? roleOptions
+                        : ROLES.map((name) => ({ id: name, name, isSystem: true, isActive: true } as AppRole))
+                      ).map((r) => ({ value: r.name, label: r.name }))}
                     />
                   </div>
                   <div>

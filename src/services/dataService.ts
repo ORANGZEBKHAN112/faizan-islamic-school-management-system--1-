@@ -1,5 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
-import type { User } from '../types';
+import type { User, AppRole, PermissionMap, PermissionModuleDef } from '../types';
 
 const API_BASE_URL = '/api';
 const REFERENCE_COLLECTIONS = new Set(['campuses', 'classes']);
@@ -360,6 +360,25 @@ export const dataService = {
     return response.data;
   },
 
+  async reviewAdmissionCheck(id: string, options?: {
+    fatherCnic?: string;
+    classId?: string;
+    waiveAdmissionFee?: boolean;
+    feeDiscountAmount?: number;
+    feeDiscountPercent?: number;
+    siblingDiscountPercent?: number;
+  }) {
+    const body = options || {};
+    const response = await api.post(`/admissions/${id}/review-check`, body);
+    return response.data;
+  },
+
+  async reviewAdmission(id: string, data: Record<string, unknown>) {
+    const response = await api.post(`/admissions/${id}/review`, data);
+    this.invalidateCollection('admissions');
+    return response.data;
+  },
+
   async enrollAdmission(id: string) {
     const response = await api.post(`/admissions/${id}/enroll`);
     this.invalidateCollection('admissions');
@@ -379,7 +398,53 @@ export const dataService = {
 
   async submitPublicAdmission(data: Record<string, unknown>) {
     const response = await axios.post(`${API_BASE_URL}/public/admissions`, data);
+    return response.data as { id: string; trackingNo: string; status: string; smsSent?: boolean };
+  },
+
+  async trackPublicAdmission(trackingNo: string, contact: string) {
+    const response = await axios.get(`${API_BASE_URL}/public/admissions/track`, {
+      params: { trackingNo, contact },
+    });
     return response.data;
+  },
+
+  async fetchAdmissionPolicy() {
+    const response = await api.get('/admissions/policy');
+    return response.data as {
+      rejectionReasons: string[];
+      testPassMarks: number;
+      documentTypes: string[];
+      siblingDiscountDefaults: { secondChildPercent: number; thirdChildPercent: number };
+    };
+  },
+
+  async fetchAdmissionReport(params?: Record<string, unknown>) {
+    const response = await api.get('/admissions/report', { params });
+    return response.data;
+  },
+
+  async fetchAdmissionDocuments(applicationId: string) {
+    const response = await api.get(`/admissions/${applicationId}/documents`);
+    return response.data;
+  },
+
+  async uploadAdmissionDocument(applicationId: string, file: File, docType: string) {
+    const token = getStoredToken();
+    if (!token) throw new Error('Please log in again.');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('docType', docType);
+    const response = await api.post(`/admissions/${applicationId}/documents`, formData, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  async deleteAdmissionDocument(applicationId: string, docId: string) {
+    await api.delete(`/admissions/${applicationId}/documents/${docId}`);
   },
 
   async uploadStudentPhoto(studentId: string, file: File) {
@@ -586,5 +651,39 @@ export const dataService = {
       return result.data;
     }
     return this.getAll(collectionName, params);
+  },
+
+  async fetchPermissionModules() {
+    const response = await api.get<PermissionModuleDef[]>('/permission-modules');
+    return response.data;
+  },
+
+  async fetchAppRoles() {
+    const response = await api.get<AppRole[]>('/app-roles');
+    return response.data;
+  },
+
+  async fetchRolePermissions(roleId: string) {
+    const response = await api.get<PermissionMap>(`/app-roles/${roleId}/permissions`);
+    return response.data;
+  },
+
+  async createAppRole(payload: { name: string; description?: string; permissions: PermissionMap }) {
+    const response = await api.post<AppRole>('/app-roles', payload);
+    return response.data;
+  },
+
+  async updateAppRole(id: string, payload: Partial<Pick<AppRole, 'name' | 'description' | 'isActive'>>) {
+    const response = await api.put<AppRole>(`/app-roles/${id}`, payload);
+    return response.data;
+  },
+
+  async saveRolePermissions(roleId: string, permissions: PermissionMap) {
+    const response = await api.put(`/app-roles/${roleId}/permissions`, { permissions });
+    return response.data;
+  },
+
+  async deleteAppRole(id: string) {
+    await api.delete(`/app-roles/${id}`);
   },
 };

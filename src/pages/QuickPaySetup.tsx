@@ -5,6 +5,8 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 export default function QuickPaySetup() {
   const [config, setConfig] = useState<QuickPayConfig | null>(null);
@@ -89,32 +91,29 @@ export default function QuickPaySetup() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight uppercase">QuickPay Integration</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Configure and monitor online payment gateway</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
+      <TranslatedPageHeader
+        module="quickpay"
+        actions={
           <div className="vibrant-card px-4 py-2 flex items-center gap-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Test Amount</span>
-            <input 
-              type="number" 
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Test amount</span>
+            <input
+              type="number"
               className="w-20 bg-transparent font-black text-primary outline-none text-sm"
               value={testAmount}
               onChange={(e) => setTestAmount(Number(e.target.value))}
             />
-            <motion.button 
+            <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={handleTestPayment}
               disabled={isTesting}
               className="px-4 py-1.5 bg-primary/10 text-primary rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
             >
-              {isTesting ? 'Testing...' : 'Run Test'}
+              {isTesting ? 'Testing…' : 'Run test'}
             </motion.button>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
@@ -197,26 +196,28 @@ export default function QuickPaySetup() {
                   ]}
                 />
               </div>
-              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable QuickPay</span>
-                <button 
-                  type="button"
-                  onClick={() => setConfig(prev => ({ ...prev!, isEnabled: !prev?.isEnabled }))}
-                  className={`w-14 h-7 rounded-full transition-all relative ${config?.isEnabled ? 'bg-success shadow-lg shadow-success/20' : 'bg-slate-300 dark:bg-slate-700'}`}
+              <PermissionGate module="quickpay" action="update">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable QuickPay</span>
+                  <button 
+                    type="button"
+                    onClick={() => setConfig(prev => ({ ...prev!, isEnabled: !prev?.isEnabled }))}
+                    className={`w-14 h-7 rounded-full transition-all relative ${config?.isEnabled ? 'bg-success shadow-lg shadow-success/20' : 'bg-slate-300 dark:bg-slate-700'}`}
+                  >
+                    <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${config?.isEnabled ? 'left-8' : 'left-1'}`} />
+                  </button>
+                </div>
+                <motion.button 
+                  whileHover={{ scale: 1.02, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="submit" 
+                  disabled={loading}
+                  className="w-full vibrant-btn-primary py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
                 >
-                  <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${config?.isEnabled ? 'left-8' : 'left-1'}`} />
-                </button>
-              </div>
-              <motion.button 
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.98 }}
-                type="submit" 
-                disabled={loading}
-                className="w-full vibrant-btn-primary py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
-              >
-                <Save className="w-5 h-5" />
-                {loading ? 'Saving...' : 'Save Configuration'}
-              </motion.button>
+                  <Save className="w-5 h-5" />
+                  {loading ? 'Saving...' : 'Save Configuration'}
+                </motion.button>
+              </PermissionGate>
             </form>
           </div>
         </div>

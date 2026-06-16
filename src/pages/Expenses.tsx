@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 interface Expense {
   id: string;
@@ -91,23 +93,20 @@ export default function Expenses() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-            <TrendingDown className="w-10 h-10 text-rose-500" />
-            EXPENSES
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Track school expenditures and bills</p>
-        </div>
-
-        <button 
-          onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="px-8 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          Add Expense
-        </button>
-      </div>
+      <TranslatedPageHeader
+        module="expenses"
+        actions={
+          <PermissionGate module="expenses" action="create">
+            <button
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="vibrant-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold"
+            >
+              <Plus className="w-4 h-4" />
+              Add expense
+            </button>
+          </PermissionGate>
+        }
+      />
 
       {/* Stats row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -165,12 +164,16 @@ export default function Expenses() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex justify-end gap-2">
-                        <button onClick={() => handleEdit(exp)} className="p-2 text-slate-400 hover:text-primary transition-colors">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-400 hover:text-rose-500 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <PermissionGate module="expenses" action="update">
+                          <button onClick={() => handleEdit(exp)} className="p-2 text-slate-400 hover:text-primary transition-colors">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        </PermissionGate>
+                        <PermissionGate module="expenses" action="delete">
+                          <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-400 hover:text-rose-500 transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </PermissionGate>
                       </div>
                     </td>
                   </tr>

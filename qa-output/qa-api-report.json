@@ -1,0 +1,2061 @@
+{
+  "timestamp": "2026-06-16T22:17:32.860Z",
+  "baseUrl": "http://localhost:3000",
+  "health": {
+    "status": 200,
+    "data": {
+      "status": "ok",
+      "db": "connected",
+      "message": "Faizan Islamic School API is running"
+    }
+  },
+  "logins": [
+    {
+      "user": "Super Admin",
+      "username": "admin",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjEiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6IlN1cGVyIEFkbWluIiwiaWF0IjoxNzgxNjQ4MjUzLCJleHAiOjE3ODE3MzQ2NTN9.2cEFxIkS9xfUqu2G_nyPBEkE2Sam8MmKkh1g09CjpUk",
+        "user": {
+          "id": "1",
+          "fullName": "Super Admin",
+          "username": "admin",
+          "email": "admin@faizan.com",
+          "role": "Super Admin",
+          "campusId": null,
+          "isActive": true,
+          "createdOn": "2026-05-14",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "users": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "roles": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "campuses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "classes": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "staff": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "inventory": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "admissions": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "students": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "documents": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exams": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exam-attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fee-settings": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fees": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "expenses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "reports": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "quickpay": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Super Admin 2",
+      "username": "superadmin",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InVzci1zdXBlci0yIiwidXNlcm5hbWUiOiJzdXBlcmFkbWluIiwicm9sZSI6IlN1cGVyIEFkbWluIiwiaWF0IjoxNzgxNjQ4MjU4LCJleHAiOjE3ODE3MzQ2NTh9.4aCprDgAr21hUfTrLj-IyaiYPO3jZ9iRtMmttt8gMoI",
+        "user": {
+          "id": "usr-super-2",
+          "fullName": "System Super Admin",
+          "username": "superadmin",
+          "email": "superadmin@faizan.com",
+          "role": "Super Admin",
+          "campusId": null,
+          "isActive": true,
+          "createdOn": "2026-06-17",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "users": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "roles": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "campuses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "classes": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "staff": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "inventory": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "admissions": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "students": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "documents": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exams": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exam-attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fee-settings": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fees": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "expenses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "reports": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "quickpay": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Admin",
+      "username": "campusadmin",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InVzci1jYW1wdXMtYWRtaW4iLCJ1c2VybmFtZSI6ImNhbXB1c2FkbWluIiwicm9sZSI6IkFkbWluIiwiaWF0IjoxNzgxNjQ4MjYzLCJleHAiOjE3ODE3MzQ2NjN9.776JSgQyGeVRa1gkNm2TWLdESvJoayoKZx9cJYYucrw",
+        "user": {
+          "id": "usr-campus-admin",
+          "fullName": "Campus Administrator",
+          "username": "campusadmin",
+          "email": "campusadmin@faizan.com",
+          "role": "Admin",
+          "campusId": null,
+          "isActive": true,
+          "createdOn": "2026-06-17",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "users": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "roles": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "campuses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "classes": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "staff": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "inventory": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "admissions": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "students": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "documents": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exams": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exam-attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fee-settings": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fees": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "expenses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "reports": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "quickpay": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Accountant",
+      "username": "accountant",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InVzci1hY2NvdW50YW50IiwidXNlcm5hbWUiOiJhY2NvdW50YW50Iiwicm9sZSI6IkFjY291bnRhbnQiLCJpYXQiOjE3ODE2NDgyNjgsImV4cCI6MTc4MTczNDY2OH0.rxwlOr5-1K6_Ww8OE49cd0OYpamC4QeP_6bml5GqynU",
+        "user": {
+          "id": "usr-accountant",
+          "fullName": "Head Accountant",
+          "username": "accountant",
+          "email": "accountant@faizan.com",
+          "role": "Accountant",
+          "campusId": null,
+          "isActive": true,
+          "createdOn": "2026-06-17",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "users": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "roles": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "campuses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "classes": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "staff": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "inventory": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "admissions": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "students": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "documents": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "attendance": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "exams": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "exam-attendance": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fee-settings": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fees": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "expenses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "reports": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "quickpay": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Teacher",
+      "username": "teacher",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InVzci10ZWFjaGVyIiwidXNlcm5hbWUiOiJ0ZWFjaGVyIiwicm9sZSI6IlRlYWNoZXIiLCJpYXQiOjE3ODE2NDgyNzAsImV4cCI6MTc4MTczNDY3MH0.BRYxuOIfYs_ab6d3L-7RNVAqrySeb1FuNct8ZX56SLQ",
+        "user": {
+          "id": "usr-teacher",
+          "fullName": "Demo Teacher",
+          "username": "teacher",
+          "email": "teacher@faizan.com",
+          "role": "Teacher",
+          "campusId": null,
+          "isActive": true,
+          "createdOn": "2026-06-17",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "users": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "roles": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "campuses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "classes": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "staff": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "inventory": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "admissions": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "students": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "documents": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "attendance": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "exams": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": false
+            },
+            "exam-attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": false
+            },
+            "fee-settings": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fees": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "expenses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "reports": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "quickpay": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Principal (custom)",
+      "username": "danish2",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4YWNhNTZjLTFhYTgtNDY3NC05YzIyLTE5ZDFkMjg4NDk5OCIsInVzZXJuYW1lIjoiZGFuaXNoMiIsInJvbGUiOiJQcmluY2lwYWwiLCJjYW1wdXNJZCI6Ijk3YTQ4NWM5LTYyMTUtNDE2NS05NzY2LTk2NzA3YjYyMzRhYyIsImlhdCI6MTc4MTY0ODI3MiwiZXhwIjoxNzgxNzM0NjcyfQ.UY_9aWdNl2mDOfYiz3wm5YjxAEp3OoHaM85pLXWA1Mk",
+        "user": {
+          "id": "28aca56c-1aa8-4674-9c22-19d1d2884998",
+          "fullName": "danish 2",
+          "username": "danish2",
+          "email": "danish@gmail.com",
+          "role": "Principal",
+          "campusId": "97a485c9-6215-4165-9766-96707b6234ac",
+          "isActive": true,
+          "createdOn": "2026-06-09",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "users": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "roles": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "campuses": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "classes": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "staff": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "inventory": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "admissions": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "students": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "documents": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exams": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "exam-attendance": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "fee-settings": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fees": {
+              "view": true,
+              "create": true,
+              "update": true,
+              "delete": true
+            },
+            "expenses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "reports": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "quickpay": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "user": "Student",
+      "username": "STU-2026-0001",
+      "login": {
+        "ok": true,
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNjOTI3OWM4LTUyYWYtNDY3YS1hN2U4LTY1MTI5YWI3YWY0YyIsInVzZXJuYW1lIjoiU1RVLTIwMjYtMDAwMSIsInJvbGUiOiJTdHVkZW50IiwiY2FtcHVzSWQiOiI5N2E0ODVjOS02MjE1LTQxNjUtOTc2Ni05NjcwN2I2MjM0YWMiLCJpYXQiOjE3ODE2NDgyNzYsImV4cCI6MTc4MTczNDY3Nn0.F3g4g8IMi76eipq0cxJt2-iHIQNQdrYZwKCZWSNuEQ4",
+        "user": {
+          "id": "cc9279c8-52af-467a-a7e8-65129ab7af4c",
+          "fullName": "Danish ",
+          "username": "STU-2026-0001",
+          "email": null,
+          "role": "Student",
+          "campusId": "97a485c9-6215-4165-9766-96707b6234ac",
+          "isActive": true,
+          "createdOn": "2026-06-09",
+          "uid": null,
+          "permissions": {
+            "dashboard": {
+              "view": true,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "users": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "roles": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "campuses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "classes": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "staff": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "inventory": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "admissions": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "students": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "documents": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "attendance": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "exams": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "exam-attendance": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fee-settings": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "fees": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "expenses": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "reports": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            },
+            "quickpay": {
+              "view": false,
+              "create": false,
+              "update": false,
+              "delete": false
+            }
+          }
+        },
+        "meStatus": 200
+      },
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    }
+  ],
+  "apiByRole": [
+    {
+      "role": "Super Admin",
+      "username": "admin",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Super Admin",
+      "username": "superadmin",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Admin",
+      "username": "campusadmin",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Accountant",
+      "username": "accountant",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Teacher",
+      "username": "teacher",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Principal",
+      "username": "danish2",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "role": "Student",
+      "username": "STU-2026-0001",
+      "checks": [
+        {
+          "name": "health",
+          "path": "/api/health",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "dashboard-stats",
+          "path": "/api/dashboard-stats",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "students",
+          "path": "/api/students",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "campuses",
+          "path": "/api/campuses",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "classes",
+          "path": "/api/classes",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "fees",
+          "path": "/api/fees",
+          "status": 200,
+          "ok": true,
+          "note": ""
+        },
+        {
+          "name": "admissions",
+          "path": "/api/admissions",
+          "status": 403,
+          "ok": false,
+          "note": "Correctly denied"
+        },
+        {
+          "name": "users",
+          "path": "/api/users",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "roles",
+          "path": "/api/app-roles",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "quickpay-config",
+          "path": "/api/quickpay-config",
+          "status": 403,
+          "ok": false,
+          "note": ""
+        },
+        {
+          "name": "public-track",
+          "path": "/api/public/admissions/track?trackingNo=TEST-0000",
+          "status": 400,
+          "ok": false,
+          "note": ""
+        }
+      ]
+    }
+  ],
+  "bugs": []
+}

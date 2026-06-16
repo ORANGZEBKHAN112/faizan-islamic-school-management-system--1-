@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import Pagination from '../components/ui/Pagination';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 const scopeUser = getStoredUser();
 
@@ -114,16 +116,17 @@ export default function StaffManagement() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Staff Management</h2>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage teachers and campus staff records</p>
-        </div>
-        <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="vibrant-btn-primary flex items-center gap-2">
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Add Staff</span>
-        </button>
-      </div>
+      <TranslatedPageHeader
+        module="staff"
+        actions={
+          <PermissionGate module="staff" action="create">
+            <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="vibrant-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+              <Plus className="w-4 h-4" />
+              Add staff
+            </button>
+          </PermissionGate>
+        }
+      />
 
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800">
@@ -153,9 +156,11 @@ export default function StaffManagement() {
                   <td className="px-8 py-5 font-mono text-sm">{member.cnic}</td>
                   <td className="px-8 py-5 text-sm">Rs. {(member.salary || 0).toLocaleString()}</td>
                   <td className="px-8 py-5 text-right">
-                    <button onClick={() => handleEdit(member)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    <PermissionGate module="staff" action="update">
+                      <button onClick={() => handleEdit(member)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </PermissionGate>
                   </td>
                 </tr>
               ))}

@@ -8,6 +8,8 @@ import { useCollection } from '../hooks/useCollection';
 import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TableSkeleton from '../components/ui/TableSkeleton';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 export default function AttendancePage() {
   const [saving, setSaving] = useState(false);
@@ -118,16 +120,9 @@ export default function AttendancePage() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-            <CalendarIcon className="w-10 h-10 text-primary" />
-            ATTENDANCE
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Manage daily presence records for all classes</p>
-        </div>
+      <TranslatedPageHeader module="attendance" />
 
-        <div className="flex flex-wrap items-center gap-4 bg-white/50 dark:bg-slate-900/50 p-2 rounded-3xl border border-slate-100 dark:border-slate-800 backdrop-blur-md">
+      <div className="flex flex-wrap items-center gap-4 bg-white/50 dark:bg-slate-900/50 p-2 rounded-3xl border border-slate-100 dark:border-slate-800 backdrop-blur-md">
            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">
             <Building className="w-4 h-4 text-slate-400" />
             <SearchableSelect
@@ -171,7 +166,6 @@ export default function AttendancePage() {
             />
           </div>
         </div>
-      </div>
 
       {loading && <PageLoader label="Loading attendance data…" />}
       <AnimatePresence mode="wait">
@@ -216,16 +210,18 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={saveAttendance}
-                disabled={saving || filteredStudents.length === 0}
-                className="w-full md:w-auto px-8 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {saving ? <Clock className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {saving ? 'Saving...' : 'Save Attendance'}
-              </motion.button>
+              <PermissionGate module="attendance" action="update">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={saveAttendance}
+                  disabled={saving || filteredStudents.length === 0}
+                  className="w-full md:w-auto px-8 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? <Clock className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {saving ? 'Saving...' : 'Save Attendance'}
+                </motion.button>
+              </PermissionGate>
             </div>
 
             {/* Attendance Table */}

@@ -13,9 +13,12 @@ import { Campus, User } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import CommandPalette from './CommandPalette';
 import DevCredit from './ui/DevCredit';
+import LanguageSwitcher from './LanguageSwitcher';
 import { getNavModules, getPageTitle, isNavActive } from '../config/navigation';
-import { ThemeMode, getStoredTheme, applyTheme, cycleTheme, themeLabel } from '../utils/theme';
+import { ThemeMode, getStoredTheme, applyTheme, cycleTheme } from '../utils/theme';
 import { dataService } from '../services/dataService';
+import { usePermissions } from '../context/PermissionContext';
+import { useI18n } from '../context/I18nContext';
 
 interface LayoutProps {
   user: User;
@@ -26,11 +29,14 @@ export default function Layout({ user }: LayoutProps) {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredTheme());
   const [campusName, setCampusName] = useState<string | null>(null);
   const location = useLocation();
-  const navModules = useMemo(() => getNavModules(user.role), [user.role]);
+  const { canView } = usePermissions();
+  const { t, isRtl } = useI18n();
+  const navModules = useMemo(() => getNavModules(user.role, canView, t), [user.role, canView, t]);
   const pageTitle = useMemo(
-    () => getPageTitle(location.pathname, user.role),
-    [location.pathname, user.role]
+    () => getPageTitle(location.pathname, user.role, canView, t),
+    [location.pathname, user.role, canView, t]
   );
+  const sidebarOffset = isRtl ? 288 : -288;
 
   useEffect(() => {
     applyTheme(themeMode);
@@ -82,6 +88,7 @@ export default function Layout({ user }: LayoutProps) {
   };
 
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
+  const themeName = t(`theme.${themeMode}`);
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300 overflow-hidden">
@@ -102,11 +109,11 @@ export default function Layout({ user }: LayoutProps) {
       <AnimatePresence mode="wait">
         {isSidebarOpen && (
           <motion.aside
-            initial={{ x: -288, opacity: 0 }}
+            initial={{ x: sidebarOffset, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -288, opacity: 0 }}
+            exit={{ x: sidebarOffset, opacity: 0 }}
             transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            className="fixed lg:relative inset-y-0 left-0 w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-30 shrink-0"
+            className="fixed lg:relative inset-y-0 start-0 w-72 bg-white dark:bg-slate-900 border-e border-slate-200 dark:border-slate-800 flex flex-col z-30 shrink-0"
           >
             <div className="p-6 border-b border-slate-100 dark:border-slate-800">
               <h1 className="text-lg font-black text-primary flex items-center gap-3 tracking-tight">
@@ -115,17 +122,25 @@ export default function Layout({ user }: LayoutProps) {
                 </div>
                 <div className="flex flex-col">
                   <span className="flex items-center gap-2">
-                    FISS
-                    <span className="beta-badge">Beta</span>
+                    {t('app.name')}
+                    <span className="beta-badge">{t('app.beta')}</span>
                   </span>
                   <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black leading-tight">
-                    Faizan Islamic School
+                    {t('app.schoolName')}
                   </span>
                 </div>
               </h1>
             </div>
 
             <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-thin space-y-5">
+              {navModules.length === 0 && (
+                <div className="px-3 py-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('layout.noModules')}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    {t('layout.noModulesHint')}
+                  </p>
+                </div>
+              )}
               {navModules.map((module) => (
                 <div key={module.id}>
                   <p className="nav-module-label">{module.label}</p>
@@ -153,8 +168,9 @@ export default function Layout({ user }: LayoutProps) {
 
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
               <div className="px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                <p className="section-label">Signed in as</p>
+                <p className="section-label">{t('layout.signedInAs')}</p>
                 <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5">{user.fullName}</p>
+                <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">{user.username}</p>
                 <p className="text-[10px] font-semibold text-primary mt-0.5">{user.role}</p>
               </div>
               <button
@@ -162,7 +178,7 @@ export default function Layout({ user }: LayoutProps) {
                 className="nav-item w-full text-danger hover:bg-danger/10 hover:text-danger"
               >
                 <LogOut className="w-4 h-4" />
-                <span>Logout</span>
+                <span>{t('layout.logout')}</span>
               </button>
             </div>
           </motion.aside>
@@ -176,14 +192,14 @@ export default function Layout({ user }: LayoutProps) {
               type="button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400 transition-all active:scale-95 shrink-0"
-              aria-label={isSidebarOpen ? 'Close menu' : 'Open menu'}
+              aria-label={isSidebarOpen ? t('layout.closeMenu') : t('layout.openMenu')}
             >
               {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
             <div className="min-w-0 hidden sm:block">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm lg:text-base font-bold text-slate-900 dark:text-white truncate">{pageTitle}</h2>
-                <span className="beta-badge hidden md:inline-flex">Beta</span>
+                <span className="beta-badge hidden md:inline-flex">{t('app.beta')}</span>
               </div>
               {(campusName || user.role) && (
                 <p className="text-[11px] text-slate-400 truncate mt-0.5">
@@ -194,25 +210,26 @@ export default function Layout({ user }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-2 lg:gap-3 shrink-0">
-            <kbd className="kbd-badge hidden xl:flex" title="Open command palette">
+            <kbd className="kbd-badge hidden xl:flex" title={t('layout.commandPalette')}>
               Ctrl+K
             </kbd>
+            <LanguageSwitcher compact />
             <button
               type="button"
               onClick={handleThemeToggle}
               className="flex items-center gap-2 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-400 hover:text-primary transition-all active:scale-95"
-              title={`Theme: ${themeLabel(themeMode)} — click to change`}
-              aria-label={`Theme: ${themeLabel(themeMode)}`}
+              title={`${themeName} — ${t('theme.change')}`}
+              aria-label={`${themeName}`}
             >
               <ThemeIcon className="w-4 h-4" />
               <span className="hidden lg:inline text-xs font-semibold">
-                {themeLabel(themeMode)}
+                {themeName}
               </span>
             </button>
 
             <div
               className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-bold text-sm shadow-md shadow-primary/20"
-              title={user.fullName}
+              title={`${user.fullName} · ${user.username}`}
             >
               {user.fullName.charAt(0)}
             </div>

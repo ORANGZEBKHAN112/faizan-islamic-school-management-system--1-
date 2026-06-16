@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import { PermissionGate } from '../context/PermissionContext';
 
 const scopeUser = getStoredUser();
 
@@ -160,10 +162,7 @@ export default function Documents() {
 
   return (
     <div className="space-y-8 pb-12">
-      <div>
-        <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">ID Cards & Certificates</h2>
-        <p className="text-slate-500 font-medium mt-1">Search any student, preview their record, then generate an ID card or certificate.</p>
-      </div>
+      <TranslatedPageHeader module="documents" />
 
       <div className="vibrant-card p-6">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -290,10 +289,12 @@ export default function Documents() {
                     <p className="text-xs text-slate-500">{classMap[selectedStudent.classId]?.className || selectedStudent.className || 'Class not set'}</p>
                   </div>
                 </div>
-                <button onClick={() => handleIdCard(selectedStudent)} className="vibrant-btn-primary w-full flex items-center justify-center gap-2">
-                  <IdCard className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase">Download Single ID Card</span>
-                </button>
+                <PermissionGate module="documents" action="create">
+                  <button onClick={() => handleIdCard(selectedStudent)} className="vibrant-btn-primary w-full flex items-center justify-center gap-2">
+                    <IdCard className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase">Download Single ID Card</span>
+                  </button>
+                </PermissionGate>
                 <SearchableSelect
                   value={certType}
                   onChange={(type) => setCertType(type as typeof certType)}
@@ -305,10 +306,12 @@ export default function Documents() {
                     { value: 'SummerCamp', label: 'Summer Camp Certificate' },
                   ]}
                 />
-                <button onClick={() => handleCertificate(selectedStudent)} className="vibrant-btn-secondary w-full flex items-center justify-center gap-2">
-                  <Award className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase">Download Certificate</span>
-                </button>
+                <PermissionGate module="documents" action="create">
+                  <button onClick={() => handleCertificate(selectedStudent)} className="vibrant-btn-secondary w-full flex items-center justify-center gap-2">
+                    <Award className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase">Download Certificate</span>
+                  </button>
+                </PermissionGate>
               </div>
             ) : (
               <div className="text-center py-10 text-slate-400">
@@ -379,10 +382,12 @@ export default function Documents() {
               ? 'Select a class to preview students on the left.'
               : `${batchTotal} student(s) found in selected class.`}
           </p>
-          <button onClick={handleBulkIdCards} disabled={batchLoading} className="vibrant-btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60">
-            <Download className="w-4 h-4" />
-            <span className="text-[10px] font-black uppercase">{batchLoading ? 'Loading...' : `Generate PDF (${batchStudents.length})`}</span>
-          </button>
+          <PermissionGate module="documents" action="create">
+            <button onClick={handleBulkIdCards} disabled={batchLoading} className="vibrant-btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60">
+              <Download className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase">{batchLoading ? 'Loading...' : `Generate PDF (${batchStudents.length})`}</span>
+            </button>
+          </PermissionGate>
         </div>
         </div>
       </div>

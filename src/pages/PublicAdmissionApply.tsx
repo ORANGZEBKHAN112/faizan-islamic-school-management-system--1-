@@ -7,18 +7,25 @@ import { dataService } from '../services/dataService';
 import DevCredit from '../components/ui/DevCredit';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Campus, Class } from '../types';
+import { isValidCnic, maskCnicInput, normalizeCnic } from '../utils/cnic';
+import LanguageSwitcher from '../components/LanguageSwitcher';
+import { useI18n } from '../context/I18nContext';
 
 export default function PublicAdmissionApply() {
+  const { t } = useI18n();
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [trackingNo, setTrackingNo] = useState('');
   const [formData, setFormData] = useState({
     campusId: '',
     classId: '',
     applicantName: '',
     fatherName: '',
+    fatherCnic: '',
+    studentBform: '',
     dateOfBirth: '',
     gender: 'Male',
     contactNumber: '',
@@ -60,9 +67,14 @@ export default function PublicAdmissionApply() {
       toast.error('Campus, applicant name, and contact number are required');
       return;
     }
+    if (!isValidCnic(formData.fatherCnic)) {
+      toast.error('Father CNIC (13 digits) is required');
+      return;
+    }
     setSubmitting(true);
     try {
-      await dataService.submitPublicAdmission(formData);
+      const result = await dataService.submitPublicAdmission({ ...formData, fatherCnic: normalizeCnic(formData.fatherCnic) });
+      setTrackingNo(result.trackingNo || '');
       setSubmitted(true);
       toast.success('Application submitted!');
     } catch (err: unknown) {
@@ -89,13 +101,21 @@ export default function PublicAdmissionApply() {
           <div className="w-20 h-20 bg-success/10 text-success rounded-3xl flex items-center justify-center mx-auto">
             <CheckCircle className="w-10 h-10" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Application Received</h1>
-          <p className="text-slate-500 text-sm">
-            Thank you for applying to Faizan Islamic School. Our admissions team will review your application and contact you.
-          </p>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">{t('public.apply.received')}</h1>
+          {trackingNo && (
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('public.apply.trackingLabel')}</p>
+              <p className="text-2xl font-mono font-black text-primary mt-1">{trackingNo}</p>
+              <p className="text-xs text-slate-500 mt-2">{t('public.apply.trackingHint')}</p>
+            </div>
+          )}
+          <p className="text-slate-500 text-sm">{t('public.apply.thankYou')}</p>
+          <Link to={`/track${trackingNo ? `?ref=${encodeURIComponent(trackingNo)}` : ''}`} className="vibrant-btn-secondary inline-flex items-center gap-2 px-6 py-3">
+            {t('public.apply.trackBtn')}
+          </Link>
           <Link to="/login" className="vibrant-btn-primary inline-flex items-center gap-2 px-6 py-3">
             <LogIn className="w-4 h-4" />
-            Staff Login
+            {t('public.apply.staffLoginBtn')}
           </Link>
         </motion.div>
       </div>
@@ -105,14 +125,21 @@ export default function PublicAdmissionApply() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6">
       <div className="max-w-2xl mx-auto space-y-8">
+        <div className="flex justify-end">
+          <LanguageSwitcher compact />
+        </div>
         <div className="text-center space-y-3">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 text-primary rounded-2xl">
             <School className="w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Online Admission</h1>
-          <p className="text-slate-500 font-medium">Apply for enrollment at Faizan Islamic School</p>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{t('public.apply.title')}</h1>
+          <p className="text-slate-500 font-medium">{t('public.apply.subtitle')}</p>
           <Link to="/login" className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline inline-flex items-center gap-1">
-            <LogIn className="w-3 h-3" /> Staff login
+            <LogIn className="w-3 h-3" /> {t('public.apply.staffLogin')}
+          </Link>
+          <span className="text-slate-300">·</span>
+          <Link to="/track" className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">
+            {t('public.apply.trackLink')}
           </Link>
         </div>
 
@@ -164,6 +191,25 @@ export default function PublicAdmissionApply() {
                     className="vibrant-input"
                     value={formData.fatherName}
                     onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Father CNIC *</label>
+                  <input
+                    required
+                    className="vibrant-input font-mono"
+                    placeholder="#####-#######-#"
+                    value={formData.fatherCnic}
+                    onChange={(e) => setFormData({ ...formData, fatherCnic: maskCnicInput(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Student B-Form</label>
+                  <input
+                    className="vibrant-input font-mono"
+                    placeholder="B-Form / registration number"
+                    value={formData.studentBform}
+                    onChange={(e) => setFormData({ ...formData, studentBform: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -223,7 +269,7 @@ export default function PublicAdmissionApply() {
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    Submit application
+                    {t('public.apply.submit')}
                   </>
                 )}
               </button>
