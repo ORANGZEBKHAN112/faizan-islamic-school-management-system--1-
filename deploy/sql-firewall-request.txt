@@ -1,0 +1,20 @@
+Subject: Whitelist VPS IP for SQL Server (FISS ERP go-live)
+
+Hello,
+
+We are deploying the Faizan Islamic School ERP web application on a new Linux VPS.
+The app connects to our existing SQL Server database (no new SQL install).
+
+Please allow inbound TCP port 1433 from this VPS public IP:
+
+  VPS IP: _____________________
+
+SQL Server host we connect to: _____________________
+Database name: _____________________
+SQL login user: _____________________
+
+Also confirm:
+  - SQL Server remote connections are enabled
+  - The login has read/write access to the database above
+
+Thank you.

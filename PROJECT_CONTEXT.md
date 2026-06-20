@@ -166,7 +166,27 @@ npm install
 npm run dev      # API + Vite on one port
 npm run build    # Vite → dist/
 npm run lint
+npm run start:prod   # production (Linux VPS)
 ```
+
+## Production deploy (Linux VPS + live SQL Server)
+
+Scripts in `deploy/` — run on Ubuntu VPS after SSH in:
+
+| Step | Command |
+|------|---------|
+| VPS purchase checklist | `bash deploy/preflight-vps.sh` |
+| Test SQL from VPS | `bash deploy/sql-connect-test.sh YOUR_SQL_HOST` |
+| One-time VPS setup | `bash deploy/setup-vps.sh` |
+| Build + health test | `bash deploy/deploy-app.sh` (needs `.env` from `deploy/env.production.example`) |
+| PM2 service | `bash deploy/install-pm2.sh` |
+| Nginx + SSL | `bash deploy/install-nginx.sh erp.yourdomain.com` |
+| Go-live checks | `bash deploy/go-live-checklist.sh https://erp.yourdomain.com` |
+| All-in-one | `bash deploy/go-live.sh erp.yourdomain.com` |
+
+From Windows PC: `npm run deploy:zip` → upload `fiss-erp-deploy.zip` to `/var/www/fiss-erp` via WinSCP.
+
+SQL firewall email template: `deploy/sql-firewall-request.txt`
 
 ## Do not scan / edit casually
 
