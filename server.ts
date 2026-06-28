@@ -76,12 +76,14 @@ declare global {
   }
 }
 
-if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-  console.error("JWT_SECRET is required when NODE_ENV=production");
-  process.exit(1);
-}
-
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "faizan-school-secret-key-2026";
+
+function parseBooleanEnv(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (value == null || value.trim() === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
 
 function getApiPath(req: Request): string {
   const url = req.originalUrl || req.url || "";
@@ -560,8 +562,8 @@ async function recomputeOutstandingForScope(campusId: string | null): Promise<vo
 let sqlConfig: sql.config = {
   user: process.env.SQL_USER || "", // Empty for Windows Auth/Integrated Security
   password: process.env.SQL_PASSWORD || "",
-  database: process.env.SQL_DATABASE || "testdb12",
-  server: process.env.SQL_SERVER || "51.79.177.9",
+  database: process.env.SQL_DATABASE || (IS_PRODUCTION ? "" : "testdb12"),
+  server: process.env.SQL_SERVER || (IS_PRODUCTION ? "" : "51.79.177.9"),
   port: parseInt(process.env.SQL_PORT || "1433"),
   pool: {
     max: 30,
@@ -569,8 +571,8 @@ let sqlConfig: sql.config = {
     idleTimeoutMillis: 30000
   },
   options: {
-    encrypt: true,
-    trustServerCertificate: true,
+    encrypt: parseBooleanEnv("SQL_ENCRYPT", true),
+    trustServerCertificate: parseBooleanEnv("SQL_TRUST_SERVER_CERTIFICATE", true),
     enableArithAbort: true
   }
 };
@@ -625,6 +627,32 @@ if (fs.existsSync(appSettingsPath)) {
   } catch (err) {
     console.error("Error parsing appsettings.json:", err);
   }
+}
+
+function getProductionStartupErrors(): string[] {
+  if (!IS_PRODUCTION) return [];
+
+  const errors: string[] = [];
+  const sqlServer = String(sqlConfig.server || "").trim();
+  const sqlDatabase = String(sqlConfig.database || "").trim();
+  const distIndexPath = path.join(process.cwd(), "dist", "index.html");
+
+  if (!process.env.JWT_SECRET?.trim()) {
+    errors.push("Missing JWT_SECRET.");
+  }
+  if (!sqlServer) {
+    errors.push("Missing SQL_SERVER or production connection string host.");
+  } else if (sqlServer.toLowerCase().includes("localdb")) {
+    errors.push(`SQL server "${sqlServer}" uses localdb, which is not valid for production hosting.`);
+  }
+  if (!sqlDatabase) {
+    errors.push("Missing SQL_DATABASE or production connection string database name.");
+  }
+  if (!fs.existsSync(distIndexPath)) {
+    errors.push("Missing dist/index.html. Build the frontend before starting production.");
+  }
+
+  return errors;
 }
 
 async function testConnection() {
@@ -1553,6 +1581,15 @@ const uploadStudentPhoto = multer({
 });
 
 async function startServer() {
+  const startupErrors = getProductionStartupErrors();
+  if (startupErrors.length > 0) {
+    console.error("Production startup validation failed:");
+    for (const error of startupErrors) {
+      console.error(`- ${error}`);
+    }
+    process.exit(1);
+  }
+
   await connectToDb();
   await testConnection();
   const app = express();
