@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../services/authService';
-import { LogIn, UserPlus, ShieldCheck, X, Sun, Moon, Monitor } from 'lucide-react';
+import { isAuthOtpChallenge } from '../types';
+import { LogIn, UserPlus, ShieldCheck, X, Sun, Moon, Monitor, KeyRound, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import FormField from '../components/ui/FormField';
@@ -14,6 +15,9 @@ import { useI18n } from '../context/I18nContext';
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,6 +26,7 @@ export default function Login() {
 
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
   const themeName = t(`theme.${themeMode}`);
+  const otpStep = Boolean(challengeId);
 
   useEffect(() => {
     applyTheme(themeMode);
@@ -36,6 +41,19 @@ export default function Login() {
     return () => mq.removeEventListener('change', onChange);
   }, [themeMode]);
 
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setTimeout(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const completeLogin = (token: string, user: unknown) => {
+    localStorage.setItem('token', token.trim());
+    localStorage.setItem('user', JSON.stringify(user));
+    toast.success(t('login.success'));
+    window.location.reload();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -45,7 +63,7 @@ export default function Login() {
     });
     setFieldErrors(errors);
     if (hasErrors(errors)) {
-      toast.error(t('login.fixFields'));
+      toast.error(t('login.formFields'));
       return;
     }
 
@@ -53,14 +71,18 @@ export default function Login() {
     setError('');
     try {
       const response = await authService.login({ username, passwordHash: password });
+      if (isAuthOtpChallenge(response)) {
+        setChallengeId(response.challengeId);
+        setOtpCode('');
+        setResendCooldown(60);
+        toast.success(response.message || t('login.otpSent'));
+        return;
+      }
       if (!response?.token) {
         toast.error(t('login.noToken'));
         return;
       }
-      localStorage.setItem('token', response.token.trim());
-      localStorage.setItem('user', JSON.stringify(response.user));
-      toast.success(t('login.success'));
-      window.location.reload();
+      completeLogin(response.token, response.user);
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || err.response?.data || t('login.authFailed');
       const finalError = typeof errorMessage === 'string' ? errorMessage : t('login.authFailed');
@@ -69,6 +91,73 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!challengeId) return;
+
+    const code = otpCode.trim();
+    const errors = collectErrors({
+      otpCode: /^\d{6}$/.test(code) ? null : t('login.otpRequired'),
+    });
+    setFieldErrors(errors);
+    if (hasErrors(errors)) {
+      toast.error(t('login.otpRequired'));
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authService.verifyLoginOtp({ challengeId, code });
+      if (!response?.token) {
+        toast.error(t('login.noToken'));
+        return;
+      }
+      completeLogin(response.token, response.user);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || err.response?.data || t('login.authFailed');
+      const finalError = typeof errorMessage === 'string' ? errorMessage : t('login.authFailed');
+      setError(finalError);
+      toast.error(finalError);
+      if (/expired|sign in again|too many/i.test(finalError)) {
+        setChallengeId(null);
+        setOtpCode('');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!challengeId || resendCooldown > 0 || loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authService.resendLoginOtp({ challengeId });
+      setResendCooldown(60);
+      toast.success(response.message || t('login.otpResent'));
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || err.response?.data || t('login.authFailed');
+      const finalError = typeof errorMessage === 'string' ? errorMessage : t('login.authFailed');
+      setError(finalError);
+      toast.error(finalError);
+      if (/expired|sign in again/i.test(finalError)) {
+        setChallengeId(null);
+        setOtpCode('');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackToCredentials = () => {
+    setChallengeId(null);
+    setOtpCode('');
+    setError('');
+    setFieldErrors({});
+    setResendCooldown(0);
   };
 
   return (
@@ -149,9 +238,13 @@ export default function Login() {
                 className="w-full h-full object-contain p-3"
               />
             </motion.div>
-            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{t('login.title')}</h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 text-sm">{t('login.subtitle')}</p>
-            <span className="beta-badge mt-3 inline-flex">{t('app.beta')}</span>
+            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+              {otpStep ? t('login.otpTitle') : t('login.title')}
+            </h1>
+            <p className="text-slate-500 dark:text-slate-400 font-medium mt-2 text-sm">
+              {otpStep ? t('login.otpSubtitle') : t('login.subtitle')}
+            </p>
+            {!otpStep && <span className="beta-badge mt-3 inline-flex">{t('app.beta')}</span>}
           </div>
 
           <AnimatePresence mode="wait">
@@ -170,75 +263,158 @@ export default function Login() {
             )}
           </AnimatePresence>
 
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            <FormField label={t('login.username')} htmlFor="username" required error={fieldErrors.username}>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
-                  <UserPlus className="w-5 h-5" />
+          <AnimatePresence mode="wait">
+            {otpStep ? (
+              <motion.form
+                key="otp"
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                onSubmit={handleVerifyOtp}
+                className="space-y-5"
+                noValidate
+              >
+                <FormField label={t('login.otpCode')} htmlFor="otpCode" required error={fieldErrors.otpCode}>
+                  <div className="relative group">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                      <KeyRound className="w-5 h-5" />
+                    </div>
+                    <input
+                      id="otpCode"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      className={`vibrant-input pl-12 tracking-[0.35em] text-center font-bold ${fieldErrors.otpCode ? 'vibrant-input-error' : ''}`}
+                      value={otpCode}
+                      onChange={(e) => {
+                        setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                        if (fieldErrors.otpCode) setFieldErrors((p) => ({ ...p, otpCode: '' }));
+                      }}
+                      placeholder={t('login.otpPlaceholder')}
+                    />
+                  </div>
+                </FormField>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full vibrant-btn-primary py-4 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 mt-4 flex items-center justify-center gap-3"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-5 h-5" />
+                      {t('login.otpVerify')}
+                    </>
+                  )}
+                </button>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <button
+                    type="button"
+                    disabled={loading || resendCooldown > 0}
+                    onClick={handleResendOtp}
+                    className="flex-1 py-3 rounded-2xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary/40 disabled:opacity-50"
+                  >
+                    {resendCooldown > 0
+                      ? t('login.otpResendIn', { seconds: resendCooldown })
+                      : t('login.otpResend')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={handleBackToCredentials}
+                    className="flex-1 py-3 rounded-2xl text-xs font-bold text-primary inline-flex items-center justify-center gap-2 hover:underline"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    {t('login.otpBack')}
+                  </button>
                 </div>
-                <input
-                  id="username"
-                  type="text"
-                  autoComplete="username"
-                  className={`vibrant-input pl-12 ${fieldErrors.username ? 'vibrant-input-error' : ''}`}
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    if (fieldErrors.username) setFieldErrors((p) => ({ ...p, username: '' }));
-                  }}
-                  placeholder={t('login.usernamePlaceholder')}
-                />
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                {t('login.usernameHint')}
-              </p>
-            </FormField>
+              </motion.form>
+            ) : (
+              <motion.form
+                key="credentials"
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 12 }}
+                onSubmit={handleSubmit}
+                className="space-y-5"
+                noValidate
+              >
+                <FormField label={t('login.username')} htmlFor="username" required error={fieldErrors.username}>
+                  <div className="relative group">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                      <UserPlus className="w-5 h-5" />
+                    </div>
+                    <input
+                      id="username"
+                      type="text"
+                      autoComplete="username"
+                      className={`vibrant-input pl-12 ${fieldErrors.username ? 'vibrant-input-error' : ''}`}
+                      value={username}
+                      onChange={(e) => {
+                        setUsername(e.target.value);
+                        if (fieldErrors.username) setFieldErrors((p) => ({ ...p, username: '' }));
+                      }}
+                      placeholder={t('login.usernamePlaceholder')}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                    {t('login.usernameHint')}
+                  </p>
+                </FormField>
 
-            <FormField label={t('login.password')} htmlFor="password" required error={fieldErrors.password}>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  className={`vibrant-input pl-12 ${fieldErrors.password ? 'vibrant-input-error' : ''}`}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: '' }));
-                  }}
-                  placeholder="••••••••"
-                />
-              </div>
-            </FormField>
+                <FormField label={t('login.password')} htmlFor="password" required error={fieldErrors.password}>
+                  <div className="relative group">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <input
+                      id="password"
+                      type="password"
+                      autoComplete="current-password"
+                      className={`vibrant-input pl-12 ${fieldErrors.password ? 'vibrant-input-error' : ''}`}
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: '' }));
+                      }}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </FormField>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full vibrant-btn-primary py-4 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 mt-8 flex items-center justify-center gap-3"
-            >
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <LogIn className="w-5 h-5" />
-                  {t('login.signIn')}
-                </>
-              )}
-            </button>
-          </form>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full vibrant-btn-primary py-4 rounded-2xl font-bold text-sm shadow-xl shadow-primary/20 mt-8 flex items-center justify-center gap-3"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <LogIn className="w-5 h-5" />
+                      {t('login.signIn')}
+                    </>
+                  )}
+                </button>
+              </motion.form>
+            )}
+          </AnimatePresence>
 
-          <div className="mt-8 text-center">
-            <Link
-              to="/apply"
-              className="text-sm font-semibold text-primary hover:underline inline-flex items-center gap-2"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              {t('login.applyLink')}
-            </Link>
-          </div>
+          {!otpStep && (
+            <div className="mt-8 text-center">
+              <Link
+                to="/apply"
+                className="text-sm font-semibold text-primary hover:underline inline-flex items-center gap-2"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                {t('login.applyLink')}
+              </Link>
+            </div>
+          )}
 
           <div className="mt-8 lg:hidden">
             <DevCredit compact className="!justify-center !py-2" />

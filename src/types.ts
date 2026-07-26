@@ -204,6 +204,19 @@ export interface AuthResponse {
   user: User;
 }
 
+/** Returned by login when Super Admin must verify an email OTP before JWT is issued. */
+export interface AuthOtpChallengeResponse {
+  requiresOtp: true;
+  challengeId: string;
+  message?: string;
+}
+
+export type LoginResult = AuthResponse | AuthOtpChallengeResponse;
+
+export function isAuthOtpChallenge(result: LoginResult): result is AuthOtpChallengeResponse {
+  return Boolean(result && 'requiresOtp' in result && result.requiresOtp && 'challengeId' in result);
+}
+
 export interface FeeSetting {
   id: string;
   classId: string;

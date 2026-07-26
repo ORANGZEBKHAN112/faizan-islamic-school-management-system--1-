@@ -53,6 +53,11 @@ import {
   pickUniqueLoginUsername,
   normalizeStaffUsernames,
 } from "./server/userLogin.js";
+import {
+  createLoginOtpChallenge,
+  resendLoginOtp,
+  verifyLoginOtp,
+} from "./server/emailOtp.js";
 
 interface JwtPayload {
   id: string;
@@ -180,6 +185,8 @@ function isPublicApiRoute(req: Request): boolean {
   const path = getApiPath(req);
   if (path === "/api/health") return true;
   if (path === "/api/auth/login" && req.method === "POST") return true;
+  if (path === "/api/auth/verify-login-otp" && req.method === "POST") return true;
+  if (path === "/api/auth/resend-login-otp" && req.method === "POST") return true;
   if (path === "/api/payments/quickpay-callback" && req.method === "POST") return true;
   if (path === "/api/public/campuses" && req.method === "GET") return true;
   if (path === "/api/public/classes" && req.method === "GET") return true;
@@ -6474,6 +6481,26 @@ async function startServer() {
         return res.status(403).json({ message: "Account is disabled" });
       }
 
+      if (isSuperAdminRole(String(user.role))) {
+        try {
+          const { challengeId } = await createLoginOtpChallenge({
+            id: String(user.id),
+            username: String(user.username),
+            role: String(user.role),
+            campusId: user.campusId ?? null,
+          });
+          return res.json({
+            requiresOtp: true,
+            challengeId,
+            message: "A verification code was sent to the Super Admin notification emails.",
+          });
+        } catch (otpErr: any) {
+          const message =
+            otpErr?.message || "Failed to send Super Admin verification code. Please try again later.";
+          return res.status(503).json({ message });
+        }
+      }
+
       const token = jwt.sign(
         {
           id: user.id,
@@ -6495,6 +6522,79 @@ async function startServer() {
           campusId: mapped.campusId || undefined,
           permissions,
         }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/verify-login-otp", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await ensurePool())) {
+        return res.status(503).json({ message: "Database connection not available. Please try again later." });
+      }
+
+      const challengeId = String(req.body?.challengeId || "").trim();
+      const code = String(req.body?.code ?? req.body?.otp ?? "").trim();
+      if (!challengeId || !code) {
+        return res.status(400).json({ message: "challengeId and code are required" });
+      }
+
+      const result = await verifyLoginOtp(challengeId, code);
+      if ("error" in result) {
+        return res.status(result.status).json({ message: result.error });
+      }
+
+      const userResult = await pool.request()
+        .input("id", result.challenge.userId)
+        .query("SELECT * FROM Users WHERE id = @id");
+      const user = userResult.recordset[0];
+      if (!user || !isUserActive(user) || !isSuperAdminRole(String(user.role))) {
+        return res.status(401).json({ message: "Verification session expired. Please sign in again." });
+      }
+
+      const token = jwt.sign(
+        {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          campusId: user.campusId || undefined,
+        },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
+
+      const permissions = await getRolePermissions(user.role);
+      const mapped = mapUserFromRow(user);
+
+      res.json({
+        token,
+        user: {
+          ...mapped,
+          campusId: mapped.campusId || undefined,
+          permissions,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/resend-login-otp", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const challengeId = String(req.body?.challengeId || "").trim();
+      if (!challengeId) {
+        return res.status(400).json({ message: "challengeId is required" });
+      }
+
+      const result = await resendLoginOtp(challengeId);
+      if ("error" in result) {
+        return res.status(result.status).json({ message: result.error });
+      }
+
+      res.json({
+        ok: true,
+        message: "A new verification code was sent to the Super Admin notification emails.",
       });
     } catch (error) {
       next(error);
