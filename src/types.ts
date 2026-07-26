@@ -129,6 +129,7 @@ export interface Fee {
   idCardFee?: number;
   tripFee?: number;
   dueDate: string;
+  validityDate?: string;
   paymentDate?: string;
   paymentMethod?: string;
   transactionRef?: string;
@@ -252,6 +253,7 @@ export interface Exam {
   className?: string;
   campusId: string;
   campusName?: string;
+  region?: string;
   examDate?: string;
   totalMarks: number;
   createdOn?: string;
@@ -276,6 +278,8 @@ export interface InventoryItem {
   quantity: number;
   unit?: string;
   minThreshold: number;
+  /** JSON string of IT hardware specs when category is IT Inventory */
+  itSpecs?: string | null;
   lastUpdated?: string;
 }
 

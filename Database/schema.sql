@@ -96,6 +96,7 @@ CREATE TABLE Inventory (
     quantity INT DEFAULT 0,
     unit NVARCHAR(50),
     minThreshold INT DEFAULT 0,
+    itSpecs NVARCHAR(MAX) NULL,
     lastUpdated DATETIME DEFAULT GETDATE()
 );
 
@@ -150,6 +151,7 @@ CREATE TABLE Fees (
     payment_method NVARCHAR(50),
     payment_date DATETIME,
     due_date DATE,
+    validity_date DATE,
     created_at DATETIME DEFAULT GETDATE(),
     tuition_fee DECIMAL(18, 2) DEFAULT 0,
     admission_fee DECIMAL(18, 2) DEFAULT 0,
@@ -279,6 +281,7 @@ CREATE TABLE Exams (
     exam_type NVARCHAR(50) DEFAULT 'Monthly',
     class_id NVARCHAR(50) NOT NULL,
     campus_id NVARCHAR(50) NOT NULL,
+    region NVARCHAR(100) NULL,
     exam_date DATE,
     total_marks DECIMAL(18, 2) DEFAULT 100,
     created_on DATETIME DEFAULT GETDATE(),

@@ -253,14 +253,15 @@ export default function ClassManagement() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 bg-slate-950/40 backdrop-blur-md">
+            <div className="flex min-h-full items-start justify-center py-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="vibrant-card w-full max-w-lg overflow-hidden border-none shadow-2xl"
+              className="vibrant-card w-full max-w-lg max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden border-none shadow-2xl"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-primary/10 rounded-2xl">
                     <BookOpen className="w-6 h-6 text-primary" />
@@ -273,7 +274,7 @@ export default function ClassManagement() {
                   <XCircle className="w-8 h-8" />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className="p-10 space-y-8 bg-white dark:bg-slate-900">
+              <form onSubmit={handleSubmit} className="p-10 space-y-8 bg-white dark:bg-slate-900 overflow-y-auto flex-1 min-h-0">
                 <div className="space-y-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Campus</label>
                   <SearchableSelect
@@ -349,6 +350,7 @@ export default function ClassManagement() {
                 </div>
               </form>
             </motion.div>
+            </div>
           </div>
         )}
       </AnimatePresence>

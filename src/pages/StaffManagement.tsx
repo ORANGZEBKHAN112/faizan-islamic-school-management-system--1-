@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Briefcase } from 'lucide-react';
+import { Plus, Search, Edit2, Briefcase, CheckCircle, XCircle } from 'lucide-react';
 import { StaffMember, Campus } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -144,6 +144,7 @@ export default function StaffManagement() {
                 <th className="px-8 py-5">Campus</th>
                 <th className="px-8 py-5">CNIC</th>
                 <th className="px-8 py-5">Salary</th>
+                <th className="px-8 py-5">Status</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
@@ -155,6 +156,17 @@ export default function StaffManagement() {
                   <td className="px-8 py-5 text-sm text-slate-500">{member.campusName || '—'}</td>
                   <td className="px-8 py-5 font-mono text-sm">{member.cnic}</td>
                   <td className="px-8 py-5 text-sm">Rs. {(member.salary || 0).toLocaleString()}</td>
+                  <td className="px-8 py-5">
+                    {member.isActive !== false ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-success/10 text-success">
+                        <CheckCircle className="w-3 h-3" /> Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent/10 text-accent">
+                        <XCircle className="w-3 h-3" /> Inactive
+                      </span>
+                    )}
+                  </td>
                   <td className="px-8 py-5 text-right">
                     <PermissionGate module="staff" action="update">
                       <button onClick={() => handleEdit(member)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary">
@@ -213,6 +225,18 @@ export default function StaffManagement() {
                 <div className="grid grid-cols-2 gap-4">
                   <input type="number" className="vibrant-input" placeholder="Salary" value={formData.salary} onChange={(e) => setFormData({ ...formData, salary: parseFloat(e.target.value) || 0 })} />
                   <input type="date" className="vibrant-input" value={formData.joiningDate} onChange={(e) => setFormData({ ...formData, joiningDate: e.target.value })} />
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                  <input
+                    type="checkbox"
+                    id="staffIsActive"
+                    checked={formData.isActive}
+                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                    className="w-5 h-5 text-primary rounded-lg focus:ring-primary border-slate-300 dark:border-slate-600"
+                  />
+                  <label htmlFor="staffIsActive" className="text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer">
+                    Active staff member
+                  </label>
                 </div>
                 <div className="flex gap-4 pt-4">
                   <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">Cancel</button>

@@ -1,7 +1,10 @@
 import { jsPDF } from 'jspdf';
 import type { Student, Campus, ExamResult } from '../types';
+import { formatRollNumberForDisplay } from './rollNumber';
 
 const SCHOOL_NAME = 'Faizan Islamic School';
+const SCHOOL_PHONE = '+92 300 0000000';
+const SCHOOL_ADDRESS = 'Faizan Islamic School Network, Pakistan';
 
 async function loadImageDataUrl(url: string): Promise<string | null> {
   try {
@@ -25,7 +28,14 @@ function imageFormatFromDataUrl(dataUrl: string): 'JPEG' | 'PNG' | 'WEBP' {
   return 'JPEG';
 }
 
-async function drawIdCard(doc: jsPDF, student: Student, campus?: Campus) {
+function clip(doc: jsPDF, text: string, maxWidth: number): string {
+  if (doc.getTextWidth(text) <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && doc.getTextWidth(`${t}…`) > maxWidth) t = t.slice(0, -1);
+  return `${t}…`;
+}
+
+async function drawIdCardFront(doc: jsPDF, student: Student, campus?: Campus) {
   doc.setFillColor(0, 59, 92);
   doc.rect(0, 0, 86, 14, 'F');
   doc.setTextColor(255, 255, 255);
@@ -33,7 +43,7 @@ async function drawIdCard(doc: jsPDF, student: Student, campus?: Campus) {
   doc.setFont('helvetica', 'bold');
   doc.text(SCHOOL_NAME, 43, 6, { align: 'center' });
   doc.setFontSize(6);
-  doc.text(campus?.campusName || student.campusName || 'Main Campus', 43, 11, { align: 'center' });
+  doc.text(clip(doc, campus?.campusName || student.campusName || 'Main Campus', 78), 43, 11, { align: 'center' });
 
   doc.setDrawColor(0, 169, 157);
   doc.setLineWidth(0.5);
@@ -54,27 +64,94 @@ async function drawIdCard(doc: jsPDF, student: Student, campus?: Campus) {
     doc.text('PHOTO', 14, 30, { align: 'center' });
   }
 
+  const roll = formatRollNumberForDisplay(student.rollNumber);
+  const fullName = [student.firstName, student.lastName].filter(Boolean).join(' ') || student.firstName || '—';
+  const classLabel = `${student.className || '—'} ${student.sectionName || ''}`.trim();
+
   doc.setTextColor(0, 59, 92);
-  doc.setFontSize(10);
-  doc.text(student.firstName, 28, 22);
-  doc.setFontSize(7);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text(clip(doc, fullName, 52), 28, 20);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
   doc.setTextColor(60, 60, 60);
-  doc.text(`Roll: ${student.rollNumber}`, 28, 28);
-  doc.text(`Class: ${student.className || '—'} ${student.sectionName || ''}`.trim(), 28, 33);
-  doc.text(`Father: ${student.fatherName || '—'}`, 28, 38);
-  doc.text(`Session: ${student.session || new Date().getFullYear()}`, 28, 43);
+  doc.text(`Adm / Roll: ${roll}`, 28, 25);
+  doc.text(`Father: ${clip(doc, student.fatherName || '—', 50)}`, 28, 30);
+  doc.text(`Class: ${clip(doc, classLabel, 50)}`, 28, 35);
+  doc.text(`Batch: ${student.sectionName || student.className || '—'}`, 28, 40);
+  doc.text(`Session: ${student.session || new Date().getFullYear()}`, 28, 45);
 
   doc.setFillColor(0, 169, 157);
   doc.rect(0, 48, 86, 6, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(5);
-  doc.text('STUDENT ID CARD — Valid for current academic year', 43, 51.5, { align: 'center' });
+  doc.text('STUDENT ID CARD — FRONT', 43, 51.5, { align: 'center' });
+}
+
+function drawIdCardBack(doc: jsPDF, student: Student, campus?: Campus) {
+  doc.setFillColor(0, 169, 157);
+  doc.rect(0, 0, 86, 10, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text('STUDENT ID CARD — BACK', 43, 6.5, { align: 'center' });
+
+  const contact = student.contactNumber || '—';
+  const emergency = student.contactNumber || '—';
+  const address = student.address || campus?.address || '—';
+  const campusPhone = campus?.phone || SCHOOL_PHONE;
+  const campusAddress = campus?.address || SCHOOL_ADDRESS;
+  const session = String(student.session || new Date().getFullYear());
+
+  doc.setTextColor(0, 59, 92);
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Student Address', 4, 15);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(50, 50, 50);
+  const addrLines = doc.splitTextToSize(address, 78);
+  doc.text(addrLines.slice(0, 2), 4, 19);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 59, 92);
+  doc.text('Contact', 4, 28);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(50, 50, 50);
+  doc.text(contact, 22, 28);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 59, 92);
+  doc.text('Emergency', 4, 33);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(50, 50, 50);
+  doc.text(emergency, 22, 33);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 59, 92);
+  doc.text('School Contact', 4, 38);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(50, 50, 50);
+  doc.text(campusPhone, 28, 38);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 59, 92);
+  doc.text('School Address', 4, 43);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(50, 50, 50);
+  doc.text(clip(doc, campusAddress, 54), 28, 43);
+
+  doc.setFontSize(5.5);
+  doc.setTextColor(80, 80, 80);
+  doc.text(`Validity: Academic Session ${session}`, 4, 48);
+  doc.text('If found, please return to the school office. Property of FISS.', 4, 51.5);
 }
 
 export async function downloadIdCard(student: Student, campus?: Campus) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [86, 54] });
-  await drawIdCard(doc, student, campus);
-  doc.save(`ID_${student.rollNumber}.pdf`);
+  await drawIdCardFront(doc, student, campus);
+  doc.addPage([86, 54], 'landscape');
+  drawIdCardBack(doc, student, campus);
+  doc.save(`ID_${formatRollNumberForDisplay(student.rollNumber)}.pdf`);
 }
 
 export async function downloadIdCardsBulk(students: Student[], campusMap: Record<string, Campus>) {
@@ -82,7 +159,11 @@ export async function downloadIdCardsBulk(students: Student[], campusMap: Record
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [86, 54] });
   for (let i = 0; i < students.length; i += 1) {
     if (i > 0) doc.addPage([86, 54], 'landscape');
-    await drawIdCard(doc, students[i], campusMap[students[i].campusId]);
+    const student = students[i];
+    const campus = campusMap[student.campusId];
+    await drawIdCardFront(doc, student, campus);
+    doc.addPage([86, 54], 'landscape');
+    drawIdCardBack(doc, student, campus);
   }
   doc.save(`ID_Cards_Batch_${new Date().toISOString().split('T')[0]}.pdf`);
 }
@@ -100,6 +181,7 @@ export function downloadCertificate(
 ) {
   const doc = new jsPDF();
   const pageW = doc.internal.pageSize.getWidth();
+  const roll = formatRollNumberForDisplay(student.rollNumber);
 
   doc.setFillColor(0, 59, 92);
   doc.rect(0, 0, pageW, 35, 'F');
@@ -132,12 +214,12 @@ export function downloadCertificate(
 
   const body =
     type === 'Character'
-      ? `This is to certify that ${student.firstName}, son/daughter of ${student.fatherName || '—'}, bearing Roll No. ${student.rollNumber}, is/was a bonafide student of ${student.className || 'this institution'}. He/She bears a good moral character and we wish success in future endeavors.`
+      ? `This is to certify that ${student.firstName}, son/daughter of ${student.fatherName || '—'}, bearing Roll No. ${roll}, is/was a bonafide student of ${student.className || 'this institution'}. He/She bears a good moral character and we wish success in future endeavors.`
       : type === 'Completion'
-        ? `This is to certify that ${student.firstName}, Roll No. ${student.rollNumber}, has successfully completed the required course of study at ${SCHOOL_NAME} for the academic session ${student.session || new Date().getFullYear()}.`
+        ? `This is to certify that ${student.firstName}, Roll No. ${roll}, has successfully completed the required course of study at ${SCHOOL_NAME} for the academic session ${student.session || new Date().getFullYear()}.`
         : type === 'SummerCamp'
-          ? `This is to certify that ${student.firstName}, Roll No. ${student.rollNumber}, Class ${student.className || '—'}, successfully participated in the ${SCHOOL_NAME} Summer Camp program for ${programYear || student.session || new Date().getFullYear()}.`
-          : `This certifies the examination results of ${student.firstName}, Roll No. ${student.rollNumber}, Class ${student.className || '—'}.`;
+          ? `This is to certify that ${student.firstName}, Roll No. ${roll}, Class ${student.className || '—'}, successfully participated in the ${SCHOOL_NAME} Summer Camp program for ${programYear || student.session || new Date().getFullYear()}.`
+          : `This certifies the examination results of ${student.firstName}, Roll No. ${roll}, Class ${student.className || '—'}.`;
 
   const lines = doc.splitTextToSize(body, pageW - 50);
   doc.text(lines, 25, 75);
@@ -160,7 +242,7 @@ export function downloadCertificate(
   doc.setFontSize(9);
   doc.text('Principal / Authorized Signatory', pageW - 70, 242);
 
-  doc.save(`${type}_${student.rollNumber}.pdf`);
+  doc.save(`${type}_${roll}.pdf`);
 }
 
 export function downloadExamResultSheet(
@@ -195,7 +277,7 @@ export function downloadExamResultSheet(
   doc.setFont('helvetica', 'normal');
 
   rows.forEach((row) => {
-    doc.text(row.rollNumber, 14, y);
+    doc.text(formatRollNumberForDisplay(row.rollNumber), 14, y);
     doc.text(row.studentName, 40, y);
     doc.text(String(row.obtainedMarks), 120, y);
     doc.text(row.grade || '—', 150, y);

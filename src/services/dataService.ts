@@ -143,6 +143,10 @@ export const dataService = {
     notifySubscriptions(name);
   },
 
+  onInvalidate(collectionName: string, callback: () => void): () => void {
+    return registerSubscription(collectionName, callback);
+  },
+
   async add(collectionName: string, data: any) {
     try {
       const endpoint = getEndpoint(collectionName);
@@ -322,6 +326,12 @@ export const dataService = {
     return response.data;
   },
 
+  async addExamsByRegion(data: Record<string, unknown>) {
+    const response = await api.post('/exams/region', data);
+    this.invalidateCollection('exams');
+    return response.data as { message: string; createdCount: number; skipped?: string[] };
+  },
+
   async updateExam(id: string, data: Record<string, unknown>) {
     const response = await api.put(`/exams/${id}`, data);
     this.invalidateCollection('exams');
@@ -481,6 +491,8 @@ export const dataService = {
     sessionLabel?: string;
     includeAdmissions?: boolean;
     includeArrears?: boolean;
+    dueDate?: string;
+    validityDate?: string;
   }) {
     try {
       const response = await api.post(`/generate-monthly-fees`, params);
@@ -537,6 +549,18 @@ export const dataService = {
 
   async createExtraFeeCharge(data: Record<string, unknown>) {
     const response = await api.post('/fees/extra-charge', data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async updateVoucherDetails(id: string, data: Record<string, unknown>) {
+    const response = await api.patch(`/fees/${id}/voucher`, data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async regenerateVoucher(id: string) {
+    const response = await api.post(`/fees/${id}/regenerate`);
     this.invalidateCollection('fees');
     return response.data;
   },

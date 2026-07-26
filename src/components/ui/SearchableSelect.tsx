@@ -157,8 +157,7 @@ export default function SearchableSelect({
     variant === 'compact' && 'vibrant-input pr-10 py-2.5',
     variant === 'inline' && 'py-1.5 px-2 pr-8 text-sm font-semibold text-slate-800 dark:text-slate-200 bg-transparent border-none',
     isDisabled && 'opacity-70 cursor-not-allowed',
-    !isDisabled && 'cursor-pointer',
-    className
+    !isDisabled && 'cursor-pointer'
   );
 
   const sizerClass = clsx(
@@ -262,12 +261,15 @@ export default function SearchableSelect({
     </AnimatePresence>
   );
 
+  const displayLabel = loading ? loadingText : selected?.label ?? placeholder;
+
   return (
     <div
       ref={rootRef}
       className={clsx(
         'relative grid max-w-full',
-        variant === 'inline' ? 'w-max' : 'w-full'
+        variant === 'inline' ? 'w-max' : 'w-full',
+        className
       )}
     >
       {name ? (
@@ -284,9 +286,10 @@ export default function SearchableSelect({
         type="button"
         disabled={isDisabled}
         aria-label={ariaLabel}
+        title={typeof displayLabel === 'string' ? displayLabel : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={triggerClass}
+        className={clsx(triggerClass, 'min-w-0')}
         onClick={() => (open ? close() : openMenu())}
         onKeyDown={(e) => {
           if (isDisabled) return;
@@ -298,8 +301,8 @@ export default function SearchableSelect({
           }
         }}
       >
-        <span className={clsx('min-w-0 whitespace-nowrap', !selected && 'text-slate-400 dark:text-slate-500')}>
-          {loading ? loadingText : selected?.label ?? placeholder}
+        <span className={clsx('min-w-0 flex-1 truncate text-left', !selected && 'text-slate-400 dark:text-slate-500')}>
+          {displayLabel}
         </span>
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronDown className={clsx('w-4 h-4 transition-transform', open && 'rotate-180')} />}

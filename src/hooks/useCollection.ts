@@ -63,7 +63,15 @@ export function useCollection<T = any>(
   useEffect(() => {
     if (paginated) {
       load();
-      return undefined;
+      const unsubscribe = dataService.onInvalidate(collectionName, load);
+      let intervalId: ReturnType<typeof setInterval> | undefined;
+      if (refreshMs && refreshMs > 0) {
+        intervalId = setInterval(load, refreshMs);
+      }
+      return () => {
+        unsubscribe();
+        if (intervalId) clearInterval(intervalId);
+      };
     }
 
     const unsubscribe = dataService.subscribe(

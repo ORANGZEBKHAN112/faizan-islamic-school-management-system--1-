@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, FileText, Download, CheckCircle, AlertCircle, Filter, XCircle, CreditCard, Clock } from 'lucide-react';
+import { Plus, Search, FileText, Download, CheckCircle, AlertCircle, Filter, XCircle, CreditCard, Clock, Edit2, RotateCcw } from 'lucide-react';
 import { Fee, Campus, Class, FeeStructure, FeeSetting, FeeGenerationRun, FeeStats } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +18,15 @@ import EmptyState from '../components/ui/EmptyState';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import { formatRollNumberForDisplay } from '../utils/rollNumber';
+
+function defaultDueDate(year: number, month: number): string {
+  return new Date(year, month - 1, 10).toISOString().split('T')[0];
+}
+
+function defaultValidityDate(year: number, month: number): string {
+  return new Date(year, month, 0).toISOString().split('T')[0];
+}
 
 const scopeUser = getStoredUser();
 const CLIENT_BULK_PDF_LIMIT = 50;
@@ -49,6 +58,18 @@ export default function FeeManagement() {
     transactionRef: ''
   });
   const [isExtraChargeOpen, setIsExtraChargeOpen] = useState(false);
+  const [isEditVoucherOpen, setIsEditVoucherOpen] = useState(false);
+  const [editVoucherForm, setEditVoucherForm] = useState({
+    tuitionFee: 0,
+    admissionFee: 0,
+    securityFee: 0,
+    examFee: 0,
+    transportFee: 0,
+    miscFee: 0,
+    arrears: 0,
+    dueDate: '',
+    validityDate: '',
+  });
   const [extraChargeForm, setExtraChargeForm] = useState({
     studentId: '',
     feeType: 'Security Deposit' as Fee['feeType'],
@@ -112,13 +133,16 @@ export default function FeeManagement() {
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const now = new Date();
   const [generationParams, setGenerationParams] = useState({
     campusId: scopeUser && getUserCampusScope(scopeUser) ? getUserCampusScope(scopeUser)! : 'all',
-    month: new Date().getMonth() + 1,
-    year: new Date().getFullYear(),
-    session: deriveAcademicSession(new Date().getFullYear(), new Date().getMonth() + 1),
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    session: deriveAcademicSession(now.getFullYear(), now.getMonth() + 1),
     includeAdmissions: true,
-    includeArrears: true
+    includeArrears: true,
+    dueDate: defaultDueDate(now.getFullYear(), now.getMonth() + 1),
+    validityDate: defaultValidityDate(now.getFullYear(), now.getMonth() + 1),
   });
   const [generationSummary, setGenerationSummary] = useState<Record<string, unknown> | null>(null);
 
@@ -336,7 +360,13 @@ export default function FeeManagement() {
 
   useEffect(() => {
     const derived = deriveAcademicSession(generationParams.year, generationParams.month);
-    setGenerationParams((prev) => (prev.session === derived ? prev : { ...prev, session: derived }));
+    setGenerationParams((prev) => {
+      const next = { ...prev };
+      if (prev.session !== derived) next.session = derived;
+      next.dueDate = defaultDueDate(prev.year, prev.month);
+      next.validityDate = defaultValidityDate(prev.year, prev.month);
+      return next;
+    });
   }, [generationParams.year, generationParams.month]);
 
   const generateVouchers = async () => {
@@ -356,6 +386,8 @@ export default function FeeManagement() {
         ...generationParams,
         sessionLabel: generationParams.session,
         months: selectedMonths.length > 0 ? selectedMonths : [generationParams.month],
+        dueDate: generationParams.dueDate,
+        validityDate: generationParams.validityDate,
       });
       setGenerationJobId(result.jobId);
       toast.success('Fee generation started — processing in background…');
@@ -399,6 +431,55 @@ export default function FeeManagement() {
       transactionRef: ''
     });
     setIsPaymentModalOpen(true);
+  };
+
+  const openEditVoucherModal = (voucher: Fee) => {
+    setSelectedVoucher(voucher);
+    setEditVoucherForm({
+      tuitionFee: voucher.tuitionFee ?? voucher.amount ?? 0,
+      admissionFee: voucher.admissionFee ?? 0,
+      securityFee: voucher.securityFee ?? 0,
+      examFee: voucher.examFee ?? 0,
+      transportFee: voucher.transportFee ?? 0,
+      miscFee: voucher.miscFee ?? 0,
+      arrears: voucher.arrears ?? 0,
+      dueDate: voucher.dueDate || defaultDueDate(voucher.year, voucher.month),
+      validityDate: voucher.validityDate || defaultValidityDate(voucher.year, voucher.month),
+    });
+    setIsEditVoucherOpen(true);
+  };
+
+  const handleEditVoucher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVoucher) return;
+    try {
+      await dataService.updateVoucherDetails(selectedVoucher.id, editVoucherForm);
+      await refreshVouchers();
+      toast.success('Voucher updated');
+      setIsEditVoucherOpen(false);
+    } catch (error) {
+      console.error('Error updating voucher:', error);
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to update voucher');
+    }
+  };
+
+  const handleRegenerateVoucher = async (voucher: Fee) => {
+    if (!await confirm({
+      title: 'Regenerate voucher?',
+      message: 'This recalculates fee components from the current fee structure. Only unpaid vouchers with no payments can be regenerated.',
+      confirmLabel: 'Regenerate',
+      variant: 'primary',
+    })) return;
+    try {
+      await dataService.regenerateVoucher(voucher.id);
+      await refreshVouchers();
+      toast.success('Voucher regenerated from current fee structure');
+    } catch (error) {
+      console.error('Error regenerating voucher:', error);
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to regenerate voucher');
+    }
   };
 
   const handleAdvanceYearPayment = async () => {
@@ -510,7 +591,7 @@ export default function FeeManagement() {
     doc.text("Father:", 16, 52);
     doc.text((voucher as Fee & { fatherName?: string }).fatherName || 'N/A', 42, 52);
     doc.text("Roll No:", 16, 58);
-    doc.text(voucher.rollNumber || 'N/A', 42, 58);
+    doc.text(formatRollNumberForDisplay(voucher.rollNumber), 42, 58);
 
     doc.text("Issue Date:", 138, 40);
     doc.text(new Date().toLocaleDateString(), 196, 40, { align: "right" });
@@ -524,6 +605,13 @@ export default function FeeManagement() {
     doc.text("Due Date:", 138, 58);
     doc.setFont("helvetica", "bold");
     doc.text(voucher.dueDate || '10th of Month', 196, 58, { align: "right" });
+    if (voucher.validityDate) {
+      doc.setTextColor(100, 116, 139);
+      doc.setFont("helvetica", "normal");
+      doc.text("Valid Until:", 138, 64);
+      doc.setFont("helvetica", "bold");
+      doc.text(voucher.validityDate, 196, 64, { align: "right" });
+    }
 
     const breakdown = [
       ['Tuition Fee', (voucher.tuitionFee || voucher.amount).toLocaleString()],
@@ -829,11 +917,12 @@ export default function FeeManagement() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="sm:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Campus</label>
                   {(!scopeUser || canPickCampus(scopeUser)) ? (
                     <SearchableSelect
+                      className="w-full min-w-0"
                       value={generationParams.campusId}
                       onChange={(campusId) => setGenerationParams({ ...generationParams, campusId })}
                       placeholder="All Campuses"
@@ -844,19 +933,23 @@ export default function FeeManagement() {
                       ]}
                     />
                   ) : (
-                    <div className="vibrant-input flex items-center text-sm font-bold text-slate-600 dark:text-slate-300">
+                    <div
+                      className="vibrant-input flex items-center text-sm font-bold text-slate-600 dark:text-slate-300 truncate"
+                      title={campuses.find((c) => c.id === generationParams.campusId)?.campusName || 'Your campus'}
+                    >
                       {campuses.find((c) => c.id === generationParams.campusId)?.campusName || 'Your campus'}
                     </div>
                   )}
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Academic Session</label>
                   <input
                     type="text"
-                    className="vibrant-input font-black"
+                    className="vibrant-input font-black w-full min-w-0"
                     value={generationParams.session}
                     onChange={(e) => setGenerationParams({ ...generationParams, session: e.target.value })}
                     placeholder="2026-2027"
+                    title={generationParams.session}
                   />
                 </div>
                 <div>
@@ -878,6 +971,26 @@ export default function FeeManagement() {
                     onChange={(year) => setGenerationParams({ ...generationParams, year: parseInt(year, 10) })}
                     searchPlaceholder="Search year…"
                     options={[2023, 2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Due Date</label>
+                  <input
+                    type="date"
+                    required
+                    className="vibrant-input w-full"
+                    value={generationParams.dueDate}
+                    onChange={(e) => setGenerationParams({ ...generationParams, dueDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Voucher Validity Date</label>
+                  <input
+                    type="date"
+                    required
+                    className="vibrant-input w-full"
+                    value={generationParams.validityDate}
+                    onChange={(e) => setGenerationParams({ ...generationParams, validityDate: e.target.value })}
                   />
                 </div>
               </div>
@@ -1156,7 +1269,7 @@ export default function FeeManagement() {
                       <td className="px-8 py-5 font-mono text-[10px] font-black text-slate-400">{voucher.id.substring(0, 8)}</td>
                       <td className="px-8 py-5">
                         <div className="font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors">{voucher.studentName || 'Unknown Student'}</div>
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{voucher.rollNumber || 'N/A'}</div>
+                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{formatRollNumberForDisplay(voucher.rollNumber)}</div>
                       </td>
                       <td className="px-8 py-5">
                         <div className="text-sm font-bold text-slate-700 dark:text-slate-300">{voucher.className || 'N/A'}</div>
@@ -1204,6 +1317,34 @@ export default function FeeManagement() {
                       </td>
                       <td className="px-8 py-5 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {voucher.status !== 'Paid' && (voucher.paidAmount || 0) === 0 && (
+                            <>
+                              <PermissionGate module="fees" action="update">
+                                <motion.button
+                                  whileHover={{ scale: 1.05, y: -2 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => openEditVoucherModal(voucher)}
+                                  className="flex items-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all"
+                                  title="Edit voucher"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                  Edit
+                                </motion.button>
+                              </PermissionGate>
+                              <PermissionGate module="fees" action="update">
+                                <motion.button
+                                  whileHover={{ scale: 1.05, y: -2 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleRegenerateVoucher(voucher)}
+                                  className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                                  title="Regenerate voucher"
+                                >
+                                  <RotateCcw className="w-4 h-4" />
+                                  Regen
+                                </motion.button>
+                              </PermissionGate>
+                            </>
+                          )}
                           {voucher.status !== 'Paid' && (
                             <PermissionGate module="fees" action="update">
                               <motion.button 
@@ -1503,7 +1644,7 @@ export default function FeeManagement() {
                   searchPlaceholder="Search students…"
                   options={extraStudentOptions.map((s) => ({
                     value: s.id,
-                    label: `${s.firstName} — ${s.rollNumber}`,
+                    label: `${s.firstName} — ${formatRollNumberForDisplay(s.rollNumber)}`,
                   }))}
                 />
                 <SearchableSelect
@@ -1533,8 +1674,69 @@ export default function FeeManagement() {
                   onChange={(e) => setExtraChargeForm({ ...extraChargeForm, description: e.target.value })}
                 />
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setIsExtraChargeOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 text-[10px] font-black uppercase">Cancel</button>
-                  <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Create Charge</button>
+                  <button
+                    type="button"
+                    aria-label="Cancel"
+                    onClick={() => setIsExtraChargeOpen(false)}
+                    className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase tracking-widest">
+                    Create Charge
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isEditVoucherOpen && selectedVoucher && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight">Edit Voucher</h3>
+                <button type="button" onClick={() => setIsEditVoucherOpen(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-7 h-7" /></button>
+              </div>
+              <p className="text-sm text-slate-500 mb-6">{selectedVoucher.studentName} · {formatRollNumberForDisplay(selectedVoucher.rollNumber)}</p>
+              <form onSubmit={handleEditVoucher} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    ['tuitionFee', 'Tuition Fee'],
+                    ['admissionFee', 'Admission Fee'],
+                    ['securityFee', 'Security Deposit'],
+                    ['examFee', 'Exam Fee'],
+                    ['transportFee', 'Transport Fee'],
+                    ['miscFee', 'Misc Fee'],
+                    ['arrears', 'Arrears'],
+                  ].map(([key, label]) => (
+                    <div key={key}>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="vibrant-input"
+                        value={editVoucherForm[key as keyof typeof editVoucherForm] as number}
+                        onChange={(e) => setEditVoucherForm({ ...editVoucherForm, [key]: Number(e.target.value) || 0 })}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Due Date</label>
+                    <input type="date" required className="vibrant-input" value={editVoucherForm.dueDate} onChange={(e) => setEditVoucherForm({ ...editVoucherForm, dueDate: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Validity Date</label>
+                    <input type="date" required className="vibrant-input" value={editVoucherForm.validityDate} onChange={(e) => setEditVoucherForm({ ...editVoucherForm, validityDate: e.target.value })} />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setIsEditVoucherOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase">Cancel</button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Save Changes</button>
                 </div>
               </form>
             </motion.div>

@@ -11,7 +11,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
 
-const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Teacher', 'Accountant', 'Student'];
+const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Teacher', 'Accountant'];
 
 export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -138,11 +138,13 @@ export default function UserManagement() {
     setIsModalOpen(true);
   };
 
-  const filtered = users.filter((u) =>
-    u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.role.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filtered = users
+    .filter((u) => u.role !== 'Student')
+    .filter((u) =>
+      u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.role.toLowerCase().includes(searchTerm.toLowerCase())
+    );
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -196,7 +198,7 @@ export default function UserManagement() {
                     <EmptyState
                       compact
                       title={searchTerm ? 'No users match your search' : 'No users yet'}
-                      description={searchTerm ? 'Try a different name, username, or role.' : 'Add staff or student login accounts to get started.'}
+                      description={searchTerm ? 'Try a different name, username, or role.' : 'Add staff system users to get started. Student logins are managed separately.'}
                       icon={UserCog}
                     />
                   </td>
@@ -312,7 +314,7 @@ export default function UserManagement() {
                       options={(roleOptions.length > 0
                         ? roleOptions
                         : ROLES.map((name) => ({ id: name, name, isSystem: true, isActive: true } as AppRole))
-                      ).map((r) => ({ value: r.name, label: r.name }))}
+                      ).filter((r) => r.name !== 'Student').map((r) => ({ value: r.name, label: r.name }))}
                     />
                   </div>
                   <div>

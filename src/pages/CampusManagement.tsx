@@ -16,7 +16,7 @@ import { PermissionGate } from '../context/PermissionContext';
 
 export default function CampusManagement() {
   const confirm = useConfirm();
-  const { data: campuses, loading } = useCollection<Campus>('campuses');
+  const { data: campuses, loading, refresh: refreshCampuses } = useCollection<Campus>('campuses');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
@@ -94,16 +94,39 @@ export default function CampusManagement() {
   const handleDelete = async (id: string) => {
     if (!await confirm({
       title: 'Delete campus?',
-      message: 'This removes the campus record. Classes and students linked to it may be affected.',
+      message: 'This permanently removes the campus only when it has no linked records. If linked data exists, you can deactivate it instead.',
       confirmLabel: 'Delete',
       variant: 'danger',
     })) return;
     try {
       await dataService.delete('campuses', id);
+      await refreshCampuses();
       toast.success('Campus deleted successfully');
     } catch (error) {
       console.error('Error deleting campus:', error);
-      toast.error('Failed to delete campus');
+      const status = (error as { response?: { status?: number; data?: { message?: string } } })?.response?.status;
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      if (status === 409) {
+        const deactivate = await confirm({
+          title: 'Cannot delete campus',
+          message: `${msg || 'Linked records exist.'}\n\nDeactivate this campus instead? It will be marked inactive and kept for history.`,
+          confirmLabel: 'Deactivate',
+          variant: 'danger',
+        });
+        if (deactivate) {
+          try {
+            await dataService.update('campuses', id, { isActive: false });
+            await refreshCampuses();
+            toast.success('Campus deactivated');
+            return;
+          } catch (deactErr) {
+            console.error(deactErr);
+            toast.error('Failed to deactivate campus');
+            return;
+          }
+        }
+      }
+      toast.error(msg || 'Failed to delete campus');
     }
   };
 
@@ -252,14 +275,15 @@ export default function CampusManagement() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 bg-slate-950/40 backdrop-blur-md">
+            <div className="flex min-h-full items-start justify-center py-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="vibrant-card w-full max-w-lg overflow-hidden border-none shadow-2xl"
+              className="vibrant-card w-full max-w-lg max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden border-none shadow-2xl"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-primary/10 rounded-2xl">
                     <Plus className="w-6 h-6 text-primary" />
@@ -272,90 +296,92 @@ export default function CampusManagement() {
                   <XCircle className="w-8 h-8" />
                 </button>
               </div>
-              <form onSubmit={handleSubmit} className="p-10 space-y-6 bg-white dark:bg-slate-900" noValidate>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <FormField label="Campus Name" required error={fieldErrors.campusName} className="sm:col-span-2">
+              <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 bg-white dark:bg-slate-900" noValidate>
+                <div className="p-10 space-y-6 overflow-y-auto flex-1 min-h-0 overscroll-contain">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <FormField label="Campus Name" required error={fieldErrors.campusName} className="sm:col-span-2">
+                      <input
+                        className={`vibrant-input ${fieldErrors.campusName ? 'vibrant-input-error' : ''}`}
+                        value={formData.campusName}
+                        onChange={(e) => setFormData({ ...formData, campusName: e.target.value })}
+                        placeholder="e.g. Faizan Campus Multan"
+                      />
+                    </FormField>
+                    <FormField label="Campus Code" required error={fieldErrors.campusCode}>
+                      <input
+                        className={`vibrant-input ${fieldErrors.campusCode ? 'vibrant-input-error' : ''}`}
+                        value={formData.campusCode}
+                        onChange={(e) => setFormData({ ...formData, campusCode: e.target.value })}
+                        placeholder="e.g. MAIN-01"
+                      />
+                    </FormField>
+                    <FormField label="City">
+                      <input className="vibrant-input" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="e.g. Multan" />
+                    </FormField>
+                    <FormField label="Region" className="sm:col-span-2">
+                      <input className="vibrant-input" value={formData.region} onChange={(e) => setFormData({ ...formData, region: e.target.value })} placeholder="e.g. Punjab" />
+                    </FormField>
+                  </div>
+                  <FormField label="Email Address" error={fieldErrors.email}>
                     <input
-                      className={`vibrant-input ${fieldErrors.campusName ? 'vibrant-input-error' : ''}`}
-                      value={formData.campusName}
-                      onChange={(e) => setFormData({ ...formData, campusName: e.target.value })}
-                      placeholder="e.g. Faizan Campus Multan"
+                      type="email"
+                      className={`vibrant-input ${fieldErrors.email ? 'vibrant-input-error' : ''}`}
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      placeholder="campus@school.com"
                     />
                   </FormField>
-                  <FormField label="Campus Code" required error={fieldErrors.campusCode}>
+                  <FormField label="Phone Number" error={fieldErrors.phone}>
                     <input
-                      className={`vibrant-input ${fieldErrors.campusCode ? 'vibrant-input-error' : ''}`}
-                      value={formData.campusCode}
-                      onChange={(e) => setFormData({ ...formData, campusCode: e.target.value })}
-                      placeholder="e.g. MAIN-01"
+                      className={`vibrant-input ${fieldErrors.phone ? 'vibrant-input-error' : ''}`}
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="+92 300 1234567"
                     />
                   </FormField>
-                  <FormField label="City">
-                    <input className="vibrant-input" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="e.g. Multan" />
+                  <FormField label="Address">
+                    <textarea
+                      className="vibrant-input min-h-[80px]"
+                      rows={3}
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      placeholder="Full street address..."
+                    />
                   </FormField>
-                  <FormField label="Region" className="sm:col-span-2">
-                    <input className="vibrant-input" value={formData.region} onChange={(e) => setFormData({ ...formData, region: e.target.value })} placeholder="e.g. Punjab" />
-                  </FormField>
+                  <div className="grid grid-cols-2 gap-4 sm:col-span-2">
+                    <FormField label="Sibling discount (2nd child) %">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        className="vibrant-input"
+                        value={formData.siblingDiscount2nd}
+                        onChange={(e) => setFormData({ ...formData, siblingDiscount2nd: Number(e.target.value) || 0 })}
+                      />
+                    </FormField>
+                    <FormField label="Sibling discount (3rd+ child) %">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        className="vibrant-input"
+                        value={formData.siblingDiscount3rd}
+                        onChange={(e) => setFormData({ ...formData, siblingDiscount3rd: Number(e.target.value) || 0 })}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    <input
+                      type="checkbox"
+                      id="isActive"
+                      checked={formData.isActive}
+                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                      className="w-5 h-5 text-primary rounded-lg focus:ring-primary border-slate-300 dark:border-slate-600"
+                    />
+                    <label htmlFor="isActive" className="text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer">Active Campus</label>
+                  </div>
                 </div>
-                <FormField label="Email Address" error={fieldErrors.email}>
-                  <input
-                    type="email"
-                    className={`vibrant-input ${fieldErrors.email ? 'vibrant-input-error' : ''}`}
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="campus@school.com"
-                  />
-                </FormField>
-                <FormField label="Phone Number" error={fieldErrors.phone}>
-                  <input
-                    className={`vibrant-input ${fieldErrors.phone ? 'vibrant-input-error' : ''}`}
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="+92 300 1234567"
-                  />
-                </FormField>
-                <FormField label="Address">
-                  <textarea
-                    className="vibrant-input min-h-[80px]"
-                    rows={3}
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    placeholder="Full street address..."
-                  />
-                </FormField>
-                <div className="grid grid-cols-2 gap-4 sm:col-span-2">
-                  <FormField label="Sibling discount (2nd child) %">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      className="vibrant-input"
-                      value={formData.siblingDiscount2nd}
-                      onChange={(e) => setFormData({ ...formData, siblingDiscount2nd: Number(e.target.value) || 0 })}
-                    />
-                  </FormField>
-                  <FormField label="Sibling discount (3rd+ child) %">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      className="vibrant-input"
-                      value={formData.siblingDiscount3rd}
-                      onChange={(e) => setFormData({ ...formData, siblingDiscount3rd: Number(e.target.value) || 0 })}
-                    />
-                  </FormField>
-                </div>
-                <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                  <input
-                    type="checkbox"
-                    id="isActive"
-                    checked={formData.isActive}
-                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                    className="w-5 h-5 text-primary rounded-lg focus:ring-primary border-slate-300 dark:border-slate-600"
-                  />
-                  <label htmlFor="isActive" className="text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer">Active Campus</label>
-                </div>
-                <div className="flex gap-4 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex gap-4 p-6 border-t border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -376,6 +402,7 @@ export default function CampusManagement() {
                 </div>
               </form>
             </motion.div>
+            </div>
           </div>
         )}
       </AnimatePresence>

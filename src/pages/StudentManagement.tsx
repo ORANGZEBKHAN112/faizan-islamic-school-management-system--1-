@@ -13,6 +13,7 @@ import Pagination from '../components/ui/Pagination';
 import TableShell from '../components/ui/TableShell';
 import EmptyState from '../components/ui/EmptyState';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import { PAKISTAN_PROVINCES, citiesForProvince } from '../utils/pakistanLocations';
 import { usePermissions } from '../context/PermissionContext';
 import { useI18n } from '../context/I18nContext';
 
@@ -96,6 +97,7 @@ export default function StudentManagement() {
     data: students,
     loading: studentsLoading,
     total: studentsTotal,
+    refresh: refreshStudents,
   } = useCollection<Student>('students', { params: studentParams, paginated: true });
   const { data: campuses, loading: campusesLoading } = useCollection<Campus>('campuses');
   const { data: classes, loading: classesLoading } = useCollection<Class>('classes');
@@ -493,15 +495,27 @@ export default function StudentManagement() {
 
   const confirmDelete = async () => {
     if (!studentToDelete) return;
-    
+    const id = studentToDelete;
+
     try {
-      await dataService.delete('students', studentToDelete);
+      await dataService.delete('students', id);
+      await refreshStudents();
       toast.success('Student record deleted successfully');
       setIsDeleteModalOpen(false);
       setStudentToDelete(null);
     } catch (error) {
       console.error('Error deleting student:', error);
-      toast.error('Failed to delete student record');
+      try {
+        await dataService.update('students', id, { status: 'Left' });
+        await refreshStudents();
+        toast.success('Student marked as Left (linked fee/attendance records prevent permanent delete)');
+        setIsDeleteModalOpen(false);
+        setStudentToDelete(null);
+      } catch (softErr) {
+        console.error('Soft-leave failed:', softErr);
+        const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+        toast.error(msg || 'Failed to delete student record');
+      }
     }
   };
 
@@ -1101,11 +1115,28 @@ export default function StudentManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Province</label>
-                    <input className="vibrant-input" value={formData.province} onChange={(e) => setFormData({ ...formData, province: e.target.value })} />
+                    <SearchableSelect
+                      value={formData.province}
+                      onChange={(province) => {
+                        const cities = citiesForProvince(province);
+                        setFormData({
+                          ...formData,
+                          province,
+                          city: cities.includes(formData.city) ? formData.city : (cities[0] || ''),
+                        });
+                      }}
+                      searchPlaceholder="Search province…"
+                      options={PAKISTAN_PROVINCES.map((p) => ({ value: p, label: p }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">City</label>
-                    <input className="vibrant-input" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} />
+                    <SearchableSelect
+                      value={formData.city}
+                      onChange={(city) => setFormData({ ...formData, city })}
+                      searchPlaceholder="Search city…"
+                      options={citiesForProvince(formData.province).map((c) => ({ value: c, label: c }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tehsil / Area</label>

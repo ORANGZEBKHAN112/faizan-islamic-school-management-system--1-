@@ -36,7 +36,8 @@ function buildStudentFeeQuery(): string {
     fs.misc_fee,
     s.outstanding_fees, 
     s.admission_date,
-    ISNULL(arrearsAgg.legacy_arrears, 0) AS legacy_arrears
+    ISNULL(arrearsAgg.legacy_arrears, 0) AS legacy_arrears,
+    CASE WHEN examCharged.charged IS NOT NULL THEN 1 ELSE 0 END AS exam_fee_already_charged
   FROM Students s
   LEFT JOIN Classes cl ON s.class_id = cl.id
   LEFT JOIN Campuses cp ON s.campus_id = cp.id
@@ -60,6 +61,11 @@ function buildStudentFeeQuery(): string {
       AND f.fee_type = 'Arrears'
       AND f.status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending')
   ) arrearsAgg
+  OUTER APPLY (
+    SELECT TOP 1 1 AS charged
+    FROM Fees ef
+    WHERE ef.student_id = s.id AND ISNULL(ef.exam_fee, 0) > 0
+  ) examCharged
   WHERE s.status = 'Active'
     AND cp.isActive = 1
 `;
@@ -95,6 +101,14 @@ export async function ensureScalingSchema(pool: sql.ConnectionPool): Promise<voi
     ELSE IF OBJECT_ID('FeeGenerationJobs', 'U') IS NOT NULL
       AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeGenerationJobs') AND name = 'session')
       ALTER TABLE FeeGenerationJobs ADD session NVARCHAR(20);
+
+    IF OBJECT_ID('FeeGenerationJobs', 'U') IS NOT NULL
+      AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeGenerationJobs') AND name = 'due_date')
+      ALTER TABLE FeeGenerationJobs ADD due_date DATE;
+
+    IF OBJECT_ID('FeeGenerationJobs', 'U') IS NOT NULL
+      AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeGenerationJobs') AND name = 'validity_date')
+      ALTER TABLE FeeGenerationJobs ADD validity_date DATE;
 
     IF OBJECT_ID('FeeExportJobs', 'U') IS NULL
     BEGIN
@@ -248,7 +262,14 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
       await transaction.begin();
       try {
         for (const month of monthsToGenerate) {
-          const dueDate = new Date(year, month - 1, 10).toISOString().split("T")[0];
+          const defaultDue = new Date(year, month - 1, 10).toISOString().split("T")[0];
+          const defaultValidity = new Date(year, month, 0).toISOString().split("T")[0];
+          const dueDate = job.due_date
+            ? new Date(job.due_date).toISOString().split("T")[0]
+            : defaultDue;
+          const validityDate = job.validity_date
+            ? new Date(job.validity_date).toISOString().split("T")[0]
+            : defaultValidity;
           const monthsLabel = `${monthNames[month]} ${year}`;
 
           const existingResult = await new sql.Request(transaction)
@@ -302,7 +323,7 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
             let tuitionFee = student.monthly_fee || 0;
             let admissionFee = 0;
             let securityFee = 0;
-            let examFee = student.exam_fee || 0;
+            let examFee = 0;
             let transportFee = student.transport_fee || 0;
             let miscFee = student.misc_fee || 0;
             let feeType = "Monthly";
@@ -317,6 +338,16 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
               }
             }
 
+            if (!student.exam_fee_already_charged && feeType === "Admission") {
+              examFee = student.exam_fee || 0;
+            }
+
+            // #region agent log
+            if (processedCount < 3) {
+              fetch('http://127.0.0.1:7591/ingest/354d0b33-99cb-4c17-8dbd-96f9a6796f0d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'75f87f'},body:JSON.stringify({sessionId:'75f87f',location:'scalingJobs.ts:examFee',message:'fee components',data:{studentId:student.student_id,feeType,examFee,examAlreadyCharged:!!student.exam_fee_already_charged,month,year},timestamp:Date.now(),hypothesisId:'H5',runId:'post-fix'})}).catch(()=>{});
+            }
+            // #endregion
+
             const totalAmount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
             const id = crypto.randomUUID();
 
@@ -327,6 +358,7 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
               .input("month", month)
               .input("year", year)
               .input("due_date", dueDate)
+              .input("validity_date", validityDate)
               .input("fee_type", feeType)
               .input("tuition_fee", tuitionFee)
               .input("admission_fee", admissionFee)
@@ -340,11 +372,11 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
               .input("months_label", monthsLabel)
               .query(`
                 INSERT INTO Fees (
-                  id, student_id, amount, month, year, status, due_date, fee_type,
+                  id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
                   tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee, arrears,
                   balance_amount, paid_amount, campus_name_snapshot, months_label
                 ) VALUES (
-                  @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
+                  @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @validity_date, @fee_type,
                   @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee, @arrears,
                   @balance_amount, 0, @campus_name_snapshot, @months_label
                 )

@@ -6,7 +6,7 @@ import cors from "cors";
 import fs from "fs";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import sql from "mssql";
+import tediousSql from "mssql";
 import multer from "multer";
 import readXlsxFile from "read-excel-file/node";
 import { parse, format, isValid } from "date-fns";
@@ -249,7 +249,7 @@ function normalizeSessionLabel(raw: unknown, fallbackYear?: number, fallbackMont
   return deriveAcademicSession(y, m);
 }
 
-function buildFeeFilterClauses(req: Request, request: sql.Request, campusFilter: string | null) {
+function buildFeeFilterClauses(req: Request, request: tediousSql.Request, campusFilter: string | null) {
   const whereParts: string[] = [];
   if (campusFilter) {
     whereParts.push("s.campus_id = @campusId");
@@ -523,7 +523,7 @@ function legacyCampusCode(raw: unknown): string {
   return id ? `LEG-${id}` : "";
 }
 
-async function recomputeStudentOutstanding(studentId: string, tx?: sql.Transaction): Promise<void> {
+async function recomputeStudentOutstanding(studentId: string, tx?: tediousSql.Transaction): Promise<void> {
   const req = tx ? new sql.Request(tx) : pool.request();
   await req
     .input("studentId", studentId)
@@ -558,8 +558,36 @@ async function recomputeOutstandingForScope(campusId: string | null): Promise<vo
   `);
 }
 
+let sql: typeof tediousSql = tediousSql;
+let sqlDriverReady = false;
+
+function usesLocalDbTarget(): boolean {
+  const server = String(sqlConfig.server || "").toLowerCase();
+  return server.includes("localdb");
+}
+
+async function initSqlDriver(): Promise<void> {
+  if (sqlDriverReady) return;
+
+  const useMsNodeSqlV8 =
+    process.env.SQL_DRIVER === "msnodesqlv8" || usesLocalDbTarget();
+
+  if (useMsNodeSqlV8) {
+    if (!isWindows) {
+      console.warn("⚠️ msnodesqlv8 / LocalDB requires Windows. Falling back to default driver.");
+    } else {
+      sql = (await import("mssql/msnodesqlv8")).default as typeof tediousSql;
+      (sqlConfig as tediousSql.config & { driver?: string }).driver = "msnodesqlv8";
+      delete (sqlConfig as { port?: number }).port;
+      console.log("Using msnodesqlv8 driver for LocalDB / Windows Authentication");
+    }
+  }
+
+  sqlDriverReady = true;
+}
+
 // SQL Server Configuration
-let sqlConfig: sql.config = {
+let sqlConfig: tediousSql.config = {
   user: process.env.SQL_USER || "", // Empty for Windows Auth/Integrated Security
   password: process.env.SQL_PASSWORD || "",
   database: process.env.SQL_DATABASE || (IS_PRODUCTION ? "" : "testdb12"),
@@ -573,6 +601,7 @@ let sqlConfig: sql.config = {
   options: {
     encrypt: parseBooleanEnv("SQL_ENCRYPT", true),
     trustServerCertificate: parseBooleanEnv("SQL_TRUST_SERVER_CERTIFICATE", true),
+    trustedConnection: parseBooleanEnv("SQL_TRUSTED_CONNECTION", false),
     enableArithAbort: true
   }
 };
@@ -610,9 +639,9 @@ if (fs.existsSync(appSettingsPath)) {
         if (k === 'trustservercertificate') sqlConfig.options.trustServerCertificate = v.toLowerCase() === 'true';
         if (k === 'trusted_connection' || k === 'integrated security') {
           if (v.toLowerCase() === 'true' || v.toLowerCase() === 'sspi') {
-            // Integrated security usually means empty user/password for tedious
             sqlConfig.user = "";
             sqlConfig.password = "";
+            sqlConfig.options.trustedConnection = true;
           }
         }
       });
@@ -624,9 +653,16 @@ if (fs.existsSync(appSettingsPath)) {
     if (process.env.SQL_PASSWORD) sqlConfig.password = process.env.SQL_PASSWORD;
     if (process.env.SQL_DATABASE) sqlConfig.database = process.env.SQL_DATABASE;
     if (process.env.SQL_PORT) sqlConfig.port = parseInt(process.env.SQL_PORT);
+    if (process.env.SQL_TRUSTED_CONNECTION) {
+      sqlConfig.options.trustedConnection = parseBooleanEnv("SQL_TRUSTED_CONNECTION", false);
+    }
   } catch (err) {
     console.error("Error parsing appsettings.json:", err);
   }
+}
+
+if (process.env.SQL_TRUSTED_CONNECTION) {
+  sqlConfig.options.trustedConnection = parseBooleanEnv("SQL_TRUSTED_CONNECTION", false);
 }
 
 function getProductionStartupErrors(): string[] {
@@ -733,6 +769,7 @@ const COLUMN_MAP: Record<string, string> = {
   paymentMethod: "payment_method",
   paymentDate: "payment_date",
   dueDate: "due_date",
+  validityDate: "validity_date",
   feeType: "fee_type",
   paidAmount: "paid_amount",
   discountAmount: "discount_amount",
@@ -772,9 +809,7 @@ const COLUMN_MAP: Record<string, string> = {
   obtainedMarks: "obtained_marks",
   recordedOn: "recorded_on",
   examId: "exam_id",
-  // Inventory
-  itemName: "item_name",
-  minThreshold: "min_threshold",
+  // Inventory — DB columns are camelCase (itemName, minThreshold, itSpecs)
   // Transactions
   transactionDate: "transaction_date",
   voucherId: "voucher_id",
@@ -805,13 +840,13 @@ const TABLE_INSERT_WHITELIST: Record<string, Set<string>> = {
     "id", "fullName", "cnic", "qualification", "salary", "joiningDate", "campusId", "role", "email", "isActive", "profileImage",
   ]),
   Inventory: new Set([
-    "id", "itemName", "category", "quantity", "unit", "minThreshold",
+    "id", "itemName", "category", "quantity", "unit", "minThreshold", "itSpecs",
   ]),
 };
 
-let pool: sql.ConnectionPool;
+let pool: tediousSql.ConnectionPool;
 
-async function ensureAdmissionExtendedSchema(pool: sql.ConnectionPool): Promise<void> {
+async function ensureAdmissionExtendedSchema(pool: tediousSql.ConnectionPool): Promise<void> {
   await pool.request().query(`
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'tracking_no')
       ALTER TABLE AdmissionApplications ADD tracking_no NVARCHAR(30);
@@ -850,8 +885,12 @@ async function ensureAdmissionExtendedSchema(pool: sql.ConnectionPool): Promise<
 
 async function connectToDb() {
   try {
-    if (!sqlConfig.user || !sqlConfig.server || sqlConfig.server.includes('localdb')) {
-      console.warn("⚠️ Database credentials missing or using (localdb) on cloud. Connection will likely fail.");
+    await initSqlDriver();
+
+    if (!sqlConfig.server) {
+      console.warn("⚠️ Database server is not configured.");
+    } else if (usesLocalDbTarget() && !isWindows) {
+      console.warn("⚠️ (localdb) was configured on a non-Windows host. Connection will likely fail.");
     }
     
     pool = await sql.connect(sqlConfig);
@@ -1009,6 +1048,8 @@ async function connectToDb() {
           ALTER TABLE Fees ADD id_card_fee DECIMAL(18, 2) DEFAULT 0;
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'trip_fee')
           ALTER TABLE Fees ADD trip_fee DECIMAL(18, 2) DEFAULT 0;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'validity_date')
+          ALTER TABLE Fees ADD validity_date DATE;
 
         -- Migration: Populate paid_amount for already paid vouchers to fix analytics
         UPDATE Fees SET paid_amount = amount + ISNULL(arrears, 0) 
@@ -1243,8 +1284,14 @@ async function connectToDb() {
             quantity INT DEFAULT 0,
             unit NVARCHAR(50),
             minThreshold INT DEFAULT 0,
+            itSpecs NVARCHAR(MAX) NULL,
             lastUpdated DATETIME DEFAULT GETDATE()
           );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Inventory') AND name = 'itSpecs')
+            ALTER TABLE Inventory ADD itSpecs NVARCHAR(MAX) NULL;
         END
 
         IF OBJECT_ID('Exams', 'U') IS NULL
@@ -1255,10 +1302,16 @@ async function connectToDb() {
             exam_type NVARCHAR(50) DEFAULT 'Monthly',
             class_id NVARCHAR(50) NOT NULL,
             campus_id NVARCHAR(50) NOT NULL,
+            region NVARCHAR(100) NULL,
             exam_date DATE,
             total_marks DECIMAL(18, 2) DEFAULT 100,
             created_on DATETIME DEFAULT GETDATE()
           );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Exams') AND name = 'region')
+            ALTER TABLE Exams ADD region NVARCHAR(100) NULL;
         END
 
         IF OBJECT_ID('ExamResults', 'U') IS NULL
@@ -1405,7 +1458,7 @@ async function connectToDb() {
   }
 }
 
-async function migrateFeeStructuresSession(pool: sql.ConnectionPool): Promise<void> {
+async function migrateFeeStructuresSession(pool: tediousSql.ConnectionPool): Promise<void> {
   // Run in separate batches — SQL Server compiles the whole batch before execution,
   // so index DDL referencing `session` must not share a batch with ADD COLUMN session.
   await pool.request().query(`
@@ -2295,6 +2348,61 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/campuses/:id", requireModulePermission("campuses", "delete"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const { id } = req.params;
+
+      const exists = await pool.request().input("id", id).query("SELECT id FROM Campuses WHERE id = @id");
+      if (!exists.recordset[0]) return res.status(404).json({ message: "Campus not found" });
+
+      const deps = await pool.request().input("id", id).query(`
+        SELECT
+          (SELECT COUNT(*) FROM Classes WHERE campus_id = @id) AS classCount,
+          (SELECT COUNT(*) FROM Students WHERE campus_id = @id) AS studentCount,
+          (SELECT COUNT(*) FROM Staff WHERE campusId = @id) AS staffCount,
+          (SELECT COUNT(*) FROM FeeStructures WHERE campus_id = @id) AS feeStructureCount,
+          (SELECT COUNT(*) FROM AdmissionApplications WHERE campus_id = @id) AS admissionCount,
+          (SELECT COUNT(*) FROM Exams WHERE campus_id = @id) AS examCount,
+          (SELECT COUNT(*) FROM Users WHERE campusId = @id) AS userCount,
+          (SELECT COUNT(*) FROM Expenses WHERE campus_id = @id) AS expenseCount
+      `);
+
+      const d = deps.recordset[0] || {};
+      const blockers: string[] = [];
+      if (Number(d.classCount) > 0) blockers.push(`${d.classCount} class(es)`);
+      if (Number(d.studentCount) > 0) blockers.push(`${d.studentCount} student(s)`);
+      if (Number(d.staffCount) > 0) blockers.push(`${d.staffCount} staff member(s)`);
+      if (Number(d.feeStructureCount) > 0) blockers.push(`${d.feeStructureCount} fee structure(s)`);
+      if (Number(d.admissionCount) > 0) blockers.push(`${d.admissionCount} admission application(s)`);
+      if (Number(d.examCount) > 0) blockers.push(`${d.examCount} exam(s)`);
+      if (Number(d.userCount) > 0) blockers.push(`${d.userCount} user(s)`);
+      if (Number(d.expenseCount) > 0) blockers.push(`${d.expenseCount} expense(s)`);
+
+      if (blockers.length > 0) {
+        return res.status(409).json({
+          message: `Cannot delete campus — linked records exist: ${blockers.join(", ")}. Remove or reassign them first, or deactivate the campus.`,
+        });
+      }
+
+      await pool.request().input("id", id).query(`
+        IF OBJECT_ID('CampusNameHistory','U') IS NOT NULL
+          DELETE FROM CampusNameHistory WHERE campus_id = @id;
+        IF OBJECT_ID('DashboardCampusStats','U') IS NOT NULL
+          DELETE FROM DashboardCampusStats WHERE campus_id = @id;
+      `);
+
+      await pool.request().input("id", id).query("DELETE FROM Campuses WHERE id = @id");
+      res.status(204).send();
+    } catch (err) {
+      console.error("Error deleting campus:", err);
+      res.status(500).json({
+        message: err instanceof Error ? err.message : "Error deleting campus",
+      });
+    }
+  });
+
   // Specialized Classes Route
   app.get("/api/classes", async (req, res) => {
     try {
@@ -3137,6 +3245,7 @@ async function startServer() {
           f.payment_method AS paymentMethod,
           CONVERT(VARCHAR, f.payment_date, 23) AS paymentDate,
           CONVERT(VARCHAR, f.due_date, 23) AS dueDate,
+          CONVERT(VARCHAR, f.validity_date, 23) AS validityDate,
           CONVERT(VARCHAR, f.created_at, 23) AS createdAt,
           s.student_name AS studentName,
           s.father_name AS fatherName,
@@ -3264,6 +3373,209 @@ async function startServer() {
 
   app.put("/api/fees/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
   app.put("/api/feevouchers/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
+
+  app.patch("/api/fees/:id/voucher", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const { id } = req.params;
+      const body = req.body || {};
+
+      const currentResult = await pool.request()
+        .input("id", id)
+        .query("SELECT * FROM Fees WHERE id = @id");
+      if (!currentResult.recordset[0]) return res.status(404).json({ message: "Fee record not found" });
+      const currentFee = currentResult.recordset[0];
+
+      if (currentFee.status === "Paid" || (currentFee.paid_amount || 0) > 0) {
+        return res.status(409).json({ message: "Only unpaid vouchers with no payments can be edited" });
+      }
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const studentCampusResult = await pool.request()
+        .input("studentId", currentFee.student_id)
+        .query("SELECT campus_id FROM Students WHERE id = @studentId");
+      const studentCampus = studentCampusResult.recordset[0];
+      if (!studentCampus) return res.status(404).json({ message: "Student not found" });
+      const campusErr = await assertCampusWrite(authUser, studentCampus.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const tuitionFee = Number(body.tuitionFee ?? currentFee.tuition_fee ?? 0);
+      const admissionFee = Number(body.admissionFee ?? currentFee.admission_fee ?? 0);
+      const securityFee = Number(body.securityFee ?? currentFee.security_fee ?? 0);
+      const examFee = Number(body.examFee ?? currentFee.exam_fee ?? 0);
+      const transportFee = Number(body.transportFee ?? currentFee.transport_fee ?? 0);
+      const miscFee = Number(body.miscFee ?? currentFee.misc_fee ?? 0);
+      const arrears = Number(body.arrears ?? currentFee.arrears ?? 0);
+      const dueDate = body.dueDate ?? currentFee.due_date;
+      const validityDate = body.validityDate ?? currentFee.validity_date;
+      const amount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
+      const balanceAmount = amount + arrears;
+
+      await pool.request()
+        .input("id", id)
+        .input("amount", amount)
+        .input("tuition_fee", tuitionFee)
+        .input("admission_fee", admissionFee)
+        .input("security_fee", securityFee)
+        .input("exam_fee", examFee)
+        .input("transport_fee", transportFee)
+        .input("misc_fee", miscFee)
+        .input("arrears", arrears)
+        .input("balance_amount", balanceAmount)
+        .input("due_date", dueDate || null)
+        .input("validity_date", validityDate || null)
+        .query(`
+          UPDATE Fees SET
+            amount = @amount,
+            tuition_fee = @tuition_fee,
+            admission_fee = @admission_fee,
+            security_fee = @security_fee,
+            exam_fee = @exam_fee,
+            transport_fee = @transport_fee,
+            misc_fee = @misc_fee,
+            arrears = @arrears,
+            balance_amount = @balance_amount,
+            due_date = @due_date,
+            validity_date = @validity_date
+          WHERE id = @id
+        `);
+
+      await recomputeStudentOutstanding(currentFee.student_id);
+      res.json({ message: "Voucher updated", id, amount, balanceAmount });
+    } catch (err) {
+      console.error("Error editing voucher:", err);
+      res.status(500).json({ message: "Error editing voucher", error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/fees/:id/regenerate", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const { id } = req.params;
+
+      const currentResult = await pool.request()
+        .input("id", id)
+        .query(`
+          SELECT f.*, s.admission_date, s.campus_id, s.class_id, cp.campus_name
+          FROM Fees f
+          JOIN Students s ON s.id = f.student_id
+          LEFT JOIN Campuses cp ON cp.id = s.campus_id
+          WHERE f.id = @id
+        `);
+      if (!currentResult.recordset[0]) return res.status(404).json({ message: "Fee record not found" });
+      const fee = currentResult.recordset[0];
+
+      if (fee.status === "Paid" || (fee.paid_amount || 0) > 0) {
+        return res.status(409).json({ message: "Only unpaid vouchers with no payments can be regenerated" });
+      }
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const campusErr = await assertCampusWrite(authUser, fee.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const month = fee.month;
+      const year = fee.year;
+      const sessionLabel = deriveAcademicSession(year, month);
+
+      const structureResult = await pool.request()
+        .input("campusId", fee.campus_id)
+        .input("session", sessionLabel)
+        .query(`
+          SELECT TOP 1
+            ISNULL(st.tuition_fee, 0) AS monthly_fee,
+            ISNULL(st.admission_fee, 0) AS admission_fee,
+            ISNULL(st.security_fee, 0) AS security_fee,
+            ISNULL(st.exam_fee, 0) AS exam_fee,
+            ISNULL(st.transport_fee, 0) AS transport_fee,
+            ISNULL(st.misc_fee, 0) AS misc_fee
+          FROM FeeStructures st
+          WHERE st.campus_id = @campusId AND st.session = @session AND st.class_id IS NULL
+        `);
+      const structure = structureResult.recordset[0];
+      if (!structure) {
+        return res.status(400).json({ message: `No fee structure for session ${sessionLabel}. Configure Fee Settings first.` });
+      }
+
+      const examChargedResult = await pool.request()
+        .input("studentId", fee.student_id)
+        .input("feeId", id)
+        .query(`
+          SELECT TOP 1 1 AS charged FROM Fees
+          WHERE student_id = @studentId AND id <> @feeId AND ISNULL(exam_fee, 0) > 0
+        `);
+      const examAlreadyCharged = examChargedResult.recordset.length > 0;
+
+      let tuitionFee = structure.monthly_fee || 0;
+      let admissionFee = 0;
+      let securityFee = 0;
+      let examFee = 0;
+      let transportFee = structure.transport_fee || 0;
+      let miscFee = structure.misc_fee || 0;
+      let feeType = fee.fee_type || "Monthly";
+
+      if (fee.admission_date) {
+        const admDate = new Date(fee.admission_date);
+        if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
+          admissionFee = structure.admission_fee || 0;
+          securityFee = structure.security_fee || 0;
+          feeType = "Admission";
+        }
+      }
+
+      if (!examAlreadyCharged && feeType === "Admission") {
+        examFee = structure.exam_fee || 0;
+      }
+
+      const arrears = fee.arrears || 0;
+      const amount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
+      const balanceAmount = amount + arrears;
+      const dueDate = fee.due_date || new Date(year, month - 1, 10).toISOString().split("T")[0];
+      const validityDate = fee.validity_date || new Date(year, month, 0).toISOString().split("T")[0];
+
+      await pool.request()
+        .input("id", id)
+        .input("amount", amount)
+        .input("fee_type", feeType)
+        .input("tuition_fee", tuitionFee)
+        .input("admission_fee", admissionFee)
+        .input("security_fee", securityFee)
+        .input("exam_fee", examFee)
+        .input("transport_fee", transportFee)
+        .input("misc_fee", miscFee)
+        .input("balance_amount", balanceAmount)
+        .input("due_date", dueDate)
+        .input("validity_date", validityDate)
+        .query(`
+          UPDATE Fees SET
+            amount = @amount,
+            fee_type = @fee_type,
+            tuition_fee = @tuition_fee,
+            admission_fee = @admission_fee,
+            security_fee = @security_fee,
+            exam_fee = @exam_fee,
+            transport_fee = @transport_fee,
+            misc_fee = @misc_fee,
+            balance_amount = @balance_amount,
+            due_date = @due_date,
+            validity_date = @validity_date,
+            paid_amount = 0,
+            discount_amount = 0,
+            fine_amount = 0,
+            status = 'Unpaid'
+          WHERE id = @id
+        `);
+
+      await recomputeStudentOutstanding(fee.student_id);
+      res.json({ message: "Voucher regenerated from current fee structure", id, amount, balanceAmount, feeType });
+    } catch (err) {
+      console.error("Error regenerating voucher:", err);
+      res.status(500).json({ message: "Error regenerating voucher", error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   // QuickPay Callback Route (public webhook — signature + idempotency)
   app.post("/api/payments/quickpay-callback", async (req, res) => {
@@ -3395,7 +3707,7 @@ async function startServer() {
         return res.status(403).json({ message: "User is not assigned to a campus" });
       }
 
-      const { campusId, month: reqMonth, months: reqMonths, year: reqYear, session: reqSession, includeAdmissions, includeArrears } = req.body;
+      const { campusId, month: reqMonth, months: reqMonths, year: reqYear, session: reqSession, includeAdmissions, includeArrears, dueDate: reqDueDate, validityDate: reqValidityDate } = req.body;
       const effectiveCampusId = scope || (campusId && campusId !== "all" ? campusId : null);
       if (effectiveCampusId) {
         const campusErr = await assertCampusWrite(authUser, String(effectiveCampusId));
@@ -3418,12 +3730,14 @@ async function startServer() {
         .input("months_csv", monthsToGenerate.join(","))
         .input("include_admissions", includeAdmissions !== false ? 1 : 0)
         .input("include_arrears", includeArrears !== false ? 1 : 0)
+        .input("due_date", reqDueDate || null)
+        .input("validity_date", reqValidityDate || null)
         .input("run_by", authUser.username)
         .query(`
           INSERT INTO FeeGenerationJobs (
-            id, campus_id, session, year, months_csv, include_admissions, include_arrears, status, run_by
+            id, campus_id, session, year, months_csv, include_admissions, include_arrears, due_date, validity_date, status, run_by
           ) VALUES (
-            @id, @campus_id, @session, @year, @months_csv, @include_admissions, @include_arrears, 'pending', @run_by
+            @id, @campus_id, @session, @year, @months_csv, @include_admissions, @include_arrears, @due_date, @validity_date, 'pending', @run_by
           )
         `);
 
@@ -4108,7 +4422,7 @@ async function startServer() {
         arrearsCache.add(String(r.student_id));
       }
 
-      const resolveCampusId = async (tx: sql.Transaction, row: Record<string, unknown>): Promise<string> => {
+      const resolveCampusId = async (tx: tediousSql.Transaction, row: Record<string, unknown>): Promise<string> => {
         const campusName = String(getVal(row, "Campus Name", "campus_name", "CampusName") || "Unknown").trim();
         const region = String(getVal(row, "Campus Region", "region", "CampusRegion") || "").trim();
         const cityName = String(getVal(row, "Campus City", "city", "CampusCity", "Campus_City") || "").trim();
@@ -4158,7 +4472,7 @@ async function startServer() {
       };
 
       const resolveClassId = async (
-        tx: sql.Transaction,
+        tx: tediousSql.Transaction,
         campusId: string,
         className: string,
         sectionName: string
@@ -4379,6 +4693,7 @@ async function startServer() {
           CASE WHEN s.id IS NOT NULL THEN s.admission_no ELSE NULL END AS linkedStudentRoll
         FROM Users u
         LEFT JOIN Students s ON s.admission_no = u.username AND s.status = 'Active'
+        WHERE u.role <> 'Student'
       `);
       const users = result.recordset
         .map((row) => {
@@ -4593,7 +4908,8 @@ async function startServer() {
       const result = await request.query(`
         SELECT e.id, e.title, e.exam_type AS examType, e.class_id AS classId,
                cl.class_name AS className, e.campus_id AS campusId,
-               c.campus_name AS campusName, CONVERT(VARCHAR, e.exam_date, 23) AS examDate,
+               c.campus_name AS campusName, e.region AS region,
+               CONVERT(VARCHAR, e.exam_date, 23) AS examDate,
                e.total_marks AS totalMarks, CONVERT(VARCHAR, e.created_on, 23) AS createdOn
         FROM Exams e
         LEFT JOIN Classes cl ON e.class_id = cl.id
@@ -4604,6 +4920,87 @@ async function startServer() {
       res.json(result.recordset);
     } catch (err) {
       sendServerError(res, err, "Error fetching exams");
+    }
+  });
+
+  app.post("/api/exams/region", requireRoles(ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const e = req.body;
+      const region = String(e.region || "").trim();
+      const className = String(e.className || "").trim();
+      if (!e.title?.trim() || !region || !className) {
+        return res.status(400).json({ message: "Title, region, and class name are required" });
+      }
+
+      const campusResult = await pool.request()
+        .input("region", region)
+        .query(`
+          SELECT id, campus_name AS campusName, region
+          FROM Campuses
+          WHERE LTRIM(RTRIM(LOWER(ISNULL(region, '')))) = LTRIM(RTRIM(LOWER(@region)))
+            AND ISNULL(isActive, 1) = 1
+        `);
+      const regionCampuses = campusResult.recordset as Array<{ id: string; campusName: string; region?: string }>;
+      if (regionCampuses.length === 0) {
+        return res.status(400).json({ message: `No active campuses found for region "${region}". Set campus Region first.` });
+      }
+
+      const created: Array<{ id: string; campusId: string; classId: string }> = [];
+      const skipped: string[] = [];
+
+      for (const campus of regionCampuses) {
+        const campusErr = await assertCampusWrite(authUser, campus.id);
+        if (campusErr) {
+          skipped.push(`${campus.campusName}: ${campusErr}`);
+          continue;
+        }
+        const classResult = await pool.request()
+          .input("campusId", campus.id)
+          .input("className", className)
+          .query(`
+            SELECT TOP 1 id FROM Classes
+            WHERE campus_id = @campusId AND LTRIM(RTRIM(LOWER(class_name))) = LTRIM(RTRIM(LOWER(@className)))
+            ORDER BY section_name
+          `);
+        const classId = classResult.recordset[0]?.id as string | undefined;
+        if (!classId) {
+          skipped.push(`${campus.campusName}: no class "${className}"`);
+          continue;
+        }
+        const id = crypto.randomUUID();
+        await pool.request()
+          .input("id", id)
+          .input("title", e.title)
+          .input("exam_type", e.examType || "Monthly")
+          .input("class_id", classId)
+          .input("campus_id", campus.id)
+          .input("region", region)
+          .input("exam_date", e.examDate || null)
+          .input("total_marks", e.totalMarks || 100)
+          .query(`
+            INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
+            VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
+          `);
+        created.push({ id, campusId: campus.id, classId });
+      }
+
+      if (created.length === 0) {
+        return res.status(400).json({
+          message: `No exams created. ${skipped.join("; ") || "No matching classes in region."}`,
+        });
+      }
+      res.status(201).json({
+        message: `Created ${created.length} exam schedule(s) for region ${region}`,
+        createdCount: created.length,
+        created,
+        skipped,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error creating region exams");
     }
   });
 
@@ -4623,11 +5020,12 @@ async function startServer() {
         .input("exam_type", e.examType || "Monthly")
         .input("class_id", e.classId)
         .input("campus_id", e.campusId)
+        .input("region", e.region || null)
         .input("exam_date", e.examDate || null)
         .input("total_marks", e.totalMarks || 100)
         .query(`
-          INSERT INTO Exams (id, title, exam_type, class_id, campus_id, exam_date, total_marks)
-          VALUES (@id, @title, @exam_type, @class_id, @campus_id, @exam_date, @total_marks)
+          INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
+          VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
         `);
       res.status(201).json({ ...e, id });
     } catch (err) {
@@ -5841,7 +6239,7 @@ async function startServer() {
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
 
       const campusScopedCollections = new Set(["expenses", "attendance"]);
-      let result: sql.IResult<Record<string, unknown>>;
+      let result: tediousSql.IResult<Record<string, unknown>>;
       if (campusScopedCollections.has(collection)) {
         const authUser = await loadAuthUser(req);
         if (!authUser) return res.status(401).json({ message: "Unauthorized" });

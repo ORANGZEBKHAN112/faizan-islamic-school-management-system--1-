@@ -14,6 +14,16 @@ import { gradeFromMarks } from '../utils/examGrades';
 
 const scopeUser = getStoredUser();
 
+const EXAM_REGIONS = [
+  'Karachi',
+  'Interior Sindh',
+  'Punjab',
+  'KPK',
+  'Balochistan',
+  'Kashmir',
+  'Winter Zone',
+] as const;
+
 export default function Exams() {
   const confirm = useConfirm();
   const [exams, setExams] = useState<Exam[]>([]);
@@ -23,9 +33,12 @@ export default function Exams() {
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [results, setResults] = useState<Record<string, { obtainedMarks: number; grade: string; remarks: string }>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<'region' | 'campus'>('region');
   const [formData, setFormData] = useState({
     title: '',
     examType: 'Monthly',
+    region: '',
+    className: '',
     campusId: scopeUser ? (defaultCampusFilter(scopeUser) !== 'all' ? defaultCampusFilter(scopeUser) : '') : '',
     classId: '',
     examDate: new Date().toISOString().split('T')[0],
@@ -73,6 +86,18 @@ export default function Exams() {
   }, [selectedExam?.classId]);
 
   const campusClasses = classes.filter((c) => !formData.campusId || c.campusId === formData.campusId);
+  const distinctClassNames: string[] = Array.from(
+    new Set<string>(
+      classes
+        .filter((c) => {
+          if (scheduleMode !== 'region' || !formData.region) return true;
+          const campus = campuses.find((x) => x.id === c.campusId);
+          return (campus?.region || '').trim().toLowerCase() === formData.region.trim().toLowerCase();
+        })
+        .map((c) => String(c.className || ''))
+        .filter((n) => n.length > 0)
+    )
+  ).sort();
   const examStudents = selectedExam
     ? students.filter((s) => s.classId === selectedExam.classId && s.status === 'Active')
     : [];
@@ -97,16 +122,46 @@ export default function Exams() {
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.campusId || !formData.classId) {
-      toast.error('Title, campus, and class are required');
+    if (!formData.title.trim()) {
+      toast.error('Exam title is required');
       return;
     }
     try {
-      await dataService.addExam(formData);
-      toast.success('Exam created');
+      if (scheduleMode === 'region') {
+        if (!formData.region || !formData.className) {
+          toast.error('Region and class are required');
+          return;
+        }
+        const result = await dataService.addExamsByRegion({
+          title: formData.title,
+          examType: formData.examType,
+          region: formData.region,
+          className: formData.className,
+          examDate: formData.examDate,
+          totalMarks: formData.totalMarks,
+        });
+        toast.success(result.message || `Created ${result.createdCount} exam(s)`);
+        if (result.skipped?.length) {
+          toast.message(`Skipped ${result.skipped.length} campus(es)`, { description: result.skipped.slice(0, 3).join('; ') });
+        }
+      } else {
+        if (!formData.campusId || !formData.classId) {
+          toast.error('Campus and class are required');
+          return;
+        }
+        await dataService.addExam({
+          title: formData.title,
+          examType: formData.examType,
+          campusId: formData.campusId,
+          classId: formData.classId,
+          examDate: formData.examDate,
+          totalMarks: formData.totalMarks,
+        });
+        toast.success('Exam created');
+      }
       await loadExams();
       setIsModalOpen(false);
-      setFormData((prev) => ({ ...prev, title: '', classId: '' }));
+      setFormData((prev) => ({ ...prev, title: '', classId: '', className: '' }));
     } catch (err) {
       console.error(err);
       const msg = (err as any)?.response?.data?.message;
@@ -182,7 +237,7 @@ export default function Exams() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-black text-slate-900 dark:text-white">{exam.title}</p>
-                    <p className="text-xs text-slate-500 mt-1">{exam.className} · {exam.campusName}</p>
+                    <p className="text-xs text-slate-500 mt-1">{exam.className} · {exam.campusName}{exam.region ? ` · ${exam.region}` : ''}</p>
                     <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-2">{exam.examType} · {exam.examDate || 'TBD'}</p>
                   </div>
                   <PermissionGate module="exams" action="delete">
@@ -305,24 +360,70 @@ export default function Exams() {
                   searchPlaceholder="Search type…"
                   options={['Monthly', 'Midterm', 'Final', 'Quiz'].map((t) => ({ value: t, label: t }))}
                 />
-                {(!scopeUser || canPickCampus(scopeUser)) ? (
-                  <SearchableSelect
-                    required
-                    value={formData.campusId}
-                    onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
-                    placeholder="Select campus"
-                    searchPlaceholder="Search campuses…"
-                    options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
-                  />
-                ) : null}
-                <SearchableSelect
-                  required
-                  value={formData.classId}
-                  onChange={(classId) => setFormData({ ...formData, classId })}
-                  placeholder="Select class"
-                  searchPlaceholder="Search classes…"
-                  options={campusClasses.map((c) => ({ value: c.id, label: `${c.className} ${c.sectionName}` }))}
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleMode('region')}
+                    className={`py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${scheduleMode === 'region' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}
+                  >
+                    Region / State
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleMode('campus')}
+                    className={`py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${scheduleMode === 'campus' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}
+                  >
+                    Single Campus
+                  </button>
+                </div>
+                {scheduleMode === 'region' ? (
+                  <>
+                    <SearchableSelect
+                      required
+                      className="w-full"
+                      value={formData.region}
+                      onChange={(region) => setFormData({ ...formData, region, className: '' })}
+                      placeholder="Select region / state"
+                      searchPlaceholder="Search region…"
+                      options={EXAM_REGIONS.map((r) => ({ value: r, label: r }))}
+                    />
+                    <SearchableSelect
+                      required
+                      className="w-full"
+                      value={formData.className}
+                      onChange={(className) => setFormData({ ...formData, className })}
+                      placeholder="Select class"
+                      searchPlaceholder="Search classes…"
+                      options={distinctClassNames.map((n) => ({ value: n, label: n }))}
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Applies the same schedule to all campuses in the selected region that have this class.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {(!scopeUser || canPickCampus(scopeUser)) ? (
+                      <SearchableSelect
+                        required
+                        className="w-full"
+                        value={formData.campusId}
+                        onChange={(campusId) => setFormData({ ...formData, campusId, classId: '' })}
+                        placeholder="Select campus"
+                        searchPlaceholder="Search campuses…"
+                        options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
+                      />
+                    ) : null}
+                    <SearchableSelect
+                      required
+                      className="w-full"
+                      value={formData.classId}
+                      onChange={(classId) => setFormData({ ...formData, classId })}
+                      placeholder="Select class"
+                      searchPlaceholder="Search classes…"
+                      options={campusClasses.map((c) => ({ value: c.id, label: `${c.className} ${c.sectionName}` }))}
+                    />
+                  </>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <input type="date" className="vibrant-input" value={formData.examDate} onChange={(e) => setFormData({ ...formData, examDate: e.target.value })} />
                   <input type="number" className="vibrant-input" placeholder="Total marks" value={formData.totalMarks} onChange={(e) => setFormData({ ...formData, totalMarks: parseInt(e.target.value) || 100 })} />
