@@ -19,6 +19,7 @@ import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
+import SingleVoucherPanel from '../components/fees/SingleVoucherPanel';
 
 function defaultDueDate(year: number, month: number): string {
   return new Date(year, month - 1, 10).toISOString().split('T')[0];
@@ -83,7 +84,7 @@ export default function FeeManagement() {
   
   const [currentPage, setCurrentPage] = useState(1);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'vouchers' | 'generate' | 'runs'>('vouchers');
+  const [activeTab, setActiveTab] = useState<'vouchers' | 'generate' | 'runs' | 'single' | 'custom' | 'ledger'>('vouchers');
   const [generationRuns, setGenerationRuns] = useState<FeeGenerationRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
@@ -896,7 +897,51 @@ export default function FeeManagement() {
           </div>
         </button>
         )}
+        {canCreate('fees') && (
+        <button
+          onClick={() => setActiveTab('single')}
+          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            activeTab === 'single'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Single
+        </button>
+        )}
+        {canCreate('fees') && (
+        <button
+          onClick={() => setActiveTab('custom')}
+          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            activeTab === 'custom'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Customize
+        </button>
+        )}
+        <button
+          onClick={() => setActiveTab('ledger')}
+          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            activeTab === 'ledger'
+              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Fee Ledger
+        </button>
       </div>
+
+      {(activeTab === 'single' || activeTab === 'custom' || activeTab === 'ledger') && (
+        <SingleVoucherPanel
+          mode={activeTab === 'single' ? 'single' : activeTab === 'custom' ? 'custom' : 'ledger'}
+          onCreated={() => {
+            refreshVouchers();
+            setActiveTab('vouchers');
+          }}
+        />
+      )}
 
       {activeTab === 'generate' && (
         <motion.div 

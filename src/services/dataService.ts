@@ -565,6 +565,28 @@ export const dataService = {
     return response.data;
   },
 
+  async createSingleVoucher(data: Record<string, unknown>) {
+    const response = await api.post('/fees/single-voucher', data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async createCustomVoucher(data: Record<string, unknown>) {
+    const response = await api.post('/fees/custom-voucher', data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async fetchStudentFeeLedger(studentId: string) {
+    const response = await api.get(`/fees/student-ledger/${studentId}`);
+    return response.data as {
+      student: Record<string, unknown>;
+      vouchers: Array<Record<string, unknown>>;
+      transactions: Array<Record<string, unknown>>;
+      summary: { voucherCount: number; totalPaid: number; totalOutstanding: number };
+    };
+  },
+
   async advanceYearPayment(data: Record<string, unknown>) {
     const response = await api.post('/fees/advance-year-payment', data);
     this.invalidateCollection('fees');

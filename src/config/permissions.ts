@@ -23,6 +23,7 @@ export const PATH_TO_MODULE: Record<string, string> = {
   '/classes': 'classes',
   '/staff': 'staff',
   '/inventory': 'inventory',
+  '/books': 'inventory',
   '/admissions': 'admissions',
   '/students': 'students',
   '/documents': 'documents',
@@ -97,6 +98,7 @@ export function firstAccessiblePath(
     '/users',
     '/roles',
     '/inventory',
+    '/books',
     '/fee-settings',
     '/quickpay',
   ];

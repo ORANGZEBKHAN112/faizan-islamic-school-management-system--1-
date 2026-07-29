@@ -34,11 +34,25 @@ export default function Dashboard({ user }: DashboardProps) {
   const [dbError, setDbError] = useState<string | null>(null);
   const [selectedCampus, setSelectedCampus] = useState(() => defaultCampusFilter(user));
   const [campusOptions, setCampusOptions] = useState<Campus[]>([]);
+  const [statsTick, setStatsTick] = useState(0);
   const campusParams = campusQueryParam(user, selectedCampus);
   const feesPath = pathWithCampus('/fees', user, selectedCampus);
 
   useEffect(() => {
     dataService.subscribe('campuses', setCampusOptions);
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => setStatsTick((n) => n + 1);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') onFocus();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   useEffect(() => {
@@ -57,7 +71,7 @@ export default function Dashboard({ user }: DashboardProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, selectedCampus]);
+  }, [user, selectedCampus, campusParams, statsTick]);
 
   const cards = [
     { title: 'Active Students', value: stats.activeStudents, icon: Users, color: 'bg-success', path: '/students' },

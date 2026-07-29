@@ -290,3 +290,71 @@ export function downloadExamResultSheet(
 
   doc.save(`Results_${examTitle.replace(/\s+/g, '_')}.pdf`);
 }
+
+export function downloadExamProgressReport(
+  examTitle: string,
+  className: string,
+  sectionName: string,
+  educationLevel: string,
+  totalMarks: number,
+  rows: Array<{
+    studentName: string;
+    rollNumber: string;
+    obtainedMarks: number;
+    grade?: string;
+    classRank?: number | null;
+    sectionRank?: number | null;
+  }>
+) {
+  const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+  const showRanks = educationLevel !== 'Pre-Primary';
+
+  doc.setFillColor(0, 59, 92);
+  doc.rect(0, 0, pageW, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text(SCHOOL_NAME, pageW / 2, 12, { align: 'center' });
+  doc.setFontSize(10);
+  doc.text(`Progress Report — ${examTitle}`, pageW / 2, 22, { align: 'center' });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(11);
+  doc.text(`Class: ${className}${sectionName ? ` · Section ${sectionName}` : ''} · Level: ${educationLevel}`, 14, 40);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 100, 80);
+  doc.text(`Total Marks: ${totalMarks}`, 14, 48);
+  doc.setTextColor(0, 0, 0);
+
+  let y = 58;
+  doc.setFontSize(9);
+  doc.text('Roll No.', 14, y);
+  doc.text('Student', 40, y);
+  doc.text('Marks', 100, y);
+  doc.text('Grade', 125, y);
+  if (showRanks) {
+    doc.text('Class Rank', 150, y);
+    doc.text('Sec. Rank', 180, y);
+  }
+  y += 8;
+  doc.setFont('helvetica', 'normal');
+
+  rows.forEach((row) => {
+    doc.text(formatRollNumberForDisplay(row.rollNumber), 14, y);
+    doc.text(clip(doc, row.studentName, 55), 40, y);
+    doc.text(`${row.obtainedMarks}/${totalMarks}`, 100, y);
+    doc.text(row.grade || '—', 125, y);
+    if (showRanks) {
+      doc.text(row.classRank != null ? String(row.classRank) : '—', 150, y);
+      doc.text(row.sectionRank != null ? String(row.sectionRank) : '—', 180, y);
+    }
+    y += 7;
+    if (y > 270) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  doc.save(`Progress_${examTitle.replace(/\s+/g, '_')}.pdf`);
+}

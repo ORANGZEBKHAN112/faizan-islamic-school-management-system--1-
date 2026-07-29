@@ -75,6 +75,7 @@ export const NAV_MODULES: NavModuleDef[] = [
       { nameKey: 'nav.classes', path: '/classes', icon: BookOpen, roles: ['Super Admin', 'Admin'], moduleKey: 'classes' },
       { nameKey: 'nav.staff', path: '/staff', icon: Briefcase, roles: ['Super Admin', 'Admin'], moduleKey: 'staff' },
       { nameKey: 'nav.inventory', path: '/inventory', icon: Package, roles: ['Super Admin'], moduleKey: 'inventory' },
+      { nameKey: 'nav.books', path: '/books', icon: BookOpen, roles: ['Super Admin', 'Admin'], moduleKey: 'inventory' },
     ],
   },
   {

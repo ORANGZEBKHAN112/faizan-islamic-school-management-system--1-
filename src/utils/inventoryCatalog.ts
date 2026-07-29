@@ -4,7 +4,6 @@ export const INVENTORY_CATEGORIES = [
   'Electrical Items',
   'Stationery',
   'Supplies',
-  'Books',
   'Uniforms',
   'Other',
 ] as const;
@@ -27,7 +26,6 @@ export const INVENTORY_ITEMS_BY_CATEGORY: Record<string, string[]> = {
   'Electrical Items': ['Fan', 'Tube Light', 'Bulb', 'Extension Board', 'Switch Board', 'Stabilizer'],
   Stationery: ['Notebook', 'Pen', 'Pencil', 'Marker', 'Register', 'Paper Ream', 'Stapler'],
   Supplies: ['Cleaning Supplies', 'First Aid Kit', 'Water Dispenser', 'Other Supply'],
-  Books: ['Textbook', 'Workbook', 'Reference Book', 'Quran', 'Library Book'],
   Uniforms: ['Shirt', 'Trouser', 'Tie', 'Scarf', 'Sweater', 'Sports Kit'],
   Other: ['Miscellaneous'],
 };

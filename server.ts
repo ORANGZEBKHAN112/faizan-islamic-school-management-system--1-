@@ -3949,6 +3949,294 @@ async function startServer() {
     }
   });
 
+  app.post("/api/fees/single-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { studentId, month: reqMonth, year: reqYear, dueDate: reqDueDate, validityDate: reqValidityDate, session: reqSession } = req.body;
+      if (!studentId) return res.status(400).json({ message: "studentId is required" });
+
+      const month = Number(reqMonth) || new Date().getMonth() + 1;
+      const year = Number(reqYear) || new Date().getFullYear();
+      if (month < 1 || month > 12) return res.status(400).json({ message: "Invalid month" });
+
+      const studentResult = await pool.request().input("id", studentId).query(`
+        SELECT s.id, s.campus_id, s.class_id, s.admission_date, s.status, cp.campus_name
+        FROM Students s
+        LEFT JOIN Campuses cp ON s.campus_id = cp.id
+        WHERE s.id = @id
+      `);
+      const student = studentResult.recordset[0];
+      if (!student) return res.status(404).json({ message: "Student not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const campusErr = await assertCampusWrite(authUser, student.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const existing = await pool.request()
+        .input("studentId", studentId)
+        .input("month", month)
+        .input("year", year)
+        .query(`
+          SELECT TOP 1 id FROM Fees
+          WHERE student_id = @studentId AND month = @month AND year = @year
+            AND fee_type IN ('Monthly', 'Admission')
+        `);
+      if (existing.recordset[0]) {
+        return res.status(409).json({ message: "A monthly/admission voucher already exists for this student and period", feeId: existing.recordset[0].id });
+      }
+
+      const sessionLabel = normalizeSessionLabel(reqSession, year, month);
+      const structureResult = await pool.request()
+        .input("campusId", student.campus_id)
+        .input("session", sessionLabel)
+        .query(`
+          SELECT TOP 1
+            ISNULL(st.tuition_fee, 0) AS monthly_fee,
+            ISNULL(st.admission_fee, 0) AS admission_fee,
+            ISNULL(st.security_fee, 0) AS security_fee,
+            ISNULL(st.exam_fee, 0) AS exam_fee,
+            ISNULL(st.transport_fee, 0) AS transport_fee,
+            ISNULL(st.misc_fee, 0) AS misc_fee
+          FROM FeeStructures st
+          WHERE st.campus_id = @campusId AND st.session = @session AND st.class_id IS NULL
+        `);
+      const structure = structureResult.recordset[0];
+      if (!structure) {
+        return res.status(400).json({ message: `No fee structure for session ${sessionLabel}. Configure Fee Settings first.` });
+      }
+
+      const examChargedResult = await pool.request()
+        .input("studentId", studentId)
+        .query(`SELECT TOP 1 1 AS charged FROM Fees WHERE student_id = @studentId AND ISNULL(exam_fee, 0) > 0`);
+      const examAlreadyCharged = examChargedResult.recordset.length > 0;
+
+      let tuitionFee = structure.monthly_fee || 0;
+      let admissionFee = 0;
+      let securityFee = 0;
+      let examFee = 0;
+      let transportFee = structure.transport_fee || 0;
+      let miscFee = structure.misc_fee || 0;
+      let feeType = "Monthly";
+
+      if (student.admission_date) {
+        const admDate = new Date(student.admission_date);
+        if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
+          admissionFee = structure.admission_fee || 0;
+          securityFee = structure.security_fee || 0;
+          feeType = "Admission";
+        }
+      }
+      if (!examAlreadyCharged && feeType === "Admission") {
+        examFee = structure.exam_fee || 0;
+      }
+
+      const amount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
+      const dueDate = reqDueDate || new Date(year, month - 1, 10).toISOString().split("T")[0];
+      const validityDate = reqValidityDate || new Date(year, month, 0).toISOString().split("T")[0];
+      const id = crypto.randomUUID();
+
+      await pool.request()
+        .input("id", id)
+        .input("student_id", studentId)
+        .input("amount", amount)
+        .input("month", month)
+        .input("year", year)
+        .input("due_date", dueDate)
+        .input("validity_date", validityDate)
+        .input("fee_type", feeType)
+        .input("tuition_fee", tuitionFee)
+        .input("admission_fee", admissionFee)
+        .input("security_fee", securityFee)
+        .input("exam_fee", examFee)
+        .input("transport_fee", transportFee)
+        .input("misc_fee", miscFee)
+        .input("balance_amount", amount)
+        .input("campus_name_snapshot", student.campus_name || null)
+        .input("months_label", `${feeType} — ${month}/${year}`)
+        .query(`
+          INSERT INTO Fees (
+            id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
+            tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee,
+            balance_amount, paid_amount, campus_name_snapshot, months_label
+          ) VALUES (
+            @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @validity_date, @fee_type,
+            @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee,
+            @balance_amount, 0, @campus_name_snapshot, @months_label
+          )
+        `);
+
+      await recomputeStudentOutstanding(studentId);
+      res.status(201).json({ id, amount, feeType, month, year, message: "Single voucher created" });
+    } catch (err) {
+      sendServerError(res, err, "Error creating single voucher");
+    }
+  });
+
+  app.post("/api/fees/custom-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const {
+        studentId,
+        month: reqMonth,
+        year: reqYear,
+        dueDate: reqDueDate,
+        validityDate: reqValidityDate,
+        tuitionFee = 0,
+        admissionFee = 0,
+        securityFee = 0,
+        examFee = 0,
+        transportFee = 0,
+        miscFee = 0,
+        arrears = 0,
+        discountAmount = 0,
+        fineAmount = 0,
+        description,
+        feeType: reqFeeType,
+      } = req.body;
+      if (!studentId) return res.status(400).json({ message: "studentId is required" });
+
+      const month = Number(reqMonth) || new Date().getMonth() + 1;
+      const year = Number(reqYear) || new Date().getFullYear();
+      const t = Number(tuitionFee) || 0;
+      const a = Number(admissionFee) || 0;
+      const sec = Number(securityFee) || 0;
+      const ex = Number(examFee) || 0;
+      const tr = Number(transportFee) || 0;
+      const mi = Number(miscFee) || 0;
+      const ar = Number(arrears) || 0;
+      const disc = Number(discountAmount) || 0;
+      const fine = Number(fineAmount) || 0;
+      const amount = t + a + sec + ex + tr + mi;
+      if (amount + ar + fine - disc <= 0) {
+        return res.status(400).json({ message: "Custom voucher total must be greater than zero" });
+      }
+
+      const studentResult = await pool.request().input("id", studentId).query(`
+        SELECT s.id, s.campus_id, cp.campus_name FROM Students s
+        LEFT JOIN Campuses cp ON s.campus_id = cp.id WHERE s.id = @id
+      `);
+      const student = studentResult.recordset[0];
+      if (!student) return res.status(404).json({ message: "Student not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const campusErr = await assertCampusWrite(authUser, student.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const balanceAmount = Math.max(0, amount + ar + fine - disc);
+      const dueDate = reqDueDate || new Date(year, month - 1, 10).toISOString().split("T")[0];
+      const validityDate = reqValidityDate || new Date(year, month, 0).toISOString().split("T")[0];
+      const feeType = reqFeeType === "Arrears" || reqFeeType === "Fine" || reqFeeType === "Admission" ? reqFeeType : "Monthly";
+      const id = crypto.randomUUID();
+
+      await pool.request()
+        .input("id", id)
+        .input("student_id", studentId)
+        .input("amount", amount)
+        .input("month", month)
+        .input("year", year)
+        .input("due_date", dueDate)
+        .input("validity_date", validityDate)
+        .input("fee_type", feeType)
+        .input("tuition_fee", t)
+        .input("admission_fee", a)
+        .input("security_fee", sec)
+        .input("exam_fee", ex)
+        .input("transport_fee", tr)
+        .input("misc_fee", mi)
+        .input("arrears", ar)
+        .input("discount_amount", disc)
+        .input("fine_amount", fine)
+        .input("balance_amount", balanceAmount)
+        .input("campus_name_snapshot", student.campus_name || null)
+        .input("months_label", description || `Custom — ${month}/${year}`)
+        .query(`
+          INSERT INTO Fees (
+            id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
+            tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee,
+            arrears, discount_amount, fine_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
+          ) VALUES (
+            @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @validity_date, @fee_type,
+            @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee,
+            @arrears, @discount_amount, @fine_amount, @balance_amount, 0, @campus_name_snapshot, @months_label
+          )
+        `);
+
+      await recomputeStudentOutstanding(studentId);
+      res.status(201).json({ id, amount, balanceAmount, feeType, message: "Custom voucher created" });
+    } catch (err) {
+      sendServerError(res, err, "Error creating custom voucher");
+    }
+  });
+
+  app.get("/api/fees/student-ledger/:studentId", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { studentId } = req.params;
+      const studentResult = await pool.request().input("id", studentId).query(`
+        SELECT s.id, s.student_name AS firstName, s.admission_no AS rollNumber, s.father_name AS fatherName,
+               s.campus_id AS campusId, cp.campus_name AS campusName, s.outstanding_fees AS outstandingFees, s.status
+        FROM Students s
+        LEFT JOIN Campuses cp ON s.campus_id = cp.id
+        WHERE s.id = @id
+      `);
+      const student = studentResult.recordset[0];
+      if (!student) return res.status(404).json({ message: "Student not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const scope = resolveCampusScope(authUser);
+      if (scope && student.campusId !== scope) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const vouchers = await pool.request().input("studentId", studentId).query(`
+        SELECT
+          id, amount, month, year, status, fee_type AS feeType,
+          ISNULL(tuition_fee, 0) AS tuitionFee, ISNULL(admission_fee, 0) AS admissionFee,
+          ISNULL(exam_fee, 0) AS examFee, ISNULL(arrears, 0) AS arrears,
+          ISNULL(discount_amount, 0) AS discountAmount, ISNULL(fine_amount, 0) AS fineAmount,
+          ISNULL(paid_amount, 0) AS paidAmount, ISNULL(balance_amount, 0) AS balanceAmount,
+          CONVERT(VARCHAR, due_date, 23) AS dueDate,
+          CONVERT(VARCHAR, validity_date, 23) AS validityDate,
+          CONVERT(VARCHAR, created_at, 120) AS createdAt,
+          months_label AS monthsLabel, payment_method AS paymentMethod
+        FROM Fees WHERE student_id = @studentId
+        ORDER BY year DESC, month DESC, created_at DESC
+      `);
+
+      const transactions = await pool.request().input("studentId", studentId).query(`
+        SELECT
+          id, amount, status, payment_method AS paymentMethod,
+          transaction_ref AS transactionRef,
+          CONVERT(VARCHAR, transaction_date, 120) AS transactionDate,
+          fee_id AS feeId
+        FROM Transactions WHERE student_id = @studentId
+        ORDER BY transaction_date DESC
+      `);
+
+      res.json({
+        student,
+        vouchers: vouchers.recordset,
+        transactions: transactions.recordset,
+        summary: {
+          voucherCount: vouchers.recordset.length,
+          totalPaid: vouchers.recordset.reduce((s: number, v: { paidAmount?: number }) => s + Number(v.paidAmount || 0), 0),
+          totalOutstanding: vouchers.recordset.reduce((s: number, v: { balanceAmount?: number }) => s + Number(v.balanceAmount || 0), 0),
+        },
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching student fee ledger");
+    }
+  });
+
   app.post("/api/fees/extra-charge", requireRoles(FEE_ROLES), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -4234,7 +4522,13 @@ async function startServer() {
             @admission_date, @gender, @address, @city, @batch_no, @status, @outstanding_fees, @profile_image
           )
         `);
-      
+
+      try {
+        await refreshDashboardCampusStats(pool, s.campusId || null);
+      } catch (refreshErr) {
+        console.warn("Dashboard stats refresh after student create failed:", refreshErr);
+      }
+
       res.status(201).json({ ...s, id });
     } catch (err) {
       sendServerError(res, err, "Error adding student");
@@ -4299,7 +4593,13 @@ async function startServer() {
             profile_image = @profile_image
           WHERE id = @id
         `);
-      
+
+      try {
+        await refreshDashboardCampusStats(pool, s.campusId || null);
+      } catch (refreshErr) {
+        console.warn("Dashboard stats refresh after student update failed:", refreshErr);
+      }
+
       res.json({ ...s, id });
     } catch (err) {
       console.error("Error updating student:", err);
@@ -5971,6 +6271,12 @@ async function startServer() {
       });
       await recomputeStudentOutstanding(studentId);
 
+      try {
+        await refreshDashboardCampusStats(pool, app.campus_id || null);
+      } catch (refreshErr) {
+        console.warn("Dashboard stats refresh after enrollment failed:", refreshErr);
+      }
+
       await pool.request()
         .input("id", id)
         .input("student_id", studentId)
@@ -6095,6 +6401,17 @@ async function startServer() {
         });
       }
 
+      try {
+        await refreshDashboardCampusStats(pool, campusFilter || null);
+      } catch (refreshErr) {
+        console.warn("Dashboard stats refresh on read failed:", refreshErr);
+      }
+
+      const liveActiveResult = campusFilter
+        ? await pool.request().input("campusId", campusFilter).query(`SELECT COUNT(*) AS n FROM Students WHERE status = 'Active' AND campus_id = @campusId`)
+        : await pool.request().query(`SELECT COUNT(*) AS n FROM Students WHERE status = 'Active'`);
+      const liveActiveStudents = Number(liveActiveResult.recordset[0]?.n || 0);
+
       const request = pool.request().input("campusId", campusFilter || null);
 
       let statsData: Record<string, unknown>;
@@ -6194,6 +6511,7 @@ async function startServer() {
       const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       res.json({
         ...statsData,
+        activeStudents: liveActiveStudents,
         monthlyFees: monthly.recordset.map((r: { month: number; collected: number; pending: number }) => ({
           month: r.month,
           monthName: monthNames[r.month] || `M${r.month}`,

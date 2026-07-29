@@ -13,6 +13,8 @@ import Pagination from '../components/ui/Pagination';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
+import SearchableSelect from '../components/ui/SearchableSelect';
+import { CAMPUS_REGIONS, statesForCampusRegion } from '../utils/campusRegions';
 
 export default function CampusManagement() {
   const confirm = useConfirm();
@@ -315,11 +317,23 @@ export default function CampusManagement() {
                         placeholder="e.g. MAIN-01"
                       />
                     </FormField>
-                    <FormField label="City">
-                      <input className="vibrant-input" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="e.g. Multan" />
+                    <FormField label="Region">
+                      <SearchableSelect
+                        value={formData.region}
+                        onChange={(region) => setFormData({ ...formData, region, city: '' })}
+                        placeholder="Select region"
+                        searchPlaceholder="Search region…"
+                        options={CAMPUS_REGIONS.map((r) => ({ value: r, label: r }))}
+                      />
                     </FormField>
-                    <FormField label="Region" className="sm:col-span-2">
-                      <input className="vibrant-input" value={formData.region} onChange={(e) => setFormData({ ...formData, region: e.target.value })} placeholder="e.g. Punjab" />
+                    <FormField label="State">
+                      <SearchableSelect
+                        value={formData.city}
+                        onChange={(city) => setFormData({ ...formData, city })}
+                        placeholder={formData.region ? 'Select state' : 'Select region first'}
+                        searchPlaceholder="Search state…"
+                        options={statesForCampusRegion(formData.region).map((s) => ({ value: s, label: s }))}
+                      />
                     </FormField>
                   </div>
                   <FormField label="Email Address" error={fieldErrors.email}>

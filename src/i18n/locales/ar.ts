@@ -62,6 +62,7 @@ export const ar: LocaleMessages = {
     classes: 'الفصول',
     staff: 'الموظفون',
     inventory: 'المخزون',
+    books: 'الكتب',
     admissions: 'القبول',
     students: 'الطلاب',
     documents: 'الهوية والشهادات',
@@ -103,6 +104,10 @@ export const ar: LocaleMessages = {
     inventory: {
       title: 'المخزون',
       description: 'تتبع المستلزمات والمخزون المدرسي.',
+    },
+    books: {
+      title: 'إدارة الكتب',
+      description: 'مخزون الكتب حسب الحرم والتقارير.',
     },
     admissions: {
       title: 'القبول',

@@ -62,6 +62,7 @@ export const ur: LocaleMessages = {
     classes: 'کلاسز',
     staff: 'اسٹاف',
     inventory: 'انوینٹری',
+    books: 'کتابیں',
     admissions: 'داخلہ',
     students: 'طلبہ',
     documents: 'شناختی کارڈ و سرٹیفکیٹ',
@@ -103,6 +104,10 @@ export const ur: LocaleMessages = {
     inventory: {
       title: 'انوینٹری',
       description: 'اسکول سامان اور اسٹاک کی نگرانی۔',
+    },
+    books: {
+      title: 'کتب مینجمنٹ',
+      description: 'کیمپس وار کتابوں کا اسٹاک اور رپورٹس۔',
     },
     admissions: {
       title: 'داخلہ',

@@ -60,6 +60,7 @@ export const en = {
     classes: 'Classes',
     staff: 'Staff',
     inventory: 'Inventory',
+    books: 'Books',
     admissions: 'Admissions',
     students: 'Students',
     documents: 'ID & Certificates',
@@ -101,6 +102,10 @@ export const en = {
     inventory: {
       title: 'Inventory',
       description: 'Track school supplies and stock levels.',
+    },
+    books: {
+      title: 'Books Management',
+      description: 'Campus-wise book stock, sales, and summary exports (separate from Inventory).',
     },
     admissions: {
       title: 'Admissions',
