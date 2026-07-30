@@ -18,6 +18,7 @@ import RoleManagement from './pages/RoleManagement';
 import StaffManagement from './pages/StaffManagement';
 import StudentPortal from './pages/StudentPortal';
 import Exams from './pages/Exams';
+import MarksEntry from './pages/MarksEntry';
 import InventoryManagement from './pages/InventoryManagement';
 import BooksManagement from './pages/BooksManagement';
 import AdmissionManagement from './pages/AdmissionManagement';
@@ -141,6 +142,7 @@ function AppShell({
               {canAccess(user, 'documents') && <Route path="documents" element={<Documents />} />}
               {canAccess(user, 'staff') && <Route path="staff" element={<StaffManagement />} />}
               {canAccess(user, 'exams') && <Route path="exams" element={<Exams />} />}
+              {canAccess(user, 'exams') && <Route path="marks-entry" element={<MarksEntry />} />}
               {canAccess(user, 'exam-attendance') && <Route path="exam-attendance" element={<ExamAttendance />} />}
               {canAccess(user, 'fees') && <Route path="fees" element={<FeeManagement />} />}
               {canAccess(user, 'expenses') && <Route path="expenses" element={<Expenses />} />}

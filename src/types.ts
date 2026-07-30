@@ -1,4 +1,4 @@
-export type UserRole = 'Super Admin' | 'Admin' | 'Teacher' | 'Accountant' | 'Student' | (string & {});
+export type UserRole = 'Super Admin' | 'Admin' | 'Principal' | 'Teacher' | 'Accountant' | 'Student' | (string & {});
 
 export interface ModulePermission {
   view: boolean;

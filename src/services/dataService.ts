@@ -577,6 +577,27 @@ export const dataService = {
     return response.data;
   },
 
+  async fetchPendingFeeSummary(studentId: string) {
+    const response = await api.get(`/fees/pending-summary/${studentId}`);
+    return response.data as {
+      student: Record<string, unknown>;
+      months: Array<{
+        id: string;
+        key: string;
+        month: number;
+        year: number;
+        feeType: string;
+        status: string;
+        amount: number;
+        tuitionFee: number;
+        balanceAmount: number;
+        paidAmount: number;
+        label: string;
+      }>;
+      totalArrears: number;
+    };
+  },
+
   async fetchStudentFeeLedger(studentId: string) {
     const response = await api.get(`/fees/student-ledger/${studentId}`);
     return response.data as {

@@ -45,7 +45,6 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
   const [session, setSession] = useState(deriveAcademicSession(now.getFullYear(), now.getMonth() + 1));
   const [submitting, setSubmitting] = useState(false);
   const [custom, setCustom] = useState({
-    tuitionFee: 0,
     admissionFee: 0,
     securityFee: 0,
     examFee: 0,
@@ -54,9 +53,22 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
     arrears: 0,
     discountAmount: 0,
     fineAmount: 0,
+    paidAmount: 0,
     description: '',
     feeType: 'Monthly',
   });
+  const [pendingMonthKey, setPendingMonthKey] = useState('');
+  const [pendingMonths, setPendingMonths] = useState<Array<{
+    id: string;
+    key: string;
+    month: number;
+    year: number;
+    feeType: string;
+    balanceAmount: number;
+    tuitionFee: number;
+    label: string;
+  }>>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
   const [ledger, setLedger] = useState<{
     student?: Record<string, unknown>;
     vouchers?: Array<Record<string, unknown>>;
@@ -123,12 +135,53 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
     return () => { cancelled = true; };
   }, [mode, studentId]);
 
+  useEffect(() => {
+    if (mode !== 'custom' || !studentId) {
+      setPendingMonths([]);
+      setPendingMonthKey('');
+      setCustom((prev) => ({ ...prev, arrears: 0, paidAmount: 0 }));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setPendingLoading(true);
+      try {
+        const data = await dataService.fetchPendingFeeSummary(studentId);
+        if (cancelled) return;
+        setPendingMonths(data.months || []);
+        setCustom((prev) => ({ ...prev, arrears: Number(data.totalArrears || 0), paidAmount: 0 }));
+        setPendingMonthKey('');
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setPendingMonths([]);
+          toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to load pending months');
+        }
+      } finally {
+        if (!cancelled) setPendingLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, studentId]);
+
+  const selectedPending = useMemo(
+    () => pendingMonths.find((m) => m.key === pendingMonthKey) || null,
+    [pendingMonths, pendingMonthKey]
+  );
+
+  const selectedMonthTuition = selectedPending?.tuitionFee || selectedPending?.balanceAmount || 0;
+
   const customTotal = useMemo(() => {
     const amount =
-      custom.tuitionFee + custom.admissionFee + custom.securityFee + custom.examFee +
+      selectedMonthTuition + custom.admissionFee + custom.securityFee + custom.examFee +
       custom.transportFee + custom.miscFee;
     return Math.max(0, amount + custom.arrears + custom.fineAmount - custom.discountAmount);
-  }, [custom]);
+  }, [custom, selectedMonthTuition]);
+
+  const voucherAmount = useMemo(() => {
+    if (custom.paidAmount > 0) return Math.min(custom.paidAmount, customTotal);
+    return customTotal;
+  }, [custom.paidAmount, customTotal]);
 
   const createSingle = async () => {
     if (!studentId) return toast.error('Select a student');
@@ -154,17 +207,37 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
   const createCustom = async () => {
     if (!studentId) return toast.error('Select a student');
     if (customTotal <= 0) return toast.error('Total must be greater than zero');
+    const useMonth = selectedPending?.month || month;
+    const useYear = selectedPending?.year || year;
     setSubmitting(true);
     try {
       await dataService.createCustomVoucher({
         studentId,
-        month,
-        year,
+        month: useMonth,
+        year: useYear,
         dueDate,
         validityDate,
-        ...custom,
+        tuitionFee: selectedMonthTuition,
+        admissionFee: custom.admissionFee,
+        securityFee: custom.securityFee,
+        examFee: custom.examFee,
+        transportFee: custom.transportFee,
+        miscFee: custom.miscFee,
+        arrears: custom.arrears,
+        discountAmount: custom.discountAmount,
+        fineAmount: custom.fineAmount,
+        paidAmount: custom.paidAmount,
+        feeType: custom.feeType,
+        description: custom.description,
+        pendingMonthKeys: pendingMonthKey
+          ? [pendingMonthKey]
+          : pendingMonths.map((m) => `${m.month}/${m.year}`),
       });
-      toast.success('Custom voucher created');
+      toast.success(
+        custom.paidAmount > 0 && custom.paidAmount < customTotal
+          ? `Partial voucher created for Rs. ${voucherAmount.toLocaleString()}`
+          : 'Custom voucher created'
+      );
       onCreated?.();
     } catch (err) {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to create custom voucher');
@@ -228,7 +301,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
             {mode === 'single'
               ? 'Generate one monthly voucher from the campus fee structure.'
               : mode === 'custom'
-                ? 'Build a per-student voucher with manual fee heads, arrears, discount, and fine.'
+                ? 'Select pending months, auto-load arrears, and optionally enter a partial paid amount.'
                 : 'Search a student to view voucher and payment history.'}
           </p>
         </div>
@@ -318,15 +391,48 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
 
       {mode === 'custom' && (
         <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Pending month</label>
+              <SearchableSelect
+                value={pendingMonthKey}
+                onChange={(key) => {
+                  setPendingMonthKey(key);
+                  const row = pendingMonths.find((m) => m.key === key);
+                  if (row) {
+                    setMonth(row.month);
+                    setYear(row.year);
+                  }
+                }}
+                placeholder={pendingLoading ? 'Loading pending months…' : (pendingMonths.length ? 'Select pending month' : 'No pending months')}
+                searchPlaceholder="Search pending months…"
+                options={pendingMonths.map((m) => ({ value: m.key, label: m.label }))}
+              />
+              {selectedPending && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Selected balance: Rs. {selectedPending.balanceAmount.toLocaleString()}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Total arrears (auto)</label>
+              <input
+                type="number"
+                min={0}
+                className="vibrant-input font-black"
+                value={custom.arrears}
+                onChange={(e) => setCustom({ ...custom, arrears: Number(e.target.value) || 0 })}
+              />
+              <p className="mt-1 text-xs text-slate-500">Loaded from unpaid / partially paid vouchers.</p>
+            </div>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {([
-              ['tuitionFee', 'Tuition'],
               ['admissionFee', 'Admission'],
               ['securityFee', 'Security'],
               ['examFee', 'Exam'],
               ['transportFee', 'Transport'],
               ['miscFee', 'Misc / Extra'],
-              ['arrears', 'Arrears'],
               ['discountAmount', 'Discount'],
               ['fineAmount', 'Fine'],
             ] as const).map(([key, label]) => (
@@ -341,6 +447,17 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                 />
               </div>
             ))}
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Paid amount (partial OK)</label>
+              <input
+                type="number"
+                min={0}
+                className="vibrant-input ring-2 ring-primary/30"
+                value={custom.paidAmount || ''}
+                onChange={(e) => setCustom({ ...custom, paidAmount: Number(e.target.value) || 0 })}
+                placeholder="e.g. 5000"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -361,10 +478,14 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
               />
             </div>
           </div>
-          <div className="flex items-center justify-between gap-4 pt-2">
-            <p className="text-sm font-black text-slate-700 dark:text-slate-200">
-              Total due: Rs. {customTotal.toLocaleString()}
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+            <div className="text-sm text-slate-700 dark:text-slate-200 space-y-1">
+              <p className="font-black">Total due: Rs. {customTotal.toLocaleString()}</p>
+              <p className="text-xs text-slate-500">
+                Voucher amount: Rs. {voucherAmount.toLocaleString()}
+                {custom.paidAmount > 0 && custom.paidAmount < customTotal ? ' (partial payment)' : ''}
+              </p>
+            </div>
             <button
               type="button"
               disabled={submitting || !studentId}

@@ -66,6 +66,7 @@ export const en = {
     documents: 'ID & Certificates',
     attendance: 'Attendance',
     exams: 'Exams',
+    marksEntry: 'Marks Entry',
     examAttendance: 'Exam Attendance',
     feeSettings: 'Fee Settings',
     fees: 'Fees',
@@ -131,6 +132,10 @@ export const en = {
     exams: {
       title: 'Exams & Results',
       description: 'Schedule exams and record student marks.',
+    },
+    'marks-entry': {
+      title: 'Marks Entry',
+      description: 'Enter and update student marks by campus, class, and section.',
     },
     'exam-attendance': {
       title: 'Exam Attendance',

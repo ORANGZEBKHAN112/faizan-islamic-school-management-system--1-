@@ -68,6 +68,7 @@ export const ar: LocaleMessages = {
     documents: 'الهوية والشهادات',
     attendance: 'الحضور',
     exams: 'الامتحانات',
+    marksEntry: 'إدخال الدرجات',
     examAttendance: 'حضور الامتحان',
     feeSettings: 'إعدادات الرسوم',
     fees: 'الرسوم',
@@ -133,6 +134,10 @@ export const ar: LocaleMessages = {
     exams: {
       title: 'الامتحانات والنتائج',
       description: 'جدولة الامتحانات وتسجيل الدرجات.',
+    },
+    'marks-entry': {
+      title: 'إدخال الدرجات',
+      description: 'إدخال وتحديث درجات الطلاب حسب الحرم والصف والشعبة.',
     },
     'exam-attendance': {
       title: 'حضور الامتحان',

@@ -4075,6 +4075,66 @@ async function startServer() {
     }
   });
 
+  app.get("/api/fees/pending-summary/:studentId", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { studentId } = req.params;
+      const studentResult = await pool.request().input("id", studentId).query(`
+        SELECT s.id, s.campus_id AS campusId, s.student_name AS firstName, s.admission_no AS rollNumber,
+               ISNULL(s.outstanding_fees, 0) AS outstandingFees
+        FROM Students s WHERE s.id = @id
+      `);
+      const student = studentResult.recordset[0];
+      if (!student) return res.status(404).json({ message: "Student not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const scope = resolveCampusScope(authUser);
+      if (scope && student.campusId !== scope) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const pending = await pool.request().input("studentId", studentId).query(`
+        SELECT
+          id, month, year, fee_type AS feeType, status,
+          ISNULL(amount, 0) AS amount,
+          ISNULL(tuition_fee, 0) AS tuitionFee,
+          ISNULL(balance_amount, 0) AS balanceAmount,
+          ISNULL(paid_amount, 0) AS paidAmount,
+          months_label AS monthsLabel
+        FROM Fees
+        WHERE student_id = @studentId
+          AND status IN ('Unpaid', 'Partially Paid')
+          AND ISNULL(balance_amount, 0) > 0
+        ORDER BY year ASC, month ASC, created_at ASC
+      `);
+
+      const months = pending.recordset.map((r: {
+        id: string; month: number; year: number; feeType: string; status: string;
+        amount: number; tuitionFee: number; balanceAmount: number; paidAmount: number; monthsLabel?: string;
+      }) => ({
+        id: r.id,
+        key: `${r.year}-${String(r.month).padStart(2, "0")}-${r.id}`,
+        month: r.month,
+        year: r.year,
+        feeType: r.feeType,
+        status: r.status,
+        amount: Number(r.amount || 0),
+        tuitionFee: Number(r.tuitionFee || 0),
+        balanceAmount: Number(r.balanceAmount || 0),
+        paidAmount: Number(r.paidAmount || 0),
+        label: `${new Date(r.year, (r.month || 1) - 1, 1).toLocaleString("default", { month: "short" })} ${r.year} · ${r.feeType} · Rs. ${Number(r.balanceAmount || 0).toLocaleString()}`,
+      }));
+
+      const totalArrears = months.reduce((s: number, m: { balanceAmount: number }) => s + m.balanceAmount, 0);
+      res.json({ student, months, totalArrears });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching pending fee summary");
+    }
+  });
+
   app.post("/api/fees/custom-voucher", requireRoles(FEE_ROLES), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -4095,6 +4155,8 @@ async function startServer() {
         arrears = 0,
         discountAmount = 0,
         fineAmount = 0,
+        paidAmount: reqPaidAmount = 0,
+        pendingMonthKeys,
         description,
         feeType: reqFeeType,
       } = req.body;
@@ -4111,8 +4173,10 @@ async function startServer() {
       const ar = Number(arrears) || 0;
       const disc = Number(discountAmount) || 0;
       const fine = Number(fineAmount) || 0;
+      const paid = Math.max(0, Number(reqPaidAmount) || 0);
       const amount = t + a + sec + ex + tr + mi;
-      if (amount + ar + fine - disc <= 0) {
+      const gross = amount + ar + fine - disc;
+      if (gross <= 0) {
         return res.status(400).json({ message: "Custom voucher total must be greater than zero" });
       }
 
@@ -4128,16 +4192,21 @@ async function startServer() {
       const campusErr = await assertCampusWrite(authUser, student.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
-      const balanceAmount = Math.max(0, amount + ar + fine - disc);
+      const appliedPaid = Math.min(paid, gross);
+      const balanceAmount = Math.max(0, gross - appliedPaid);
+      const status = balanceAmount <= 0 ? "Paid" : appliedPaid > 0 ? "Partially Paid" : "Unpaid";
       const dueDate = reqDueDate || new Date(year, month - 1, 10).toISOString().split("T")[0];
       const validityDate = reqValidityDate || new Date(year, month, 0).toISOString().split("T")[0];
       const feeType = reqFeeType === "Arrears" || reqFeeType === "Fine" || reqFeeType === "Admission" ? reqFeeType : "Monthly";
+      const monthsLabel = Array.isArray(pendingMonthKeys) && pendingMonthKeys.length
+        ? `Pending months: ${pendingMonthKeys.join(", ")}`
+        : (description || `Custom — ${month}/${year}`);
       const id = crypto.randomUUID();
 
       await pool.request()
         .input("id", id)
         .input("student_id", studentId)
-        .input("amount", amount)
+        .input("amount", amount > 0 ? amount : gross)
         .input("month", month)
         .input("year", year)
         .input("due_date", dueDate)
@@ -4153,22 +4222,27 @@ async function startServer() {
         .input("discount_amount", disc)
         .input("fine_amount", fine)
         .input("balance_amount", balanceAmount)
+        .input("paid_amount", appliedPaid)
+        .input("status", status)
         .input("campus_name_snapshot", student.campus_name || null)
-        .input("months_label", description || `Custom — ${month}/${year}`)
+        .input("months_label", monthsLabel)
         .query(`
           INSERT INTO Fees (
             id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
             tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee,
             arrears, discount_amount, fine_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
           ) VALUES (
-            @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @validity_date, @fee_type,
+            @id, @student_id, @amount, @month, @year, @status, @due_date, @validity_date, @fee_type,
             @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee,
-            @arrears, @discount_amount, @fine_amount, @balance_amount, 0, @campus_name_snapshot, @months_label
+            @arrears, @discount_amount, @fine_amount, @balance_amount, @paid_amount, @campus_name_snapshot, @months_label
           )
         `);
 
       await recomputeStudentOutstanding(studentId);
-      res.status(201).json({ id, amount, balanceAmount, feeType, message: "Custom voucher created" });
+      res.status(201).json({
+        id, amount: amount > 0 ? amount : gross, balanceAmount, paidAmount: appliedPaid, status, feeType,
+        message: "Custom voucher created",
+      });
     } catch (err) {
       sendServerError(res, err, "Error creating custom voucher");
     }

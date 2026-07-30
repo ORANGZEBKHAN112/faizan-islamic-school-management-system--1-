@@ -11,7 +11,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
 
-const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Teacher', 'Accountant'];
+const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant'];
 
 export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -83,7 +83,7 @@ export default function UserManagement() {
       return;
     }
     if (formData.role !== 'Super Admin' && formData.role !== 'Student' && !formData.campusId) {
-      toast.error('Campus is required for this role');
+      toast.error(formData.role === 'Principal' ? 'Campus is required for Principal accounts' : 'Campus is required for this role');
       return;
     }
 
@@ -311,19 +311,28 @@ export default function UserManagement() {
                         setFormData({ ...formData, role: nextRole, username: nextUsername });
                       }}
                       searchPlaceholder="Search role…"
-                      options={(roleOptions.length > 0
-                        ? roleOptions
-                        : ROLES.map((name) => ({ id: name, name, isSystem: true, isActive: true } as AppRole))
-                      ).filter((r) => r.name !== 'Student').map((r) => ({ value: r.name, label: r.name }))}
+                      options={(() => {
+                        const fromApi = roleOptions.filter((r) => r.name !== 'Student' && r.isActive !== false);
+                        const names = new Set(fromApi.map((r) => r.name));
+                        const merged = [...fromApi];
+                        for (const name of ROLES) {
+                          if (!names.has(name)) {
+                            merged.push({ id: name, name, isSystem: true, isActive: true } as AppRole);
+                          }
+                        }
+                        return merged.map((r) => ({ value: r.name, label: r.name }));
+                      })()}
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Campus</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                      Campus{formData.role === 'Principal' || (formData.role !== 'Super Admin' && formData.role !== 'Student') ? ' *' : ''}
+                    </label>
                     <SearchableSelect
                       value={formData.campusId}
                       onChange={(campusId) => setFormData({ ...formData, campusId })}
                       disabled={formData.role === 'Super Admin'}
-                      placeholder="— None / School-wide —"
+                      placeholder={formData.role === 'Principal' ? 'Select campus (required)' : '— None / School-wide —'}
                       searchPlaceholder="Search campuses…"
                       options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
                     />

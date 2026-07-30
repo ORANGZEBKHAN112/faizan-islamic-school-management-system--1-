@@ -68,6 +68,7 @@ export const ur: LocaleMessages = {
     documents: 'شناختی کارڈ و سرٹیفکیٹ',
     attendance: 'حاضری',
     exams: 'امتحانات',
+    marksEntry: 'نمبر اندراج',
     examAttendance: 'امتحان حاضری',
     feeSettings: 'فیس ترتیبات',
     fees: 'فیس',
@@ -133,6 +134,10 @@ export const ur: LocaleMessages = {
     exams: {
       title: 'امتحانات و نتائج',
       description: 'امتحانات شیڈول کریں اور نمبرات درج کریں۔',
+    },
+    'marks-entry': {
+      title: 'نمبر اندراج',
+      description: 'کیمپس، کلاس اور سیکشن کے مطابق نمبرات درج کریں۔',
     },
     'exam-attendance': {
       title: 'امتحان حاضری',
