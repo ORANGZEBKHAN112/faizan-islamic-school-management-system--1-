@@ -5,8 +5,6 @@ import { AdmissionApplication, AdmissionDocument, AdmissionReviewCheckResult, Ca
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -16,6 +14,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { formatCnic, isValidCnic, maskCnicInput, normalizeCnic } from '../utils/cnic';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
+import { downloadFeeVoucherPdf } from '../utils/feeVoucherPdf';
 
 type AdmissionVoucherPayload = {
   application: {
@@ -472,75 +471,31 @@ export default function AdmissionManagement() {
     }
   };
 
-  const printAdmissionVoucher = () => {
+  const printAdmissionVoucher = async () => {
     if (!voucherPayload?.voucher) {
       toast.error('No voucher to print');
       return;
     }
     const { application, voucher } = voucherPayload;
-    const doc = new jsPDF('p', 'mm', 'a4');
-    const status = voucher.status || 'Unpaid';
-    const total = Number(voucher.amount || 0) + Number(voucher.arrears || 0);
-    const paid = Number(voucher.paidAmount || 0);
-    const balance = Number(voucher.balanceAmount ?? total - paid);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text('Faizan Islamic School', 105, 18, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text('Admission Fee Voucher', 105, 26, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Status: ${status}`, 105, 33, { align: 'center' });
-
-    autoTable(doc, {
-      startY: 40,
-      theme: 'plain',
-      styles: { fontSize: 10, cellPadding: 1.5 },
-      body: [
-        ['Student', application.applicantName || '—'],
-        ['Father', application.fatherName || '—'],
-        ['Roll No.', formatRollNumberForDisplay(application.rollNumber)],
-        ['Campus', application.campusName || voucher.campusName || '—'],
-        ['Class', application.className || '—'],
-        ['Voucher ID', voucher.id],
-        ['Period', voucher.monthsLabel || `${voucher.month}/${voucher.year}`],
-        ['Due date', voucher.dueDate ? String(voucher.dueDate).slice(0, 10) : '—'],
-      ],
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } },
-      margin: { left: 20, right: 20 },
-    });
-
-    const lines = [
-      voucher.tuitionFee ? ['Tuition (monthly)', Number(voucher.tuitionFee).toLocaleString()] : null,
-      voucher.admissionFee ? ['Admission fee', Number(voucher.admissionFee).toLocaleString()] : null,
-      voucher.securityFee ? ['Security fee', Number(voucher.securityFee).toLocaleString()] : null,
-      voucher.examFee ? ['Exam fee', Number(voucher.examFee).toLocaleString()] : null,
-      voucher.transportFee ? ['Transport fee', Number(voucher.transportFee).toLocaleString()] : null,
-      voucher.miscFee ? ['Registration / misc fee', Number(voucher.miscFee).toLocaleString()] : null,
-      voucher.arrears ? ['Carried arrears', Number(voucher.arrears).toLocaleString()] : null,
-      voucher.discountAmount ? ['Discount', `(${Number(voucher.discountAmount).toLocaleString()})`] : null,
-    ].filter(Boolean) as string[][];
-
-    autoTable(doc, {
-      startY: 95,
-      head: [['Fee head', 'Amount (PKR)']],
-      body: [
-        ...lines,
-        [{ content: 'TOTAL', styles: { fontStyle: 'bold' as const } }, { content: `Rs. ${total.toLocaleString()}`, styles: { fontStyle: 'bold' as const } }],
-        ['Paid', `Rs. ${paid.toLocaleString()}`],
-        [{ content: 'BALANCE DUE', styles: { fontStyle: 'bold' as const } }, { content: `Rs. ${balance.toLocaleString()}`, styles: { fontStyle: 'bold' as const } }],
-      ],
-      theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 2 },
-      headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
-      margin: { left: 20, right: 20 },
-    });
-
-    doc.setFontSize(9);
-    doc.text('Authorized Signature: ________________', 190, 270, { align: 'right' });
-    doc.save(`Admission_Voucher_${formatRollNumberForDisplay(application.rollNumber) || application.applicantName}.pdf`);
-    toast.success('Admission voucher downloaded');
+    try {
+      await downloadFeeVoucherPdf(
+        {
+          ...voucher,
+          studentName: application.applicantName || voucher.studentName,
+          fatherName: application.fatherName || voucher.fatherName,
+          rollNumber: application.rollNumber || voucher.rollNumber,
+          className: application.className || voucher.className,
+          campusName: application.campusName || voucher.campusName,
+        },
+        {
+          campusName: application.campusName || voucher.campusName,
+          fileName: `Admission_Voucher_${formatRollNumberForDisplay(application.rollNumber) || application.applicantName}.pdf`,
+        },
+      );
+      toast.success('Admission voucher downloaded');
+    } catch {
+      toast.error('Failed to generate admission voucher PDF');
+    }
   };
 
   const missingCnicCount = applications.filter((a) => !isValidCnic(a.fatherCnic)).length;
@@ -1265,7 +1220,9 @@ export default function AdmissionManagement() {
 
               {!voucherLoading && voucherPayload && !voucherPayload.voucher && (
                 <div className="space-y-4">
-                  <p className="text-sm text-slate-500">No admission charges are configured for this class, so no voucher was created.</p>
+                  <p className="text-sm text-slate-500">
+                    No payable admission amount found. Add campus fee structure in Fee Settings (tuition / admission / security), then generate again.
+                  </p>
                   <button type="button" onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }} className="w-full vibrant-btn-secondary">Close</button>
                 </div>
               )}

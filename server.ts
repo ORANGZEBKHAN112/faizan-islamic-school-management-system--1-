@@ -6657,7 +6657,11 @@ async function startServer() {
           f.campus_name_snapshot AS campusName,
           CONVERT(VARCHAR, f.created_at, 120) AS createdAt
         FROM Fees f
-        WHERE f.student_id = @studentId AND f.fee_type = 'Admission'
+        WHERE f.student_id = @studentId
+          AND (
+            f.fee_type = 'Admission'
+            OR ISNULL(f.months_label, '') LIKE 'Admission%'
+          )
         ORDER BY f.created_at DESC
       `);
 
@@ -6720,7 +6724,10 @@ async function startServer() {
           siblingDiscountPercent: Number(loaded.application.siblingDiscountPercent) || 0,
         });
         if (!createdVoucher.feeId) {
-          return res.status(400).json({ message: "No admission charges configured for this class (total due is zero)" });
+          return res.status(400).json({
+            message: createdVoucher.reason
+              || "No admission charges configured for this class/campus. Add a fee structure in Fee Settings, then try again.",
+          });
         }
         await recomputeStudentOutstanding(loaded.application.studentId);
         const refreshed = await loadAdmissionVoucherPayload(req.params.id);

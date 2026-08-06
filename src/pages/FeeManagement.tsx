@@ -4,7 +4,6 @@ import { Fee, Campus, Class, FeeStructure, FeeSetting, FeeGenerationRun, FeeStat
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { canPickCampus, getStoredUser, getUserCampusScope, resolveCampusFilter } from '../utils/campusScope';
@@ -19,6 +18,7 @@ import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
+import { downloadFeeVoucherPdf, drawFeeVoucherPage, loadFeeVoucherPdfAssets } from '../utils/feeVoucherPdf';
 import SingleVoucherPanel from '../components/fees/SingleVoucherPanel';
 
 function defaultDueDate(year: number, month: number): string {
@@ -550,135 +550,15 @@ export default function FeeManagement() {
     );
   };
 
-  const downloadPDF = (voucher: Fee, existingDoc?: jsPDF) => {
-    const campus = campuses.find(c => c.id === voucher.campusId);
-    const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const monthName = monthNames[voucher.month] || "Recurring";
-    const arrearsMonthLabelText = voucher.monthsLabel || "Previous Months";
-    const quickPayTrackingRef = voucher.transactionRef || `QP-${voucher.id.substring(0, 8).toUpperCase()}`;
-
-    const doc = existingDoc || new jsPDF('p', 'mm', 'a4');
-    doc.setDrawColor(203, 213, 225);
-    doc.setLineWidth(0.5);
-    doc.rect(10, 8, 190, 280);
-    doc.setFillColor(248, 250, 252);
-    doc.rect(10, 8, 190, 24, 'F');
-
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(139, 92, 246);
-    doc.text("FAIZAN ISLAMIC SCHOOL", 16, 18);
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text(campus?.campusName?.toUpperCase() || "MAIN CAMPUS SYSTEM", 16, 24);
-
-    doc.setFillColor(139, 92, 246);
-    doc.rect(150, 12, 46, 8, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(7);
-    doc.text("SINGLE STUDENT COPY", 173, 17.2, { align: "center" });
-
-    doc.setTextColor(30, 41, 59);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text("Voucher #:", 16, 40);
-    doc.setFont("helvetica", "bold");
-    doc.text(voucher.voucherNo || voucher.id.substring(0, 8), 42, 40);
-    doc.setFont("helvetica", "normal");
-    doc.text("Student:", 16, 46);
-    doc.setFont("helvetica", "bold");
-    doc.text(voucher.studentName || 'N/A', 42, 46);
-    doc.setFont("helvetica", "normal");
-    doc.text("Father:", 16, 52);
-    doc.text((voucher as Fee & { fatherName?: string }).fatherName || 'N/A', 42, 52);
-    doc.text("Roll No:", 16, 58);
-    doc.text(formatRollNumberForDisplay(voucher.rollNumber), 42, 58);
-
-    doc.text("Issue Date:", 138, 40);
-    doc.text(new Date().toLocaleDateString(), 196, 40, { align: "right" });
-    doc.text("Class:", 138, 46);
-    doc.setFont("helvetica", "bold");
-    doc.text(voucher.className || 'N/A', 196, 46, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.text("Current Month:", 138, 52);
-    doc.text(voucher.monthsLabel || `${monthName} ${voucher.year}`, 196, 52, { align: "right" });
-    doc.setTextColor(239, 68, 68);
-    doc.text("Due Date:", 138, 58);
-    doc.setFont("helvetica", "bold");
-    doc.text(voucher.dueDate || '10th of Month', 196, 58, { align: "right" });
-    if (voucher.validityDate) {
-      doc.setTextColor(100, 116, 139);
-      doc.setFont("helvetica", "normal");
-      doc.text("Valid Until:", 138, 64);
-      doc.setFont("helvetica", "bold");
-      doc.text(voucher.validityDate, 196, 64, { align: "right" });
+  const downloadPDF = async (voucher: Fee, existingDoc?: jsPDF) => {
+    const campus = campuses.find((c) => c.id === voucher.campusId);
+    const campusName = campus?.campusName || voucher.campusName;
+    if (existingDoc) {
+      const assets = await loadFeeVoucherPdfAssets();
+      drawFeeVoucherPage(existingDoc, voucher, { ...assets, campusName });
+      return;
     }
-
-    const breakdown = [
-      ['Tuition Fee', (voucher.tuitionFee || voucher.amount).toLocaleString()],
-      voucher.admissionFee ? ['Admission Fee', voucher.admissionFee.toLocaleString()] : null,
-      voucher.securityFee ? ['Security Deposit', voucher.securityFee.toLocaleString()] : null,
-      voucher.summerCampFee ? ['Summer Camp', voucher.summerCampFee.toLocaleString()] : null,
-      voucher.idCardFee ? ['ID Card Fee', voucher.idCardFee.toLocaleString()] : null,
-      voucher.tripFee ? ['Educational Trip', voucher.tripFee.toLocaleString()] : null,
-      voucher.examFee ? ['Exam Fee', voucher.examFee.toLocaleString()] : null,
-      voucher.transportFee ? ['Transport Fee', voucher.transportFee.toLocaleString()] : null,
-      voucher.miscFee ? ['Misc Fee', voucher.miscFee.toLocaleString()] : null,
-      (voucher.arrears || 0) > 0 ? [`Arrears Added (${arrearsMonthLabelText})`, (voucher.arrears || 0).toLocaleString()] : null,
-      (voucher.fineAmount || 0) > 0 ? ['Late Fee / Fine', (voucher.fineAmount || 0).toLocaleString()] : null,
-      (voucher.discountAmount || 0) > 0 ? ['Discount (Less)', `(${voucher.discountAmount.toLocaleString()})`] : null,
-    ].filter(Boolean) as string[][];
-    const totalAmount = getVoucherGrossPayable(voucher);
-    const remaining = getVoucherRemaining(voucher);
-
-    autoTable(doc, {
-      startY: 66,
-      head: [['Current Month Fee Details', 'Amount (PKR)']],
-      body: [
-        ...breakdown,
-        [{ content: 'TOTAL PAYABLE', styles: { fontStyle: 'bold' as any } }, { content: `Rs. ${totalAmount.toLocaleString()}`, styles: { fontStyle: 'bold' as any } }],
-        (voucher.paidAmount || 0) > 0 ? [{ content: 'PAID SO FAR', styles: { fontStyle: 'bold' as any, textColor: [34, 197, 94] } }, { content: `Rs. ${(voucher.paidAmount || 0).toLocaleString()}`, styles: { fontStyle: 'bold' as any, textColor: [34, 197, 94] } }] : null,
-        [{ content: 'CURRENT BALANCE DUE', styles: { fontStyle: 'bold' as any, textColor: [139, 92, 246] } }, { content: `Rs. ${remaining.toLocaleString()}`, styles: { fontStyle: 'bold' as any, textColor: [139, 92, 246] } }],
-      ].filter(Boolean) as any[],
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 1.5 },
-      headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
-      margin: { left: 15, right: 15 },
-    });
-
-    const pendingArrearsTotal = voucher.arrears || 0;
-    const pendingRows = pendingArrearsTotal > 0
-      ? [[arrearsMonthLabelText, 'Arrears', `Rs. ${pendingArrearsTotal.toLocaleString()}`]]
-      : [['None', '-', 'Rs. 0']];
-
-    autoTable(doc, {
-      startY: 160,
-      head: [['Previous Unpaid Months', 'Type', 'Pending Amount']],
-      body: [
-        ...pendingRows,
-        [{ content: 'TOTAL PREVIOUS ARREARS', colSpan: 2, styles: { fontStyle: 'bold' as any } }, { content: `Rs. ${pendingArrearsTotal.toLocaleString()}`, styles: { fontStyle: 'bold' as any } }],
-      ],
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 1.5 },
-      headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
-      margin: { left: 15, right: 15 },
-    });
-
-    doc.setTextColor(30, 41, 59);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.text("QuickPay Tracking", 16, 248);
-    doc.setFont("helvetica", "normal");
-    doc.text(`QuickPay Fee ID: ${voucher.id}`, 16, 254);
-    doc.text(`QuickPay Reference: ${quickPayTrackingRef}`, 16, 260);
-    doc.text("- Use QuickPay Fee ID to reconcile callback transactions.", 16, 266);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Authorized Signature: ________________", 196, 280, { align: "right" });
-
-    if (!existingDoc) {
-      doc.save(`${voucher.studentName}_${monthName}_${voucher.year}.pdf`);
-    }
+    await downloadFeeVoucherPdf(voucher, { campusName });
   };
 
   const downloadAllVouchers = async () => {
@@ -690,10 +570,16 @@ export default function FeeManagement() {
     if (vouchersTotal <= CLIENT_BULK_PDF_LIMIT) {
       const doc = new jsPDF('p', 'mm', 'a4');
       const toastId = toast.loading(`Generating ${vouchers.length} vouchers…`);
-      vouchers.forEach((voucher, index) => {
+      const assets = await loadFeeVoucherPdfAssets();
+      for (let index = 0; index < vouchers.length; index++) {
+        const voucher = vouchers[index];
         if (index > 0) doc.addPage();
-        downloadPDF(voucher, doc);
-      });
+        const campus = campuses.find((c) => c.id === voucher.campusId);
+        drawFeeVoucherPage(doc, voucher, {
+          ...assets,
+          campusName: campus?.campusName || voucher.campusName,
+        });
+      }
       doc.save(`Bulk_Vouchers_${new Date().toISOString().split('T')[0]}.pdf`);
       toast.success('Bulk download complete!', { id: toastId });
       return;

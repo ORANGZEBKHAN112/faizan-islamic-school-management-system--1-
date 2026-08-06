@@ -325,33 +325,93 @@ async function fetchUnpaidMonthsByStudent(
   return map;
 }
 
+function deriveAcademicSession(year: number, month = new Date().getMonth() + 1): string {
+  if (month >= 4) return `${year}-${year + 1}`;
+  return `${year - 1}-${year}`;
+}
+
+/**
+ * Resolve fee heads for a class: prefer non-zero class FeeSettings, else campus FeeStructures
+ * for the current academic session (then latest campus session). Matches monthly generation.
+ */
 export async function fetchClassFeeStructure(
   pool: sql.ConnectionPool,
   classId: string,
 ): Promise<FeeStructureRow | null> {
+  const now = new Date();
+  const session = deriveAcademicSession(now.getFullYear(), now.getMonth() + 1);
+
   const feeResult = await pool.request()
     .input("classId", classId)
+    .input("session", session)
     .query(`
       SELECT
-        ISNULL(fs.monthly_fee, 0) AS monthlyFee,
-        ISNULL(fs.admission_fee, 0) AS admissionFee,
-        ISNULL(fs.security_fee, 0) AS securityFee,
-        ISNULL(fs.exam_fee, 0) AS examFee,
-        ISNULL(fs.transport_fee, 0) AS transportFee,
-        ISNULL(fs.misc_fee, 0) AS miscFee
+        cl.id AS classId,
+        fs.id AS feeSettingsId,
+        ISNULL(fs.monthly_fee, 0) AS classMonthlyFee,
+        ISNULL(fs.admission_fee, 0) AS classAdmissionFee,
+        ISNULL(fs.security_fee, 0) AS classSecurityFee,
+        ISNULL(fs.exam_fee, 0) AS classExamFee,
+        ISNULL(fs.transport_fee, 0) AS classTransportFee,
+        ISNULL(fs.misc_fee, 0) AS classMiscFee,
+        ISNULL(st.tuition_fee, 0) AS campusMonthlyFee,
+        ISNULL(st.admission_fee, 0) AS campusAdmissionFee,
+        ISNULL(st.security_fee, 0) AS campusSecurityFee,
+        ISNULL(st.exam_fee, 0) AS campusExamFee,
+        ISNULL(st.transport_fee, 0) AS campusTransportFee,
+        ISNULL(st.misc_fee, 0) AS campusMiscFee
       FROM Classes cl
       LEFT JOIN FeeSettings fs ON fs.class_id = cl.id
+      OUTER APPLY (
+        SELECT TOP 1
+          st.tuition_fee,
+          st.admission_fee,
+          st.security_fee,
+          st.exam_fee,
+          st.transport_fee,
+          st.misc_fee
+        FROM FeeStructures st
+        WHERE st.campus_id = cl.campus_id
+          AND st.class_id IS NULL
+        ORDER BY
+          CASE WHEN st.session = @session THEN 0 ELSE 1 END,
+          st.session DESC,
+          st.last_updated DESC
+      ) st
       WHERE cl.id = @classId
     `);
-  const fs = feeResult.recordset[0];
-  if (!fs) return null;
+  const row = feeResult.recordset[0];
+  if (!row) return null;
+
+  const classTotal =
+    Number(row.classMonthlyFee) +
+    Number(row.classAdmissionFee) +
+    Number(row.classSecurityFee) +
+    Number(row.classExamFee) +
+    Number(row.classTransportFee) +
+    Number(row.classMiscFee);
+  const useClass = Boolean(row.feeSettingsId) && classTotal > 0;
+
+  const monthlyFee = useClass ? Number(row.classMonthlyFee) : Number(row.campusMonthlyFee);
+  const admissionFee = useClass ? Number(row.classAdmissionFee) : Number(row.campusAdmissionFee);
+  const securityFee = useClass ? Number(row.classSecurityFee) : Number(row.campusSecurityFee);
+  const examFee = useClass ? Number(row.classExamFee) : Number(row.campusExamFee);
+  const transportFee = useClass ? Number(row.classTransportFee) : Number(row.campusTransportFee);
+  const miscFee = useClass ? Number(row.classMiscFee) : Number(row.campusMiscFee);
+
+  if (
+    !monthlyFee && !admissionFee && !securityFee && !examFee && !transportFee && !miscFee
+  ) {
+    return null;
+  }
+
   return {
-    monthlyFee: Number(fs.monthlyFee) || 0,
-    admissionFee: Number(fs.admissionFee) || 0,
-    securityFee: Number(fs.securityFee) || 0,
-    examFee: Number(fs.examFee) || 0,
-    transportFee: Number(fs.transportFee) || 0,
-    miscFee: Number(fs.miscFee) || 0,
+    monthlyFee: monthlyFee || 0,
+    admissionFee: admissionFee || 0,
+    securityFee: securityFee || 0,
+    examFee: examFee || 0,
+    transportFee: transportFee || 0,
+    miscFee: miscFee || 0,
   };
 }
 
@@ -547,10 +607,23 @@ export async function createEnrollmentFeeVoucher(
     siblingDiscountPercent?: number;
     carryArrears?: number;
   },
-): Promise<{ feeId: string | null; totalDue: number }> {
+): Promise<{ feeId: string | null; totalDue: number; reason?: string }> {
   const feeStructure = await fetchClassFeeStructure(pool, classId);
+  if (!feeStructure) {
+    return {
+      feeId: null,
+      totalDue: 0,
+      reason: "No fee structure found for this class/campus. Set amounts in Fee Settings (campus session) first.",
+    };
+  }
   const preview = computeAdmissionFeePreview(feeStructure, options);
-  if (!preview || preview.totalDue <= 0) return { feeId: null, totalDue: 0 };
+  if (!preview || preview.totalDue <= 0) {
+    return {
+      feeId: null,
+      totalDue: 0,
+      reason: "Admission total due is zero (fees waived or all heads are Rs. 0). Update Fee Settings or review discounts.",
+    };
+  }
 
   const campusResult = await pool.request()
     .input("classId", classId)
@@ -561,7 +634,6 @@ export async function createEnrollmentFeeVoucher(
   const month = now.getMonth() + 1;
   const year = now.getFullYear();
   const dueDate = new Date(year, month - 1, 10).toISOString().split("T")[0];
-  const feeType = preview.admissionFee > 0 || preview.securityFee > 0 ? "Admission" : "Monthly";
   const feeId = crypto.randomUUID();
   const amountAfterDiscount = preview.subtotal - preview.totalDiscount;
 
@@ -572,7 +644,7 @@ export async function createEnrollmentFeeVoucher(
     .input("month", month)
     .input("year", year)
     .input("due_date", dueDate)
-    .input("fee_type", feeType)
+    .input("fee_type", "Admission")
     .input("tuition_fee", preview.tuitionFee)
     .input("admission_fee", preview.admissionFee)
     .input("security_fee", preview.securityFee)
