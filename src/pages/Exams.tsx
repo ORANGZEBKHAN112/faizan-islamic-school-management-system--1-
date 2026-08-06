@@ -11,6 +11,7 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { gradeFromMarks } from '../utils/examGrades';
+import { EXAM_SUBJECT_CATALOG, emptySubjectDraft, sumSubjectTotals, type ExamSubjectDraft } from '../utils/examSubjects';
 
 const scopeUser = getStoredUser();
 
@@ -63,6 +64,8 @@ export default function Exams() {
   const [results, setResults] = useState<Record<string, { obtainedMarks: number; grade: string; remarks: string }>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [scheduleMode, setScheduleMode] = useState<'region' | 'campus'>('region');
+  const [subjectPick, setSubjectPick] = useState('');
+  const [subjects, setSubjects] = useState<ExamSubjectDraft[]>([]);
   const [formData, setFormData] = useState({
     title: '',
     examType: 'Monthly',
@@ -74,6 +77,8 @@ export default function Exams() {
     examDate: new Date().toISOString().split('T')[0],
     totalMarks: 100,
   });
+
+  const subjectsTotal = sumSubjectTotals(subjects);
 
   const loadExams = async () => {
     try {
@@ -200,6 +205,16 @@ export default function Exams() {
       toast.error('Exam title is required');
       return;
     }
+    if (subjects.length === 0) {
+      toast.error('Add at least one subject with total marks');
+      return;
+    }
+    const totalMarks = subjectsTotal > 0 ? subjectsTotal : formData.totalMarks;
+    const subjectPayload = subjects.map((s) => ({
+      subjectName: s.subjectName,
+      totalMarks: Number(s.totalMarks) || 0,
+      passingMarks: Number(s.passingMarks) || 0,
+    }));
     try {
       if (scheduleMode === 'region') {
         if (!formData.region || !formData.educationLevel) {
@@ -222,7 +237,8 @@ export default function Exams() {
             region: formData.region,
             className,
             examDate: formData.examDate,
-            totalMarks: formData.totalMarks,
+            totalMarks,
+            subjects: subjectPayload,
           });
           created += result.createdCount || 0;
           if (result.skipped?.length) skipped.push(...result.skipped);
@@ -242,13 +258,16 @@ export default function Exams() {
           campusId: formData.campusId,
           classId: formData.classId,
           examDate: formData.examDate,
-          totalMarks: formData.totalMarks,
+          totalMarks,
+          subjects: subjectPayload,
         });
         toast.success('Exam created');
       }
       await loadExams();
       setIsModalOpen(false);
-      setFormData((prev) => ({ ...prev, title: '', classId: '', className: '' }));
+      setSubjects([]);
+      setSubjectPick('');
+      setFormData((prev) => ({ ...prev, title: '', classId: '', className: '', totalMarks: 100 }));
     } catch (err) {
       console.error(err);
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -492,7 +511,7 @@ export default function Exams() {
       <AnimatePresence>
         {isModalOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-md p-8 max-h-[90vh] overflow-y-auto">
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto">
               <h3 className="text-2xl font-black mb-6">Schedule Exam</h3>
               <form onSubmit={handleCreateExam} className="space-y-4">
                 <input className="vibrant-input" placeholder="Exam title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
@@ -592,16 +611,98 @@ export default function Exams() {
                     />
                   </>
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div>
                   <input type="date" className="vibrant-input" value={formData.examDate} onChange={(e) => setFormData({ ...formData, examDate: e.target.value })} />
-                  <input
-                    type="number"
-                    className="vibrant-input font-black ring-2 ring-emerald-400/60"
-                    placeholder="Total marks"
-                    value={formData.totalMarks}
-                    onChange={(e) => setFormData({ ...formData, totalMarks: parseInt(e.target.value) || 100 })}
-                  />
                 </div>
+
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Subjects &amp; Marks Setup</h4>
+                    <span className="rounded-lg bg-emerald-100 dark:bg-emerald-900/40 px-2 py-1 text-xs font-black text-emerald-800 dark:text-emerald-200">
+                      Total: {subjectsTotal || 0}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex-1 min-w-[160px]">
+                      <SearchableSelect
+                        value={subjectPick}
+                        onChange={setSubjectPick}
+                        placeholder="Select subject"
+                        options={EXAM_SUBJECT_CATALOG
+                          .filter((name) => !subjects.some((s) => s.subjectName === name))
+                          .map((name) => ({ value: name, label: name }))}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="vibrant-btn-secondary px-4"
+                      onClick={() => {
+                        if (!subjectPick) return toast.error('Select a subject first');
+                        if (subjects.some((s) => s.subjectName === subjectPick)) {
+                          return toast.error('Subject already added');
+                        }
+                        setSubjects((prev) => [...prev, emptySubjectDraft(subjectPick)]);
+                        setSubjectPick('');
+                      }}
+                    >
+                      Add Subject
+                    </button>
+                  </div>
+                  {subjects.length === 0 ? (
+                    <p className="text-xs text-slate-400">Add subjects (English, Urdu, Mathematics…) with total and passing marks before creating the exam.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {subjects.map((s, idx) => (
+                        <div key={`${s.subjectName}-${idx}`} className="grid grid-cols-12 gap-2 items-end">
+                          <div className="col-span-4">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Subject</label>
+                            <input className="vibrant-input py-2" value={s.subjectName} readOnly />
+                          </div>
+                          <div className="col-span-3">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Total marks</label>
+                            <input
+                              type="number"
+                              min={1}
+                              className="vibrant-input py-2 font-black"
+                              value={s.totalMarks}
+                              onChange={(e) => {
+                                const totalMarks = Number(e.target.value) || 0;
+                                setSubjects((prev) => prev.map((row, i) => i === idx ? {
+                                  ...row,
+                                  totalMarks,
+                                  passingMarks: row.passingMarks > totalMarks ? totalMarks : row.passingMarks,
+                                } : row));
+                              }}
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Passing marks</label>
+                            <input
+                              type="number"
+                              min={0}
+                              className="vibrant-input py-2"
+                              value={s.passingMarks}
+                              onChange={(e) => {
+                                const passingMarks = Number(e.target.value) || 0;
+                                setSubjects((prev) => prev.map((row, i) => i === idx ? { ...row, passingMarks } : row));
+                              }}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <button
+                              type="button"
+                              className="w-full vibrant-btn-secondary py-2 text-danger"
+                              onClick={() => setSubjects((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-4 pt-4">
                   <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">Cancel</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">Create</button>

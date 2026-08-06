@@ -200,6 +200,58 @@ function gradeFromMarks(obtained: number, total: number): string {
   return "";
 }
 
+type ExamSubjectInput = {
+  subjectName?: string;
+  name?: string;
+  totalMarks?: number;
+  passingMarks?: number;
+};
+
+function normalizeExamSubjects(raw: unknown): Array<{ subjectName: string; totalMarks: number; passingMarks: number }> {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((s: ExamSubjectInput) => ({
+      subjectName: String(s.subjectName || s.name || "").trim(),
+      totalMarks: Math.max(0, Number(s.totalMarks) || 0),
+      passingMarks: Math.max(0, Number(s.passingMarks) || 0),
+    }))
+    .filter((s) => s.subjectName.length > 0 && s.totalMarks > 0);
+}
+
+async function insertExamSubjects(
+  examId: string,
+  subjects: Array<{ subjectName: string; totalMarks: number; passingMarks: number }>
+): Promise<number> {
+  if (!pool) return 0;
+  let order = 0;
+  for (const subject of subjects) {
+    await pool.request()
+      .input("id", crypto.randomUUID())
+      .input("exam_id", examId)
+      .input("subject_name", subject.subjectName)
+      .input("total_marks", subject.totalMarks)
+      .input("passing_marks", subject.passingMarks || Math.round(subject.totalMarks * 0.33))
+      .input("sort_order", order++)
+      .query(`
+        INSERT INTO ExamSubjects (id, exam_id, subject_name, total_marks, passing_marks, sort_order)
+        VALUES (@id, @exam_id, @subject_name, @total_marks, @passing_marks, @sort_order)
+      `);
+  }
+  return subjects.reduce((sum, s) => sum + s.totalMarks, 0);
+}
+
+async function fetchExamSubjects(examId: string) {
+  if (!pool) return [];
+  const result = await pool.request().input("examId", examId).query(`
+    SELECT id, exam_id AS examId, subject_name AS subjectName,
+           total_marks AS totalMarks, passing_marks AS passingMarks, sort_order AS sortOrder
+    FROM ExamSubjects
+    WHERE exam_id = @examId
+    ORDER BY sort_order ASC, subject_name ASC
+  `);
+  return result.recordset;
+}
+
 async function assertClassCapacity(
   classId: string,
   excludeStudentId?: string
@@ -1324,6 +1376,37 @@ async function connectToDb() {
             grade NVARCHAR(10),
             remarks NVARCHAR(255),
             recorded_on DATETIME DEFAULT GETDATE()
+          );
+        END
+
+        IF OBJECT_ID('ExamSubjects', 'U') IS NULL
+        BEGIN
+          CREATE TABLE ExamSubjects (
+            id NVARCHAR(50) PRIMARY KEY,
+            exam_id NVARCHAR(50) NOT NULL,
+            subject_name NVARCHAR(100) NOT NULL,
+            total_marks DECIMAL(18, 2) DEFAULT 100,
+            passing_marks DECIMAL(18, 2) DEFAULT 33,
+            sort_order INT DEFAULT 0,
+            CONSTRAINT FK_ExamSubjects_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id)
+          );
+          CREATE INDEX IX_ExamSubjects_exam ON ExamSubjects(exam_id, sort_order);
+        END
+
+        IF OBJECT_ID('ExamSubjectMarks', 'U') IS NULL
+        BEGIN
+          CREATE TABLE ExamSubjectMarks (
+            id NVARCHAR(50) PRIMARY KEY,
+            exam_id NVARCHAR(50) NOT NULL,
+            subject_id NVARCHAR(50) NOT NULL,
+            student_id NVARCHAR(50) NOT NULL,
+            obtained_marks DECIMAL(18, 2) DEFAULT 0,
+            grade NVARCHAR(10) NULL,
+            recorded_on DATETIME DEFAULT GETDATE(),
+            CONSTRAINT FK_ExamSubjectMarks_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id),
+            CONSTRAINT FK_ExamSubjectMarks_Subjects FOREIGN KEY (subject_id) REFERENCES ExamSubjects(id),
+            CONSTRAINT FK_ExamSubjectMarks_Students FOREIGN KEY (student_id) REFERENCES Students(id),
+            CONSTRAINT UX_ExamSubjectMarks UNIQUE (exam_id, subject_id, student_id)
           );
         END
 
@@ -5345,6 +5428,9 @@ async function startServer() {
           skipped.push(`${campus.campusName}: no class "${className}"`);
           continue;
         }
+        const subjects = normalizeExamSubjects(e.subjects);
+        const subjectsTotal = subjects.reduce((sum, s) => sum + s.totalMarks, 0);
+        const totalMarks = subjectsTotal > 0 ? subjectsTotal : (e.totalMarks || 100);
         const id = crypto.randomUUID();
         await pool.request()
           .input("id", id)
@@ -5354,11 +5440,12 @@ async function startServer() {
           .input("campus_id", campus.id)
           .input("region", region)
           .input("exam_date", e.examDate || null)
-          .input("total_marks", e.totalMarks || 100)
+          .input("total_marks", totalMarks)
           .query(`
             INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
             VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
           `);
+        if (subjects.length) await insertExamSubjects(id, subjects);
         created.push({ id, campusId: campus.id, classId });
       }
 
@@ -5387,6 +5474,9 @@ async function startServer() {
       const e = req.body;
       const campusErr = await assertCampusWrite(authUser, e.campusId);
       if (campusErr) return res.status(403).json({ message: campusErr });
+      const subjects = normalizeExamSubjects(e.subjects);
+      const subjectsTotal = subjects.reduce((sum, s) => sum + s.totalMarks, 0);
+      const totalMarks = subjectsTotal > 0 ? subjectsTotal : (e.totalMarks || 100);
       const id = crypto.randomUUID();
       await pool.request()
         .input("id", id)
@@ -5396,14 +5486,64 @@ async function startServer() {
         .input("campus_id", e.campusId)
         .input("region", e.region || null)
         .input("exam_date", e.examDate || null)
-        .input("total_marks", e.totalMarks || 100)
+        .input("total_marks", totalMarks)
         .query(`
           INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
           VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
         `);
-      res.status(201).json({ ...e, id });
+      if (subjects.length) await insertExamSubjects(id, subjects);
+      res.status(201).json({ ...e, id, totalMarks, subjects });
     } catch (err) {
       sendServerError(res, err, "Error creating exam");
+    }
+  });
+
+  app.get("/api/exams/:id/subjects", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+      const examCheck = await pool.request().input("id", id).query("SELECT campus_id FROM Exams WHERE id = @id");
+      if (!examCheck.recordset[0]) return res.status(404).json({ message: "Exam not found" });
+      const campusErr = await assertCampusWrite(authUser, examCheck.recordset[0].campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+      const subjects = await fetchExamSubjects(id);
+      res.json(subjects);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching exam subjects");
+    }
+  });
+
+  app.put("/api/exams/:id/subjects", requireRoles(ADMIN_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+      const examCheck = await pool.request().input("id", id).query("SELECT campus_id FROM Exams WHERE id = @id");
+      if (!examCheck.recordset[0]) return res.status(404).json({ message: "Exam not found" });
+      const campusErr = await assertCampusWrite(authUser, examCheck.recordset[0].campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const subjects = normalizeExamSubjects(req.body?.subjects);
+      if (subjects.length === 0) {
+        return res.status(400).json({ message: "At least one subject with total marks is required" });
+      }
+
+      await pool.request().input("examId", id).query("DELETE FROM ExamSubjectMarks WHERE exam_id = @examId");
+      await pool.request().input("examId", id).query("DELETE FROM ExamSubjects WHERE exam_id = @examId");
+      const totalMarks = await insertExamSubjects(id, subjects);
+      await pool.request()
+        .input("id", id)
+        .input("total_marks", totalMarks)
+        .query("UPDATE Exams SET total_marks = @total_marks WHERE id = @id");
+
+      res.json({ message: "Subjects updated", totalMarks, subjects: await fetchExamSubjects(id) });
+    } catch (err) {
+      sendServerError(res, err, "Error updating exam subjects");
     }
   });
 
@@ -5441,6 +5581,8 @@ async function startServer() {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const { id } = req.params;
+      await pool.request().input("id", id).query("DELETE FROM ExamSubjectMarks WHERE exam_id = @id");
+      await pool.request().input("id", id).query("DELETE FROM ExamSubjects WHERE exam_id = @id");
       await pool.request().input("id", id).query("DELETE FROM ExamResults WHERE exam_id = @id");
       await pool.request().input("id", id).query("DELETE FROM Exams WHERE id = @id");
       res.status(204).send();
@@ -5461,12 +5603,13 @@ async function startServer() {
 
       const examCheck = await pool.request()
         .input("examId", examId)
-        .query("SELECT campus_id FROM Exams WHERE id = @examId");
+        .query("SELECT campus_id, total_marks FROM Exams WHERE id = @examId");
       const examRow = examCheck.recordset[0];
       if (!examRow) return res.status(404).json({ message: "Exam not found" });
       const campusErr = await assertCampusWrite(authUser, examRow.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
+      const subjects = await fetchExamSubjects(String(examId));
       const result = await pool.request()
         .input("examId", examId)
         .query(`
@@ -5479,19 +5622,57 @@ async function startServer() {
           WHERE r.exam_id = @examId
           ORDER BY s.student_name ASC
         `);
-      res.json(result.recordset);
+
+      const subjectMarksResult = subjects.length
+        ? await pool.request().input("examId", examId).query(`
+            SELECT student_id AS studentId, subject_id AS subjectId, obtained_marks AS obtainedMarks, grade
+            FROM ExamSubjectMarks WHERE exam_id = @examId
+          `)
+        : { recordset: [] as Array<{ studentId: string; subjectId: string; obtainedMarks: number; grade?: string }> };
+
+      const marksByStudent: Record<string, Record<string, number>> = {};
+      for (const row of subjectMarksResult.recordset) {
+        if (!marksByStudent[row.studentId]) marksByStudent[row.studentId] = {};
+        marksByStudent[row.studentId][row.subjectId] = Number(row.obtainedMarks || 0);
+      }
+
+      const totalMarks = Number(examRow.total_marks) || subjects.reduce((s: number, x: { totalMarks: number }) => s + Number(x.totalMarks || 0), 0);
+      const rows = result.recordset.map((r: {
+        id: string; examId: string; studentId: string; studentName?: string; rollNumber?: string;
+        obtainedMarks: number; grade?: string; remarks?: string; recordedOn?: string;
+      }) => {
+        const obtained = Number(r.obtainedMarks || 0);
+        const percentage = totalMarks > 0 ? Math.round((obtained / totalMarks) * 1000) / 10 : 0;
+        return {
+          ...r,
+          percentage,
+          subjectMarks: marksByStudent[r.studentId] || {},
+        };
+      });
+
+      // Array response keeps existing clients working; subjects available via /api/exams/:id/subjects
+      res.json(rows);
     } catch (err) {
       sendServerError(res, err, "Error fetching exam results");
     }
   });
 
-  app.post("/api/exam-results", requireRoles(new Set(["Super Admin", "Admin", "Teacher"])), async (req, res) => {
+  app.post("/api/exam-results", requireRoles(new Set(["Super Admin", "Admin", "Teacher", "Principal"])), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
-      const { examId, results } = req.body as { examId: string; results: Array<{ studentId: string; obtainedMarks: number; grade?: string; remarks?: string }> };
+      const { examId, results } = req.body as {
+        examId: string;
+        results: Array<{
+          studentId: string;
+          obtainedMarks?: number;
+          grade?: string;
+          remarks?: string;
+          subjectMarks?: Array<{ subjectId: string; obtainedMarks: number }>;
+        }>;
+      };
       if (!examId || !Array.isArray(results)) {
         return res.status(400).json({ message: "examId and results array are required" });
       }
@@ -5504,14 +5685,62 @@ async function startServer() {
       const campusErr = await assertCampusWrite(authUser, examRow.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
-      const totalMarks = Number(examRow.total_marks) || 0;
+      const subjects = await fetchExamSubjects(examId);
+      const subjectMap = new Map(subjects.map((s: { id: string; totalMarks: number }) => [s.id, Number(s.totalMarks || 0)]));
+      const totalMarks = subjects.length
+        ? subjects.reduce((s: number, x: { totalMarks: number }) => s + Number(x.totalMarks || 0), 0)
+        : Number(examRow.total_marks) || 0;
+
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
       try {
         for (const row of results) {
+          let obtainedMarks = Number(row.obtainedMarks || 0);
+          if (Array.isArray(row.subjectMarks) && row.subjectMarks.length > 0) {
+            obtainedMarks = 0;
+            for (const sm of row.subjectMarks) {
+              if (!subjectMap.has(sm.subjectId)) continue;
+              const subTotal = subjectMap.get(sm.subjectId) || 0;
+              const marks = Math.max(0, Math.min(subTotal, Number(sm.obtainedMarks) || 0));
+              obtainedMarks += marks;
+              const subGrade = gradeFromMarks(marks, subTotal) || null;
+              const existingSub = await new sql.Request(transaction)
+                .input("examId", examId)
+                .input("subjectId", sm.subjectId)
+                .input("studentId", row.studentId)
+                .query(`
+                  SELECT id FROM ExamSubjectMarks
+                  WHERE exam_id = @examId AND subject_id = @subjectId AND student_id = @studentId
+                `);
+              if (existingSub.recordset.length > 0) {
+                await new sql.Request(transaction)
+                  .input("id", existingSub.recordset[0].id)
+                  .input("obtainedMarks", marks)
+                  .input("grade", subGrade)
+                  .query(`
+                    UPDATE ExamSubjectMarks
+                    SET obtained_marks = @obtainedMarks, grade = @grade, recorded_on = GETDATE()
+                    WHERE id = @id
+                  `);
+              } else {
+                await new sql.Request(transaction)
+                  .input("id", crypto.randomUUID())
+                  .input("examId", examId)
+                  .input("subjectId", sm.subjectId)
+                  .input("studentId", row.studentId)
+                  .input("obtainedMarks", marks)
+                  .input("grade", subGrade)
+                  .query(`
+                    INSERT INTO ExamSubjectMarks (id, exam_id, subject_id, student_id, obtained_marks, grade)
+                    VALUES (@id, @examId, @subjectId, @studentId, @obtainedMarks, @grade)
+                  `);
+              }
+            }
+          }
+
           const grade =
             (row.grade && String(row.grade).trim()) ||
-            gradeFromMarks(Number(row.obtainedMarks), totalMarks) ||
+            gradeFromMarks(obtainedMarks, totalMarks) ||
             null;
           const existing = await new sql.Request(transaction)
             .input("examId", examId)
@@ -5520,7 +5749,7 @@ async function startServer() {
           if (existing.recordset.length > 0) {
             await new sql.Request(transaction)
               .input("id", existing.recordset[0].id)
-              .input("obtainedMarks", row.obtainedMarks)
+              .input("obtainedMarks", obtainedMarks)
               .input("grade", grade)
               .input("remarks", row.remarks || null)
               .query(`
@@ -5532,7 +5761,7 @@ async function startServer() {
               .input("id", crypto.randomUUID())
               .input("examId", examId)
               .input("studentId", row.studentId)
-              .input("obtainedMarks", row.obtainedMarks)
+              .input("obtainedMarks", obtainedMarks)
               .input("grade", grade)
               .input("remarks", row.remarks || null)
               .query(`
@@ -5541,12 +5770,18 @@ async function startServer() {
               `);
           }
         }
+        if (subjects.length && totalMarks > 0) {
+          await new sql.Request(transaction)
+            .input("examId", examId)
+            .input("total_marks", totalMarks)
+            .query("UPDATE Exams SET total_marks = @total_marks WHERE id = @examId");
+        }
         await transaction.commit();
       } catch (txErr) {
         await transaction.rollback();
         throw txErr;
       }
-      res.json({ message: "Results saved", count: results.length });
+      res.json({ message: "Results saved", count: results.length, totalMarks });
     } catch (err) {
       sendServerError(res, err, "Error saving exam results");
     }
@@ -6371,6 +6606,145 @@ async function startServer() {
       });
     } catch (err) {
       sendServerError(res, err, "Error enrolling student");
+    }
+  });
+
+  /** Load or create admission fee voucher for an enrolled application (#31). */
+  async function loadAdmissionVoucherPayload(applicationId: string) {
+    const appResult = await pool!.request().input("id", applicationId).query(`
+      SELECT a.id, a.status, a.student_id AS studentId, a.class_id AS classId,
+             a.applicant_name AS applicantName, a.father_name AS fatherName,
+             a.waive_admission_fee AS waiveAdmissionFee,
+             a.fee_discount_amount AS feeDiscountAmount,
+             a.fee_discount_percent AS feeDiscountPercent,
+             a.sibling_discount_percent AS siblingDiscountPercent,
+             a.review_match_type AS reviewMatchType,
+             a.campus_id AS campusId,
+             c.campus_name AS campusName,
+             cl.class_name AS className,
+             s.admission_no AS rollNumber
+      FROM AdmissionApplications a
+      LEFT JOIN Campuses c ON c.id = a.campus_id
+      LEFT JOIN Classes cl ON cl.id = a.class_id
+      LEFT JOIN Students s ON s.id = a.student_id
+      WHERE a.id = @id
+    `);
+    const application = appResult.recordset[0];
+    if (!application) return { error: { status: 404, message: "Application not found" } as const };
+    if (application.status !== "Enrolled" || !application.studentId) {
+      return { error: { status: 400, message: "Enroll the student before generating an admission voucher" } as const };
+    }
+    if (!application.classId) {
+      return { error: { status: 400, message: "Assign a class before generating an admission voucher" } as const };
+    }
+
+    const existing = await pool!.request()
+      .input("studentId", application.studentId)
+      .query(`
+        SELECT TOP 1
+          f.id, f.student_id AS studentId, f.amount, f.month, f.year, f.status, f.due_date AS dueDate,
+          f.fee_type AS feeType, f.months_label AS monthsLabel,
+          ISNULL(f.tuition_fee, 0) AS tuitionFee,
+          ISNULL(f.admission_fee, 0) AS admissionFee,
+          ISNULL(f.security_fee, 0) AS securityFee,
+          ISNULL(f.exam_fee, 0) AS examFee,
+          ISNULL(f.transport_fee, 0) AS transportFee,
+          ISNULL(f.misc_fee, 0) AS miscFee,
+          ISNULL(f.arrears, 0) AS arrears,
+          ISNULL(f.discount_amount, 0) AS discountAmount,
+          ISNULL(f.paid_amount, 0) AS paidAmount,
+          ISNULL(f.balance_amount, 0) AS balanceAmount,
+          f.campus_name_snapshot AS campusName,
+          CONVERT(VARCHAR, f.created_at, 120) AS createdAt
+        FROM Fees f
+        WHERE f.student_id = @studentId AND f.fee_type = 'Admission'
+        ORDER BY f.created_at DESC
+      `);
+
+    return { application, voucher: existing.recordset[0] || null };
+  }
+
+  app.get("/api/admissions/:id/admission-voucher", requireModulePermission("admissions", "view"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+
+      const loaded = await loadAdmissionVoucherPayload(req.params.id);
+      if ("error" in loaded && loaded.error) {
+        return res.status(loaded.error.status).json({ message: loaded.error.message });
+      }
+      const campusErr = await assertCampusWrite(authUser, loaded.application.campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      res.json({
+        application: {
+          id: loaded.application.id,
+          applicantName: loaded.application.applicantName,
+          fatherName: loaded.application.fatherName,
+          campusName: loaded.application.campusName,
+          className: loaded.application.className,
+          rollNumber: loaded.application.rollNumber,
+          studentId: loaded.application.studentId,
+          status: loaded.application.status,
+        },
+        voucher: loaded.voucher,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error loading admission voucher");
+    }
+  });
+
+  app.post("/api/admissions/:id/admission-voucher", requireModulePermission("admissions", "update"), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+
+      const loaded = await loadAdmissionVoucherPayload(req.params.id);
+      if ("error" in loaded && loaded.error) {
+        return res.status(loaded.error.status).json({ message: loaded.error.message });
+      }
+      const campusErr = await assertCampusWrite(authUser, loaded.application.campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      let voucher = loaded.voucher;
+      let created = false;
+      if (!voucher) {
+        const createdVoucher = await createEnrollmentFeeVoucher(pool, loaded.application.studentId, loaded.application.classId, {
+          waiveAdmissionFee: Boolean(loaded.application.waiveAdmissionFee),
+          discountAmount: Number(loaded.application.feeDiscountAmount) || 0,
+          discountPercent: Number(loaded.application.feeDiscountPercent) || 0,
+          siblingDiscountPercent: Number(loaded.application.siblingDiscountPercent) || 0,
+        });
+        if (!createdVoucher.feeId) {
+          return res.status(400).json({ message: "No admission charges configured for this class (total due is zero)" });
+        }
+        await recomputeStudentOutstanding(loaded.application.studentId);
+        const refreshed = await loadAdmissionVoucherPayload(req.params.id);
+        voucher = refreshed.voucher;
+        created = true;
+      }
+
+      res.json({
+        message: created ? "Admission voucher generated" : "Admission voucher already exists",
+        created,
+        application: {
+          id: loaded.application.id,
+          applicantName: loaded.application.applicantName,
+          fatherName: loaded.application.fatherName,
+          campusName: loaded.application.campusName,
+          className: loaded.application.className,
+          rollNumber: loaded.application.rollNumber,
+          studentId: loaded.application.studentId,
+          status: loaded.application.status,
+        },
+        voucher,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error generating admission voucher");
     }
   });
 

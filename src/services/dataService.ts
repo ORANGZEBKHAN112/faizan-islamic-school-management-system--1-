@@ -1,5 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
-import type { User, AppRole, PermissionMap, PermissionModuleDef } from '../types';
+import type { User, AppRole, PermissionMap, PermissionModuleDef, Fee } from '../types';
 
 const API_BASE_URL = '/api';
 const REFERENCE_COLLECTIONS = new Set(['campuses', 'classes']);
@@ -343,8 +343,36 @@ export const dataService = {
     this.invalidateCollection('exams');
   },
 
-  async saveExamResults(examId: string, results: Array<{ studentId: string; obtainedMarks: number; grade?: string; remarks?: string }>) {
+  async fetchExamSubjects(examId: string) {
+    const response = await api.get(`/exams/${examId}/subjects`);
+    return response.data as Array<{
+      id: string;
+      examId?: string;
+      subjectName: string;
+      totalMarks: number;
+      passingMarks: number;
+      sortOrder?: number;
+    }>;
+  },
+
+  async updateExamSubjects(examId: string, subjects: Array<{ subjectName: string; totalMarks: number; passingMarks: number }>) {
+    const response = await api.put(`/exams/${examId}/subjects`, { subjects });
+    this.invalidateCollection('exams');
+    return response.data;
+  },
+
+  async saveExamResults(
+    examId: string,
+    results: Array<{
+      studentId: string;
+      obtainedMarks?: number;
+      grade?: string;
+      remarks?: string;
+      subjectMarks?: Array<{ subjectId: string; obtainedMarks: number }>;
+    }>
+  ) {
     const response = await api.post('/exam-results', { examId, results });
+    this.invalidateCollection('exam-results');
     return response.data;
   },
 
@@ -393,7 +421,47 @@ export const dataService = {
     const response = await api.post(`/admissions/${id}/enroll`);
     this.invalidateCollection('admissions');
     this.invalidateCollection('students');
+    this.invalidateCollection('fees');
+    this.invalidateCollection('feevouchers');
     return response.data;
+  },
+
+  async fetchAdmissionVoucher(id: string) {
+    const response = await api.get(`/admissions/${id}/admission-voucher`);
+    return response.data as {
+      application: {
+        id: string;
+        applicantName: string;
+        fatherName?: string;
+        campusName?: string;
+        className?: string;
+        rollNumber?: string;
+        studentId?: string;
+        status: string;
+      };
+      voucher: Fee | null;
+    };
+  },
+
+  async generateAdmissionVoucher(id: string) {
+    const response = await api.post(`/admissions/${id}/admission-voucher`);
+    this.invalidateCollection('fees');
+    this.invalidateCollection('feevouchers');
+    return response.data as {
+      message: string;
+      created: boolean;
+      application: {
+        id: string;
+        applicantName: string;
+        fatherName?: string;
+        campusName?: string;
+        className?: string;
+        rollNumber?: string;
+        studentId?: string;
+        status: string;
+      };
+      voucher: Fee | null;
+    };
   },
 
   async fetchPublicCampuses() {

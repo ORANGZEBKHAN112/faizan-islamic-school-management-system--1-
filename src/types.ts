@@ -245,6 +245,15 @@ export interface StaffMember {
   profileImage?: string;
 }
 
+export interface ExamSubject {
+  id: string;
+  examId?: string;
+  subjectName: string;
+  totalMarks: number;
+  passingMarks: number;
+  sortOrder?: number;
+}
+
 export interface Exam {
   id: string;
   title: string;
@@ -257,6 +266,7 @@ export interface Exam {
   examDate?: string;
   totalMarks: number;
   createdOn?: string;
+  subjects?: ExamSubject[];
 }
 
 export interface ExamResult {
@@ -269,6 +279,14 @@ export interface ExamResult {
   grade?: string;
   remarks?: string;
   recordedOn?: string;
+  percentage?: number;
+  subjectMarks?: Record<string, number>;
+}
+
+export interface ExamResultsPayload {
+  subjects: ExamSubject[];
+  totalMarks: number;
+  results: ExamResult[];
 }
 
 export interface InventoryItem {

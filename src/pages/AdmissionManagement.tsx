@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, UserPlus, CheckCircle, XCircle, GraduationCap, AlertTriangle, Users, Loader2, Eye, FileText, Download, Upload, Trash2 } from 'lucide-react';
-import { AdmissionApplication, AdmissionDocument, AdmissionReviewCheckResult, Campus, Class } from '../types';
+import { Plus, Search, UserPlus, CheckCircle, XCircle, GraduationCap, AlertTriangle, Users, Loader2, Eye, FileText, Download, Upload, Trash2, Printer, Receipt } from 'lucide-react';
+import { AdmissionApplication, AdmissionDocument, AdmissionReviewCheckResult, Campus, Class, Fee } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -13,6 +15,21 @@ import { useI18n } from '../context/I18nContext';
 import EmptyState from '../components/ui/EmptyState';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { formatCnic, isValidCnic, maskCnicInput, normalizeCnic } from '../utils/cnic';
+import { formatRollNumberForDisplay } from '../utils/rollNumber';
+
+type AdmissionVoucherPayload = {
+  application: {
+    id: string;
+    applicantName: string;
+    fatherName?: string;
+    campusName?: string;
+    className?: string;
+    rollNumber?: string;
+    studentId?: string;
+    status: string;
+  };
+  voucher: Fee | null;
+};
 
 const scopeUser = getStoredUser();
 const STATUSES = ['Pending', 'Under Review', 'Approved', 'Rejected', 'Enrolled'] as const;
@@ -67,6 +84,9 @@ export default function AdmissionManagement() {
   const [rejectNotes, setRejectNotes] = useState('');
   const [approvalTarget, setApprovalTarget] = useState<AdmissionApplication | null>(null);
   const [reviewTarget, setReviewTarget] = useState<AdmissionApplication | null>(null);
+  const [voucherTarget, setVoucherTarget] = useState<AdmissionApplication | null>(null);
+  const [voucherPayload, setVoucherPayload] = useState<AdmissionVoucherPayload | null>(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewCheck, setReviewCheck] = useState<AdmissionReviewCheckResult | null>(null);
   const [reviewForm, setReviewForm] = useState({
@@ -413,13 +433,114 @@ export default function AdmissionManagement() {
       const extra = result.reactivated ? ' (reactivated)' : '';
       const dueNote = result.totalDue ? ` Fee due: Rs. ${Number(result.totalDue).toLocaleString()}` : '';
       toast.success(`Enrolled! Roll: ${result.rollNumber}${extra}.${dueNote}`, {
-        action: result.feeVoucherId ? { label: 'View fees', onClick: () => { window.location.href = '/fees'; } } : undefined,
+        action: result.feeVoucherId
+          ? {
+              label: 'Admission voucher',
+              onClick: () => {
+                void openAdmissionVoucher({ ...app, status: 'Enrolled', studentId: result.studentId });
+              },
+            }
+          : undefined,
       });
       await load();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg || 'Enrollment failed');
+      toast.error(apiErrorMessage(err, 'Enrollment failed'));
     }
+  };
+
+  const openAdmissionVoucher = async (app: AdmissionApplication) => {
+    if (app.status !== 'Enrolled') {
+      toast.error('Enroll the student first, then generate the admission voucher');
+      return;
+    }
+    setVoucherTarget(app);
+    setVoucherPayload(null);
+    setVoucherLoading(true);
+    try {
+      let payload: AdmissionVoucherPayload = await dataService.fetchAdmissionVoucher(app.id);
+      if (!payload.voucher) {
+        const generated = await dataService.generateAdmissionVoucher(app.id);
+        payload = { application: generated.application, voucher: generated.voucher };
+        toast.success(generated.created ? 'Admission voucher generated' : 'Admission voucher ready');
+      }
+      setVoucherPayload(payload);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Failed to load admission voucher'));
+      setVoucherTarget(null);
+    } finally {
+      setVoucherLoading(false);
+    }
+  };
+
+  const printAdmissionVoucher = () => {
+    if (!voucherPayload?.voucher) {
+      toast.error('No voucher to print');
+      return;
+    }
+    const { application, voucher } = voucherPayload;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const status = voucher.status || 'Unpaid';
+    const total = Number(voucher.amount || 0) + Number(voucher.arrears || 0);
+    const paid = Number(voucher.paidAmount || 0);
+    const balance = Number(voucher.balanceAmount ?? total - paid);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('Faizan Islamic School', 105, 18, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text('Admission Fee Voucher', 105, 26, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(`Status: ${status}`, 105, 33, { align: 'center' });
+
+    autoTable(doc, {
+      startY: 40,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.5 },
+      body: [
+        ['Student', application.applicantName || '—'],
+        ['Father', application.fatherName || '—'],
+        ['Roll No.', formatRollNumberForDisplay(application.rollNumber)],
+        ['Campus', application.campusName || voucher.campusName || '—'],
+        ['Class', application.className || '—'],
+        ['Voucher ID', voucher.id],
+        ['Period', voucher.monthsLabel || `${voucher.month}/${voucher.year}`],
+        ['Due date', voucher.dueDate ? String(voucher.dueDate).slice(0, 10) : '—'],
+      ],
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } },
+      margin: { left: 20, right: 20 },
+    });
+
+    const lines = [
+      voucher.tuitionFee ? ['Tuition (monthly)', Number(voucher.tuitionFee).toLocaleString()] : null,
+      voucher.admissionFee ? ['Admission fee', Number(voucher.admissionFee).toLocaleString()] : null,
+      voucher.securityFee ? ['Security fee', Number(voucher.securityFee).toLocaleString()] : null,
+      voucher.examFee ? ['Exam fee', Number(voucher.examFee).toLocaleString()] : null,
+      voucher.transportFee ? ['Transport fee', Number(voucher.transportFee).toLocaleString()] : null,
+      voucher.miscFee ? ['Registration / misc fee', Number(voucher.miscFee).toLocaleString()] : null,
+      voucher.arrears ? ['Carried arrears', Number(voucher.arrears).toLocaleString()] : null,
+      voucher.discountAmount ? ['Discount', `(${Number(voucher.discountAmount).toLocaleString()})`] : null,
+    ].filter(Boolean) as string[][];
+
+    autoTable(doc, {
+      startY: 95,
+      head: [['Fee head', 'Amount (PKR)']],
+      body: [
+        ...lines,
+        [{ content: 'TOTAL', styles: { fontStyle: 'bold' as const } }, { content: `Rs. ${total.toLocaleString()}`, styles: { fontStyle: 'bold' as const } }],
+        ['Paid', `Rs. ${paid.toLocaleString()}`],
+        [{ content: 'BALANCE DUE', styles: { fontStyle: 'bold' as const } }, { content: `Rs. ${balance.toLocaleString()}`, styles: { fontStyle: 'bold' as const } }],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
+      margin: { left: 20, right: 20 },
+    });
+
+    doc.setFontSize(9);
+    doc.text('Authorized Signature: ________________', 190, 270, { align: 'right' });
+    doc.save(`Admission_Voucher_${formatRollNumberForDisplay(application.rollNumber) || application.applicantName}.pdf`);
+    toast.success('Admission voucher downloaded');
   };
 
   const missingCnicCount = applications.filter((a) => !isValidCnic(a.fatherCnic)).length;
@@ -595,6 +716,16 @@ export default function AdmissionManagement() {
                         {app.status === 'Approved' && (
                           <button onClick={() => enroll(app)} className="vibrant-btn-primary py-2 px-4 text-[10px] font-black uppercase flex items-center gap-1">
                             <GraduationCap className="w-3 h-3" /> Enroll
+                          </button>
+                        )}
+                        {app.status === 'Enrolled' && (
+                          <button
+                            type="button"
+                            onClick={() => void openAdmissionVoucher(app)}
+                            className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1"
+                            title="Generate / print admission voucher"
+                          >
+                            <Receipt className="w-3 h-3" /> Admission Voucher
                           </button>
                         )}
                         {!app.classId && app.status !== 'Enrolled' && app.status !== 'Rejected' && (
@@ -980,8 +1111,17 @@ export default function AdmissionManagement() {
                   <div className="col-span-2"><p className="text-[10px] font-black text-danger uppercase">Rejection</p><p className="font-bold text-danger">{detailTarget.rejectionReason}</p></div>
                 )}
                 {detailTarget.studentId && (
-                  <div className="col-span-2">
+                  <div className="col-span-2 flex flex-wrap items-center gap-3">
                     <Link to="/students" className="text-primary font-bold text-sm hover:underline">View enrolled student →</Link>
+                    {detailTarget.status === 'Enrolled' && (
+                      <button
+                        type="button"
+                        onClick={() => void openAdmissionVoucher(detailTarget)}
+                        className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1"
+                      >
+                        <Receipt className="w-3 h-3" /> Admission Voucher
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1024,6 +1164,111 @@ export default function AdmissionManagement() {
               </div>
 
               <button type="button" onClick={() => setDetailTarget(null)} className="w-full vibrant-btn-secondary mt-6">Close</button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {voucherTarget && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="text-2xl font-black">Admission Voucher</h3>
+                  <p className="text-sm text-slate-500 mt-1">{voucherTarget.applicantName}</p>
+                </div>
+                <button type="button" onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }} className="text-slate-400 hover:text-slate-600">
+                  <XCircle className="w-7 h-7" />
+                </button>
+              </div>
+
+              {voucherLoading && (
+                <div className="flex items-center justify-center gap-2 py-12 text-slate-500">
+                  <Loader2 className="w-5 h-5 animate-spin" /> Loading voucher…
+                </div>
+              )}
+
+              {!voucherLoading && voucherPayload?.voucher && (() => {
+                const v = voucherPayload.voucher!;
+                const appInfo = voucherPayload.application;
+                const total = Number(v.amount || 0) + Number(v.arrears || 0);
+                const paid = Number(v.paidAmount || 0);
+                const balance = Number(v.balanceAmount ?? total - paid);
+                const status = v.status || 'Unpaid';
+                const statusTone = status === 'Paid'
+                  ? 'bg-success/10 text-success'
+                  : status === 'Partially Paid'
+                    ? 'bg-accent/10 text-accent'
+                    : 'bg-danger/10 text-danger';
+                const lines = [
+                  v.tuitionFee ? { label: 'Tuition (monthly)', amount: Number(v.tuitionFee) } : null,
+                  v.admissionFee ? { label: 'Admission fee', amount: Number(v.admissionFee) } : null,
+                  v.securityFee ? { label: 'Security fee', amount: Number(v.securityFee) } : null,
+                  v.examFee ? { label: 'Exam fee', amount: Number(v.examFee) } : null,
+                  v.transportFee ? { label: 'Transport fee', amount: Number(v.transportFee) } : null,
+                  v.miscFee ? { label: 'Registration / misc fee', amount: Number(v.miscFee) } : null,
+                  v.arrears ? { label: 'Carried arrears', amount: Number(v.arrears) } : null,
+                  v.discountAmount ? { label: 'Discount', amount: -Number(v.discountAmount) } : null,
+                ].filter(Boolean) as Array<{ label: string; amount: number }>;
+
+                return (
+                  <div className="space-y-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${statusTone}`}>{status}</span>
+                      <span className="text-xs text-slate-400 font-mono">{v.monthsLabel || `${v.month}/${v.year}`}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Roll</p><p className="font-bold">{formatRollNumberForDisplay(appInfo.rollNumber)}</p></div>
+                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Class</p><p className="font-bold">{appInfo.className || '—'}</p></div>
+                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Campus</p><p className="font-bold">{appInfo.campusName || v.campusName || '—'}</p></div>
+                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Due</p><p className="font-bold">{v.dueDate ? String(v.dueDate).slice(0, 10) : '—'}</p></div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {lines.map((line) => (
+                            <tr key={line.label} className="border-b border-slate-50 dark:border-slate-800">
+                              <td className="px-4 py-2.5 text-slate-600">{line.label}</td>
+                              <td className="px-4 py-2.5 text-right font-bold">Rs. {line.amount.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          <tr className="bg-slate-50/80 dark:bg-slate-800/40">
+                            <td className="px-4 py-3 font-black">Total</td>
+                            <td className="px-4 py-3 text-right font-black">Rs. {total.toLocaleString()}</td>
+                          </tr>
+                          <tr>
+                            <td className="px-4 py-2.5 text-slate-600">Paid</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-success">Rs. {paid.toLocaleString()}</td>
+                          </tr>
+                          <tr>
+                            <td className="px-4 py-2.5 font-black">Balance due</td>
+                            <td className="px-4 py-2.5 text-right font-black text-primary">Rs. {balance.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button type="button" onClick={printAdmissionVoucher} className="vibrant-btn-primary flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold">
+                        <Printer className="w-4 h-4" /> Print / Download PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }}
+                        className="vibrant-btn-secondary flex-1 py-3 rounded-2xl text-sm font-semibold"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400 text-center">Reprint anytime from Admissions · payments update status in Fee Management</p>
+                  </div>
+                );
+              })()}
+
+              {!voucherLoading && voucherPayload && !voucherPayload.voucher && (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-500">No admission charges are configured for this class, so no voucher was created.</p>
+                  <button type="button" onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }} className="w-full vibrant-btn-secondary">Close</button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

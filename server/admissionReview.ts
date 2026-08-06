@@ -193,7 +193,7 @@ export function computeAdmissionFeePreview(
   if (securityFee > 0) lines.push({ label: "Security deposit", amount: securityFee });
   if (examFee > 0) lines.push({ label: "Exam fee", amount: examFee });
   if (transportFee > 0) lines.push({ label: "Transport", amount: transportFee });
-  if (miscFee > 0) lines.push({ label: "Misc", amount: miscFee });
+  if (miscFee > 0) lines.push({ label: "Registration / misc fee", amount: miscFee });
   if (siblingDiscountAmount > 0) {
     lines.push({ label: `Sibling discount (${siblingDiscountPercent}% on tuition)`, amount: -siblingDiscountAmount });
   }

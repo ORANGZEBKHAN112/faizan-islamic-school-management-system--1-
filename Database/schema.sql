@@ -303,6 +303,33 @@ CREATE TABLE ExamResults (
     CONSTRAINT UX_ExamResults_exam_student UNIQUE (exam_id, student_id)
 );
 
+-- 15b. ExamSubjects (subjects + total/passing marks per exam)
+CREATE TABLE ExamSubjects (
+    id NVARCHAR(50) PRIMARY KEY,
+    exam_id NVARCHAR(50) NOT NULL,
+    subject_name NVARCHAR(100) NOT NULL,
+    total_marks DECIMAL(18, 2) DEFAULT 100,
+    passing_marks DECIMAL(18, 2) DEFAULT 33,
+    sort_order INT DEFAULT 0,
+    CONSTRAINT FK_ExamSubjects_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id)
+);
+CREATE INDEX IX_ExamSubjects_exam ON ExamSubjects(exam_id, sort_order);
+
+-- 15c. ExamSubjectMarks (subject-wise student marks)
+CREATE TABLE ExamSubjectMarks (
+    id NVARCHAR(50) PRIMARY KEY,
+    exam_id NVARCHAR(50) NOT NULL,
+    subject_id NVARCHAR(50) NOT NULL,
+    student_id NVARCHAR(50) NOT NULL,
+    obtained_marks DECIMAL(18, 2) DEFAULT 0,
+    grade NVARCHAR(10) NULL,
+    recorded_on DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_ExamSubjectMarks_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id),
+    CONSTRAINT FK_ExamSubjectMarks_Subjects FOREIGN KEY (subject_id) REFERENCES ExamSubjects(id),
+    CONSTRAINT FK_ExamSubjectMarks_Students FOREIGN KEY (student_id) REFERENCES Students(id),
+    CONSTRAINT UX_ExamSubjectMarks UNIQUE (exam_id, subject_id, student_id)
+);
+
 -- 16. CampusNameHistory (preserve old campus names in reports after rename)
 CREATE TABLE CampusNameHistory (
     id NVARCHAR(50) PRIMARY KEY,

@@ -14,13 +14,19 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { CAMPUS_REGIONS, statesForCampusRegion } from '../utils/campusRegions';
+import {
+  CAMPUS_STATES,
+  citiesForCampusRegion,
+  regionsForCampusState,
+  stateForCampusRegion,
+} from '../utils/campusRegions';
 
 export default function CampusManagement() {
   const confirm = useConfirm();
   const { data: campuses, loading, refresh: refreshCampuses } = useCollection<Campus>('campuses');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedState, setSelectedState] = useState('');
   const [formData, setFormData] = useState({
     campusCode: '',
     campusName: '',
@@ -68,6 +74,7 @@ export default function CampusManagement() {
       }
       setIsModalOpen(false);
       setEditingId(null);
+      setSelectedState('');
       setFieldErrors({});
       setFormData({ campusCode: '', campusName: '', city: '', region: '', address: '', phone: '', email: '', isActive: true, siblingDiscount2nd: 10, siblingDiscount3rd: 15 });
     } catch (error) {
@@ -78,6 +85,7 @@ export default function CampusManagement() {
 
   const handleEdit = (campus: Campus) => {
     setEditingId(campus.id);
+    setSelectedState(stateForCampusRegion(campus.region || ''));
     setFormData({
       campusCode: campus.campusCode,
       campusName: campus.campusName,
@@ -155,6 +163,7 @@ export default function CampusManagement() {
               whileTap={{ scale: 0.98 }}
               onClick={() => {
                 setEditingId(null);
+                setSelectedState('');
                 setFormData({ campusCode: '', campusName: '', city: '', region: '', address: '', phone: '', email: '', isActive: true, siblingDiscount2nd: 10, siblingDiscount3rd: 15 });
                 setIsModalOpen(true);
               }}
@@ -301,7 +310,28 @@ export default function CampusManagement() {
               <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 bg-white dark:bg-slate-900" noValidate>
                 <div className="p-10 space-y-6 overflow-y-auto flex-1 min-h-0 overscroll-contain">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <FormField label="Campus Name" required error={fieldErrors.campusName} className="sm:col-span-2">
+                    <FormField label="State">
+                      <SearchableSelect
+                        value={selectedState}
+                        onChange={(state) => {
+                          setSelectedState(state);
+                          setFormData({ ...formData, region: '', city: '' });
+                        }}
+                        placeholder="Select state"
+                        searchPlaceholder="Search state…"
+                        options={CAMPUS_STATES.map((s) => ({ value: s, label: s }))}
+                      />
+                    </FormField>
+                    <FormField label="Region">
+                      <SearchableSelect
+                        value={formData.region}
+                        onChange={(region) => setFormData({ ...formData, region, city: '' })}
+                        placeholder={selectedState ? 'Select region' : 'Select state first'}
+                        searchPlaceholder="Search region…"
+                        options={regionsForCampusState(selectedState).map((r) => ({ value: r.value, label: r.label }))}
+                      />
+                    </FormField>
+                    <FormField label="Campus Name" required error={fieldErrors.campusName}>
                       <input
                         className={`vibrant-input ${fieldErrors.campusName ? 'vibrant-input-error' : ''}`}
                         value={formData.campusName}
@@ -317,22 +347,13 @@ export default function CampusManagement() {
                         placeholder="e.g. MAIN-01"
                       />
                     </FormField>
-                    <FormField label="Region">
-                      <SearchableSelect
-                        value={formData.region}
-                        onChange={(region) => setFormData({ ...formData, region, city: '' })}
-                        placeholder="Select region"
-                        searchPlaceholder="Search region…"
-                        options={CAMPUS_REGIONS.map((r) => ({ value: r, label: r }))}
-                      />
-                    </FormField>
-                    <FormField label="State">
+                    <FormField label="City" className="sm:col-span-2">
                       <SearchableSelect
                         value={formData.city}
                         onChange={(city) => setFormData({ ...formData, city })}
-                        placeholder={formData.region ? 'Select state' : 'Select region first'}
-                        searchPlaceholder="Search state…"
-                        options={statesForCampusRegion(formData.region).map((s) => ({ value: s, label: s }))}
+                        placeholder={formData.region ? 'Select city (optional)' : 'Select region first'}
+                        searchPlaceholder="Search city…"
+                        options={citiesForCampusRegion(formData.region).map((c) => ({ value: c, label: c }))}
                       />
                     </FormField>
                   </div>
