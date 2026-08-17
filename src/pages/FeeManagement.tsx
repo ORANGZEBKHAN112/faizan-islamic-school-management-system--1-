@@ -79,6 +79,23 @@ export default function FeeManagement() {
     reason: '',
     date: new Date().toISOString().slice(0, 10),
   });
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [voucherAuditLoading, setVoucherAuditLoading] = useState(false);
+  const [voucherAuditLog, setVoucherAuditLog] = useState<Array<{
+    id: string;
+    actionType: string;
+    amount: number;
+    previousAmount?: number;
+    newAmount?: number;
+    previousPaid?: number;
+    newPaid?: number;
+    previousBalance?: number;
+    newBalance?: number;
+    reason?: string;
+    performedBy?: string;
+    performedOn?: string;
+    notes?: string;
+  }>>([]);
   const [extraChargeForm, setExtraChargeForm] = useState({
     studentId: '',
     feeType: 'Security Deposit' as Fee['feeType'],
@@ -497,18 +514,51 @@ export default function FeeManagement() {
       return;
     }
     try {
-      await dataService.adjustFee(selectedVoucher.id, {
+      const result = await dataService.adjustFee(selectedVoucher.id, {
         amount: adjustForm.amount,
         adjustmentType: adjustForm.adjustmentType,
         reason: adjustForm.reason.trim(),
         date: adjustForm.date,
-      });
-      toast.success('Fee adjusted');
+      }) as {
+        previousAmount?: number;
+        amount?: number;
+        previousBalance?: number;
+        balanceAmount?: number;
+        adjustmentType?: string;
+        delta?: number;
+        message?: string;
+      };
+      const prev = Number(result.previousAmount ?? selectedVoucher.amount ?? 0);
+      const next = Number(result.amount ?? 0);
+      const prevBal = Number(result.previousBalance ?? selectedVoucher.balanceAmount ?? 0);
+      const nextBal = Number(result.balanceAmount ?? 0);
+      toast.success(
+        `${adjustForm.adjustmentType === 'increase' ? 'Increased' : 'Decreased'} Rs. ${adjustForm.amount.toLocaleString()}: voucher ${prev.toLocaleString()} → ${next.toLocaleString()} | balance ${prevBal.toLocaleString()} → ${nextBal.toLocaleString()}`
+      );
       setIsAdjustOpen(false);
       await refreshVouchers();
+      if (selectedVoucher?.id) {
+        const logs = await dataService.fetchFeeAuditLog({ feeId: selectedVoucher.id, limit: 20 });
+        setVoucherAuditLog(logs as typeof voucherAuditLog);
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || 'Failed to adjust fee');
+    }
+  };
+
+  const openAuditLog = async (voucher: Fee) => {
+    setSelectedVoucher(voucher);
+    setIsAuditLogOpen(true);
+    setVoucherAuditLoading(true);
+    try {
+      const logs = await dataService.fetchFeeAuditLog({ feeId: voucher.id, limit: 50 });
+      setVoucherAuditLog(logs as typeof voucherAuditLog);
+    } catch {
+      setVoucherAuditLog([]);
+      toast.error('Failed to load audit log');
+    } finally {
+      setVoucherAuditLoading(false);
     }
   };
 
@@ -1322,6 +1372,17 @@ export default function FeeManagement() {
                               Adjust
                             </motion.button>
                           </PermissionGate>
+                          <PermissionGate module="fees" action="view">
+                            <motion.button
+                              whileHover={{ scale: 1.05, y: -2 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => openAuditLog(voucher)}
+                              className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                              title="Audit log"
+                            >
+                              Log
+                            </motion.button>
+                          </PermissionGate>
                           {voucher.status !== 'Paid' && (voucher.paidAmount || 0) === 0 && (
                             <>
                               <PermissionGate module="fees" action="update">
@@ -1782,7 +1843,18 @@ export default function FeeManagement() {
                 <h3 className="text-xl font-black uppercase tracking-tight">Fee Adjustment</h3>
                 <button type="button" onClick={() => setIsAdjustOpen(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-7 h-7" /></button>
               </div>
-              <p className="text-sm text-slate-500 mb-6">{selectedVoucher.studentName} · current Rs. {(selectedVoucher.amount || 0).toLocaleString()}</p>
+              <p className="text-sm text-slate-500 mb-2">{selectedVoucher.studentName} · {formatRollNumberForDisplay(selectedVoucher.rollNumber)}</p>
+              <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 text-[10px] font-black uppercase tracking-widest space-y-2">
+                <div className="flex justify-between"><span className="text-slate-400">Current voucher</span><span>Rs. {(selectedVoucher.amount || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Paid</span><span>Rs. {(selectedVoucher.paidAmount || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Balance</span><span>Rs. {(selectedVoucher.balanceAmount || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between text-primary pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <span>After this adjust</span>
+                  <span>
+                    Rs. {Math.max(0, (selectedVoucher.amount || 0) + (adjustForm.adjustmentType === 'increase' ? adjustForm.amount : -adjustForm.amount)).toLocaleString()}
+                  </span>
+                </div>
+              </div>
               <form onSubmit={handleAdjustFee} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1814,6 +1886,65 @@ export default function FeeManagement() {
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Apply Adjustment</button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isAuditLogOpen && selectedVoucher && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight">Voucher Audit Log</h3>
+                  <p className="text-sm text-slate-500 mt-1">{selectedVoucher.studentName} · {formatRollNumberForDisplay(selectedVoucher.rollNumber)}</p>
+                </div>
+                <button type="button" onClick={() => setIsAuditLogOpen(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-7 h-7" /></button>
+              </div>
+              {voucherAuditLoading ? (
+                <p className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 py-10">Loading log…</p>
+              ) : voucherAuditLog.length === 0 ? (
+                <p className="text-center text-sm text-slate-400 py-10">No audit events yet for this voucher.</p>
+              ) : (
+                <div className="space-y-3">
+                  {voucherAuditLog.map((row) => {
+                    const label =
+                      row.actionType === 'adjustment_increase' ? 'Increase' :
+                      row.actionType === 'adjustment_decrease' ? 'Decrease' :
+                      row.actionType === 'collection_reversal' ? 'Collection Reversal' :
+                      row.actionType === 'income_reversal' ? 'Income Reversal' :
+                      row.actionType === 'payment' ? 'Payment' : row.actionType;
+                    return (
+                      <div key={row.id} className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-primary">{label}</p>
+                            <p className="text-sm font-bold text-slate-900 dark:text-white mt-1">
+                              Rs. {Number(row.amount || 0).toLocaleString()}
+                              {row.previousAmount != null && row.newAmount != null && (
+                                <span className="text-slate-400 font-medium"> · voucher {Number(row.previousAmount).toLocaleString()} → {Number(row.newAmount).toLocaleString()}</span>
+                              )}
+                            </p>
+                            {(row.previousPaid != null || row.previousBalance != null) && (
+                              <p className="text-[11px] text-slate-500 mt-1">
+                                Paid {Number(row.previousPaid ?? 0).toLocaleString()} → {Number(row.newPaid ?? 0).toLocaleString()}
+                                {' · '}
+                                Balance {Number(row.previousBalance ?? 0).toLocaleString()} → {Number(row.newBalance ?? 0).toLocaleString()}
+                              </p>
+                            )}
+                            {row.reason && <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">Reason: {row.reason}</p>}
+                          </div>
+                          <div className="text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
+                            <div>{row.performedBy || '—'}</div>
+                            <div className="mt-1">{row.performedOn ? new Date(row.performedOn).toLocaleString() : '—'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </motion.div>
           </div>
         )}

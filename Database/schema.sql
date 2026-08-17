@@ -176,6 +176,31 @@ CREATE TABLE Fees (
     CONSTRAINT FK_Fees_Students FOREIGN KEY (student_id) REFERENCES Students(id)
 );
 
+-- 9b. FeeAuditLog (adjustments, reversals, payment updates)
+CREATE TABLE FeeAuditLog (
+    id NVARCHAR(50) PRIMARY KEY,
+    fee_id NVARCHAR(50) NOT NULL,
+    student_id NVARCHAR(50) NOT NULL,
+    campus_id NVARCHAR(50) NULL,
+    action_type NVARCHAR(40) NOT NULL,
+    amount DECIMAL(18, 2) NOT NULL DEFAULT 0,
+    previous_amount DECIMAL(18, 2) NULL,
+    new_amount DECIMAL(18, 2) NULL,
+    previous_paid DECIMAL(18, 2) NULL,
+    new_paid DECIMAL(18, 2) NULL,
+    previous_balance DECIMAL(18, 2) NULL,
+    new_balance DECIMAL(18, 2) NULL,
+    previous_status NVARCHAR(40) NULL,
+    new_status NVARCHAR(40) NULL,
+    reason NVARCHAR(500) NULL,
+    performed_by NVARCHAR(100) NULL,
+    notes NVARCHAR(MAX) NULL,
+    performed_on DATETIME NOT NULL DEFAULT GETDATE()
+);
+CREATE INDEX IX_FeeAuditLog_performed_on ON FeeAuditLog(performed_on DESC);
+CREATE INDEX IX_FeeAuditLog_student ON FeeAuditLog(student_id, performed_on DESC);
+CREATE INDEX IX_FeeAuditLog_action ON FeeAuditLog(action_type, performed_on DESC);
+
 -- 10. Transactions (payment gateway log)
 CREATE TABLE Transactions (
     id NVARCHAR(50) PRIMARY KEY,

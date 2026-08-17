@@ -592,6 +592,71 @@ async function recomputeStudentOutstanding(studentId: string, tx?: tediousSql.Tr
     `);
 }
 
+type FeeAuditAction =
+  | "payment"
+  | "adjustment_increase"
+  | "adjustment_decrease"
+  | "collection_reversal"
+  | "income_reversal";
+
+interface FeeAuditLogInput {
+  feeId: string;
+  studentId: string;
+  campusId?: string | null;
+  actionType: FeeAuditAction;
+  amount: number;
+  previousAmount?: number;
+  newAmount?: number;
+  previousPaid?: number;
+  newPaid?: number;
+  previousBalance?: number;
+  newBalance?: number;
+  previousStatus?: string | null;
+  newStatus?: string | null;
+  reason?: string | null;
+  performedBy?: string | null;
+  notes?: string | null;
+}
+
+async function insertFeeAuditLog(entry: FeeAuditLogInput): Promise<void> {
+  if (!pool || !pool.connected) return;
+  try {
+    await pool.request()
+      .input("id", crypto.randomUUID())
+      .input("fee_id", entry.feeId)
+      .input("student_id", entry.studentId)
+      .input("campus_id", entry.campusId || null)
+      .input("action_type", entry.actionType)
+      .input("amount", Number(entry.amount) || 0)
+      .input("previous_amount", entry.previousAmount ?? null)
+      .input("new_amount", entry.newAmount ?? null)
+      .input("previous_paid", entry.previousPaid ?? null)
+      .input("new_paid", entry.newPaid ?? null)
+      .input("previous_balance", entry.previousBalance ?? null)
+      .input("new_balance", entry.newBalance ?? null)
+      .input("previous_status", entry.previousStatus || null)
+      .input("new_status", entry.newStatus || null)
+      .input("reason", entry.reason || null)
+      .input("performed_by", entry.performedBy || null)
+      .input("notes", entry.notes || null)
+      .query(`
+        INSERT INTO FeeAuditLog (
+          id, fee_id, student_id, campus_id, action_type, amount,
+          previous_amount, new_amount, previous_paid, new_paid,
+          previous_balance, new_balance, previous_status, new_status,
+          reason, performed_by, notes, performed_on
+        ) VALUES (
+          @id, @fee_id, @student_id, @campus_id, @action_type, @amount,
+          @previous_amount, @new_amount, @previous_paid, @new_paid,
+          @previous_balance, @new_balance, @previous_status, @new_status,
+          @reason, @performed_by, @notes, GETDATE()
+        )
+      `);
+  } catch (err) {
+    console.warn("FeeAuditLog insert skipped:", err);
+  }
+}
+
 async function recomputeOutstandingForScope(campusId: string | null): Promise<void> {
   if (!pool || !pool.connected) return;
   const req = pool.request();
@@ -1241,6 +1306,35 @@ async function connectToDb() {
             ALTER TABLE Expenses ADD title NVARCHAR(255) NULL;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Expenses') AND name = 'campus_id')
             ALTER TABLE Expenses ADD campus_id NVARCHAR(50);
+        END
+
+        -- FeeAuditLog: adjustments, collection/income reversals, payment updates
+        IF OBJECT_ID('FeeAuditLog', 'U') IS NULL
+        BEGIN
+          CREATE TABLE FeeAuditLog (
+            id NVARCHAR(50) PRIMARY KEY,
+            fee_id NVARCHAR(50) NOT NULL,
+            student_id NVARCHAR(50) NOT NULL,
+            campus_id NVARCHAR(50) NULL,
+            action_type NVARCHAR(40) NOT NULL,
+            amount DECIMAL(18, 2) NOT NULL DEFAULT 0,
+            previous_amount DECIMAL(18, 2) NULL,
+            new_amount DECIMAL(18, 2) NULL,
+            previous_paid DECIMAL(18, 2) NULL,
+            new_paid DECIMAL(18, 2) NULL,
+            previous_balance DECIMAL(18, 2) NULL,
+            new_balance DECIMAL(18, 2) NULL,
+            previous_status NVARCHAR(40) NULL,
+            new_status NVARCHAR(40) NULL,
+            reason NVARCHAR(500) NULL,
+            performed_by NVARCHAR(100) NULL,
+            notes NVARCHAR(MAX) NULL,
+            performed_on DATETIME NOT NULL DEFAULT GETDATE()
+          );
+          CREATE INDEX IX_FeeAuditLog_performed_on ON FeeAuditLog(performed_on DESC);
+          CREATE INDEX IX_FeeAuditLog_student ON FeeAuditLog(student_id, performed_on DESC);
+          CREATE INDEX IX_FeeAuditLog_action ON FeeAuditLog(action_type, performed_on DESC);
+          CREATE INDEX IX_FeeAuditLog_campus ON FeeAuditLog(campus_id, performed_on DESC);
         END
 
         -- Attendance (daily class attendance page and student portal summary)
@@ -3476,6 +3570,27 @@ async function startServer() {
           WHERE id = @id
         `);
 
+      if (newPayment > 0 || newDiscount > 0 || newFine > 0) {
+        await insertFeeAuditLog({
+          feeId: id,
+          studentId,
+          campusId: studentCampus.campus_id,
+          actionType: "payment",
+          amount: newPayment,
+          previousAmount: Number(currentFee.amount || 0),
+          newAmount: Number(currentFee.amount || 0),
+          previousPaid: Number(currentFee.paid_amount || 0),
+          newPaid: totalPaidSoFar,
+          previousBalance: Number(currentFee.balance_amount || 0),
+          newBalance: balanceAmount < 0 ? 0 : balanceAmount,
+          previousStatus: currentFee.status,
+          newStatus: status,
+          reason: f.transactionRef || f.paymentMethod || "Payment recorded",
+          performedBy: authUser.username || req.auth?.username || "unknown",
+          notes: `Discount ${newDiscount}; fine ${newFine}; method ${f.paymentMethod || "Cash"}`,
+        });
+      }
+
       if (newPayment > 0) {
         await recomputeStudentOutstanding(studentId);
       }
@@ -3602,6 +3717,25 @@ async function startServer() {
           WHERE id = @id
         `);
 
+      await insertFeeAuditLog({
+        feeId: id,
+        studentId: currentFee.student_id,
+        campusId: studentCampus.campus_id,
+        actionType: asIncomeReversal ? "income_reversal" : "collection_reversal",
+        amount: reverseAmount,
+        previousAmount: Number(currentFee.amount || 0),
+        newAmount: Number(currentFee.amount || 0),
+        previousPaid: Number(currentFee.paid_amount || 0),
+        newPaid: paidAmount,
+        previousBalance: Number(currentFee.balance_amount || 0),
+        newBalance: balanceAmount,
+        previousStatus: currentFee.status,
+        newStatus: status,
+        reason,
+        performedBy: actor,
+        notes: `Reversed history index ${historyIndex}; discount ${reverseDiscount}; fine ${reverseFine}`,
+      });
+
       await recomputeStudentOutstanding(currentFee.student_id);
       res.json({
         message: asIncomeReversal ? "Income reversed" : "Collection reversed",
@@ -3694,17 +3828,159 @@ async function startServer() {
           WHERE id = @id
         `);
 
+      const prevAmount = Number(currentFee.amount || 0);
+      const prevBalance = Number(currentFee.balance_amount || 0);
+      await insertFeeAuditLog({
+        feeId: id,
+        studentId: currentFee.student_id,
+        campusId: studentCampus.campus_id,
+        actionType: adjustmentType === "increase" ? "adjustment_increase" : "adjustment_decrease",
+        amount,
+        previousAmount: prevAmount,
+        newAmount: nextAmount,
+        previousPaid: paidAmount,
+        newPaid: paidAmount,
+        previousBalance: prevBalance,
+        newBalance: balanceAmount,
+        previousStatus: currentFee.status,
+        newStatus: status,
+        reason,
+        performedBy: actor,
+        notes: `Adjustment date ${adjustDate}; delta ${delta}`,
+      });
+
       await recomputeStudentOutstanding(currentFee.student_id);
       res.json({
-        message: "Fee adjusted",
+        message: `Fee ${adjustmentType}d by Rs. ${amount.toLocaleString()}`,
         id,
+        previousAmount: prevAmount,
         amount: nextAmount,
+        previousBalance: prevBalance,
         balanceAmount,
         status,
+        adjustmentType,
+        delta,
         history,
       });
     } catch (err) {
       sendServerError(res, err, "Error adjusting fee");
+    }
+  });
+
+  app.get("/api/fees/audit-summary", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
+
+      const request = pool.request().input("campusId", campusFilter || null);
+      const summary = await request.query(`
+        SELECT
+          ISNULL(SUM(CASE WHEN action_type IN ('collection_reversal', 'income_reversal') THEN amount ELSE 0 END), 0) AS totalReversed,
+          ISNULL(SUM(CASE WHEN action_type = 'collection_reversal' THEN amount ELSE 0 END), 0) AS collectionReversed,
+          ISNULL(SUM(CASE WHEN action_type = 'income_reversal' THEN amount ELSE 0 END), 0) AS incomeReversed,
+          ISNULL(SUM(CASE WHEN action_type = 'adjustment_increase' THEN amount ELSE 0 END), 0) AS totalIncrease,
+          ISNULL(SUM(CASE WHEN action_type = 'adjustment_decrease' THEN amount ELSE 0 END), 0) AS totalDecrease,
+          ISNULL(SUM(CASE WHEN action_type = 'payment' THEN amount ELSE 0 END), 0) AS totalPaymentsLogged,
+          COUNT(*) AS totalEvents,
+          COUNT(DISTINCT student_id) AS affectedStudents
+        FROM FeeAuditLog
+        WHERE (@campusId IS NULL OR campus_id = @campusId)
+      `);
+
+      res.json(summary.recordset[0] || {
+        totalReversed: 0,
+        collectionReversed: 0,
+        incomeReversed: 0,
+        totalIncrease: 0,
+        totalDecrease: 0,
+        totalPaymentsLogged: 0,
+        totalEvents: 0,
+        affectedStudents: 0,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching fee audit summary");
+    }
+  });
+
+  app.get("/api/fees/audit-log", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
+
+      const tab = String(req.query.tab || "all").toLowerCase();
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const feeId = String(req.query.feeId || "").trim();
+      const studentId = String(req.query.studentId || "").trim();
+
+      let actionFilter = "";
+      if (tab === "reversals") {
+        actionFilter = "AND a.action_type IN ('collection_reversal', 'income_reversal')";
+      } else if (tab === "adjustments") {
+        actionFilter = "AND a.action_type IN ('adjustment_increase', 'adjustment_decrease')";
+      } else if (tab === "voucher-changes") {
+        actionFilter = "AND a.action_type IN ('payment', 'income_reversal', 'collection_reversal', 'adjustment_increase', 'adjustment_decrease')";
+      } else if (tab === "payments") {
+        actionFilter = "AND a.action_type = 'payment'";
+      }
+
+      const request = pool.request()
+        .input("campusId", campusFilter || null)
+        .input("feeId", feeId || null)
+        .input("studentId", studentId || null)
+        .input("limit", limit);
+
+      const result = await request.query(`
+        SELECT TOP (@limit)
+          a.id,
+          a.fee_id AS feeId,
+          a.student_id AS studentId,
+          a.campus_id AS campusId,
+          a.action_type AS actionType,
+          a.amount,
+          a.previous_amount AS previousAmount,
+          a.new_amount AS newAmount,
+          a.previous_paid AS previousPaid,
+          a.new_paid AS newPaid,
+          a.previous_balance AS previousBalance,
+          a.new_balance AS newBalance,
+          a.previous_status AS previousStatus,
+          a.new_status AS newStatus,
+          a.reason,
+          a.performed_by AS performedBy,
+          a.notes,
+          CONVERT(VARCHAR, a.performed_on, 120) AS performedOn,
+          s.student_name AS studentName,
+          s.admission_no AS rollNumber,
+          s.father_name AS fatherName,
+          cp.campus_name AS campusName,
+          f.fee_type AS feeType,
+          f.month AS feeMonth,
+          f.year AS feeYear,
+          f.status AS voucherStatus
+        FROM FeeAuditLog a
+        JOIN Students s ON s.id = a.student_id
+        LEFT JOIN Campuses cp ON cp.id = ISNULL(a.campus_id, s.campus_id)
+        LEFT JOIN Fees f ON f.id = a.fee_id
+        WHERE (@campusId IS NULL OR a.campus_id = @campusId OR s.campus_id = @campusId)
+          AND (@feeId IS NULL OR a.fee_id = @feeId)
+          AND (@studentId IS NULL OR a.student_id = @studentId)
+          ${actionFilter}
+        ORDER BY a.performed_on DESC
+      `);
+
+      res.json(result.recordset);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching fee audit log");
     }
   });
 

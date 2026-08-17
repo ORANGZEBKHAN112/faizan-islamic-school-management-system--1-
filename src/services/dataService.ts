@@ -639,6 +639,31 @@ export const dataService = {
     return response.data;
   },
 
+  async fetchFeeAuditSummary(params?: { campusId?: string }) {
+    const response = await api.get('/fees/audit-summary', { params });
+    return response.data as {
+      totalReversed: number;
+      collectionReversed: number;
+      incomeReversed: number;
+      totalIncrease: number;
+      totalDecrease: number;
+      totalPaymentsLogged: number;
+      totalEvents: number;
+      affectedStudents: number;
+    };
+  },
+
+  async fetchFeeAuditLog(params?: {
+    campusId?: string;
+    tab?: 'all' | 'reversals' | 'adjustments' | 'voucher-changes' | 'payments';
+    feeId?: string;
+    studentId?: string;
+    limit?: number;
+  }) {
+    const response = await api.get('/fees/audit-log', { params });
+    return response.data as unknown as import('../types').FeeAuditLogEntry[];
+  },
+
   async fetchRecentCollections(params?: { campusId?: string; year?: string | number; limit?: number }) {
     const response = await api.get('/fees/recent-collections', { params });
     return response.data as Array<Record<string, unknown>>;

@@ -511,6 +511,46 @@ export interface AdmissionReport {
   testPassMarks: number;
 }
 
+export interface FeeAuditLogEntry {
+  id: string;
+  feeId: string;
+  studentId: string;
+  campusId?: string;
+  actionType: 'payment' | 'adjustment_increase' | 'adjustment_decrease' | 'collection_reversal' | 'income_reversal' | string;
+  amount: number;
+  previousAmount?: number;
+  newAmount?: number;
+  previousPaid?: number;
+  newPaid?: number;
+  previousBalance?: number;
+  newBalance?: number;
+  previousStatus?: string;
+  newStatus?: string;
+  reason?: string;
+  performedBy?: string;
+  notes?: string;
+  performedOn?: string;
+  studentName?: string;
+  rollNumber?: string;
+  fatherName?: string;
+  campusName?: string;
+  feeType?: string;
+  feeMonth?: number;
+  feeYear?: number;
+  voucherStatus?: string;
+}
+
+export interface FeeAuditSummary {
+  totalReversed: number;
+  collectionReversed: number;
+  incomeReversed: number;
+  totalIncrease: number;
+  totalDecrease: number;
+  totalPaymentsLogged: number;
+  totalEvents: number;
+  affectedStudents: number;
+}
+
 export interface DashboardStats {
   activeStudents: number;
   totalCollected: number;
