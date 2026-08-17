@@ -6582,7 +6582,7 @@ async function startServer() {
       if (campusErr) return res.status(403).json({ message: campusErr });
 
       const nextStatus = a.status || row.status;
-      const interviewAt = a.interviewAt || null;
+      const interviewAt = a.interviewAt || row.interview_at || null;
       const testMarks = a.testMarks != null ? Number(a.testMarks) : (row.test_marks != null ? Number(row.test_marks) : null);
 
       if (nextStatus === "Approved" && !interviewAt) {
@@ -6594,11 +6594,15 @@ async function startServer() {
         });
       }
 
+      const interviewChanged = Boolean(
+        interviewAt && String(row.interview_at || "") !== String(interviewAt)
+      );
       const shouldSendInterviewSms = Boolean(
-        nextStatus === "Approved" &&
         interviewAt &&
         row.contact_number &&
-        (row.status !== "Approved" || String(row.interview_at || "") !== String(interviewAt))
+        interviewChanged &&
+        nextStatus !== "Rejected" &&
+        nextStatus !== "Enrolled"
       );
       const shouldSendRejectSms = Boolean(
         nextStatus === "Rejected" &&
@@ -6824,16 +6828,29 @@ async function startServer() {
 
       const appResult = await pool.request().input("id", id).query(`
         SELECT id, campus_id, class_id, applicant_name, father_cnic, date_of_birth, status,
-               contact_number, tracking_no
+               contact_number, tracking_no, interview_at, test_marks
         FROM AdmissionApplications WHERE id = @id
       `);
       const app = appResult.recordset[0];
       if (!app) return res.status(404).json({ message: "Application not found" });
-      if (app.status !== "Pending") {
-        return res.status(400).json({ message: "Only pending applications can be moved to review" });
+      if (app.status !== "Pending" && app.status !== "Under Review") {
+        return res.status(400).json({ message: "Only Pending or Under Review applications can be finalized" });
       }
       const campusErr = await assertCampusWrite(authUser, app.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const finalizeToApproved = app.status === "Under Review";
+      if (finalizeToApproved) {
+        if (!app.interview_at) {
+          return res.status(400).json({ message: "Schedule the interview invite before final approval" });
+        }
+        const marks = app.test_marks != null ? Number(app.test_marks) : null;
+        if (marks == null || Number.isNaN(marks) || marks < ADMISSION_TEST_PASS_MARKS) {
+          return res.status(400).json({
+            message: `Enter test marks (min ${ADMISSION_TEST_PASS_MARKS}) before final approval`,
+          });
+        }
+      }
 
       const bodyCnic = body.fatherCnic != null ? normalizeCnic(String(body.fatherCnic)) : "";
       const storedCnic = normalizeCnic(app.father_cnic);
@@ -6868,11 +6885,12 @@ async function startServer() {
         reviewedBy: authUser.username,
         ...reviewResult,
       });
+      const nextStatus = finalizeToApproved ? "Approved" : "Under Review";
 
       await pool.request()
         .input("id", id)
         .input("father_cnic", fatherCnic)
-        .input("status", "Under Review")
+        .input("status", nextStatus)
         .input("linked_student_id", linkedStudentId)
         .input("review_match_type", reviewResult.matchType)
         .input("review_snapshot", reviewSnapshot)
@@ -6899,7 +6917,7 @@ async function startServer() {
 
       let reviewSmsSent = false;
       let reviewSmsError: string | null = null;
-      if (app.contact_number) {
+      if (!finalizeToApproved && app.contact_number) {
         try {
           const campusRow = await pool.request()
             .input("campus_id", app.campus_id)
@@ -6924,7 +6942,7 @@ async function startServer() {
 
       res.json({
         id,
-        status: "Under Review",
+        status: nextStatus,
         reviewMatchType: reviewResult.matchType,
         linkedStudentId,
         waiveAdmissionFee,

@@ -300,8 +300,19 @@ export default function AdmissionManagement() {
       toast.error('Cannot proceed — student is already active in the system');
       return;
     }
+    const finalizing = reviewTarget.status === 'Under Review';
+    if (finalizing) {
+      if (!reviewTarget.interviewAt) {
+        toast.error('Interview invite must be scheduled first');
+        return;
+      }
+      if (reviewTarget.testMarks == null || reviewTarget.testMarks < testPassMarks) {
+        toast.error(`Enter test marks (min ${testPassMarks}) before final approval`);
+        return;
+      }
+    }
     try {
-      await dataService.reviewAdmission(reviewTarget.id, {
+      const result = await dataService.reviewAdmission(reviewTarget.id, {
         fatherCnic: normalizeCnic(reviewForm.fatherCnic),
         reviewResult: reviewCheck,
         linkedStudentId: reviewCheck.suggestedLinkedStudentId,
@@ -309,8 +320,12 @@ export default function AdmissionManagement() {
         feeDiscountAmount: reviewForm.feeDiscountAmount,
         feeDiscountPercent: reviewForm.feeDiscountPercent,
         siblingDiscountPercent: reviewForm.siblingDiscountPercent,
-      });
-      toast.success('Application moved to Under Review');
+      }) as { status?: string };
+      toast.success(
+        result.status === 'Approved'
+          ? 'Application approved after interview review'
+          : 'Application moved to Under Review'
+      );
       setReviewTarget(null);
       setReviewCheck(null);
       await load();
@@ -319,15 +334,7 @@ export default function AdmissionManagement() {
     }
   };
 
-  const openApproveModal = (app: AdmissionApplication) => {
-    if (!app.reviewMatchType) {
-      toast.error('Complete CNIC review before approving');
-      return;
-    }
-    if (app.testMarks == null || app.testMarks < testPassMarks) {
-      toast.error(`Enter test marks (min ${testPassMarks}) before approving`);
-      return;
-    }
+  const openInterviewInviteModal = (app: AdmissionApplication) => {
     const initialInterviewAt = app.interviewAt ? app.interviewAt.replace(' ', 'T').slice(0, 16) : '';
     setApprovalTarget(app);
     setApprovalForm({
@@ -336,14 +343,27 @@ export default function AdmissionManagement() {
     });
   };
 
-  const approveWithInterview = async (e: React.FormEvent) => {
+  const openFinalizeReviewModal = async (app: AdmissionApplication) => {
+    if (!app.interviewAt) {
+      toast.error('Send interview invite first (Review on Pending application)');
+      return;
+    }
+    if (app.testMarks == null || app.testMarks < testPassMarks) {
+      toast.error(`Enter test marks (min ${testPassMarks}) before final review`);
+      return;
+    }
+    await openReviewModal(app);
+  };
+
+  const saveInterviewInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!approvalTarget) return;
     if (!approvalForm.interviewAt) {
       toast.error('Interview date/time is required');
       return;
     }
-    await updateStatus(approvalTarget, 'Approved', {
+    const nextStatus = approvalTarget.status === 'Pending' ? 'Under Review' : approvalTarget.status;
+    await updateStatus(approvalTarget, nextStatus, {
       interviewAt: approvalForm.interviewAt.replace('T', ' '),
       remarks: approvalForm.remarks,
     });
@@ -659,14 +679,22 @@ export default function AdmissionManagement() {
                       </button>
                       <PermissionGate module="admissions" action="update">
                         {app.status === 'Pending' && (
-                          <button onClick={() => openReviewModal(app)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-accent/10 text-accent rounded-xl">
-                            Review
+                          <button onClick={() => openInterviewInviteModal(app)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-accent/10 text-accent rounded-xl">
+                            Review / Invite
                           </button>
                         )}
                         {app.status === 'Under Review' && (
                           <>
-                            <button onClick={() => openApproveModal(app)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Approve
+                            <button
+                              type="button"
+                              onClick={() => openInterviewInviteModal(app)}
+                              className="px-3 py-1.5 text-[10px] font-black uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 rounded-xl"
+                              title="Reschedule interview"
+                            >
+                              Interview
+                            </button>
+                            <button onClick={() => void openFinalizeReviewModal(app)} className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Finalize
                             </button>
                             <button onClick={() => { setRejectTarget(app); setRejectReason(''); setRejectNotes(''); }} className="px-3 py-1.5 text-[10px] font-black uppercase bg-danger/10 text-danger rounded-xl flex items-center gap-1">
                               <XCircle className="w-3 h-3" /> Reject
@@ -757,7 +785,12 @@ export default function AdmissionManagement() {
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-6">
                 <Users className="w-6 h-6 text-accent" />
-                <h3 className="text-2xl font-black">CNIC Review — {reviewTarget.applicantName}</h3>
+                <div>
+                  <h3 className="text-2xl font-black">
+                    {reviewTarget.status === 'Under Review' ? 'Post-Interview Review & Approve' : 'CNIC Review'}
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">{reviewTarget.applicantName}</p>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -943,7 +976,7 @@ export default function AdmissionManagement() {
                     disabled={!reviewCheck || reviewCheck.matchType === 'duplicate_active' || reviewLoading}
                     className="flex-1 vibrant-btn-primary disabled:opacity-50"
                   >
-                    Proceed to Review
+                    {reviewTarget.status === 'Under Review' ? 'Approve Application' : 'Proceed to Review'}
                   </button>
                 </div>
               </div>
@@ -955,17 +988,16 @@ export default function AdmissionManagement() {
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-lg p-8">
               <div className="flex items-center gap-3 mb-6">
                 <CheckCircle className="w-6 h-6 text-primary" />
-                <h3 className="text-2xl font-black">Approve & Schedule Interview</h3>
+                <h3 className="text-2xl font-black">Interview Invite</h3>
               </div>
-              <form onSubmit={approveWithInterview} className="space-y-4">
+              <form onSubmit={saveInterviewInvite} className="space-y-4">
                 <div className="text-sm text-slate-600 dark:text-slate-300">
                   <p><span className="font-bold">Applicant:</span> {approvalTarget.applicantName}</p>
                   <p><span className="font-bold">Campus:</span> {approvalTarget.campusName}</p>
                   <p><span className="font-bold">SMS To:</span> {approvalTarget.contactNumber || 'No number available'}</p>
-                  {approvalTarget.reviewMatchType && (
-                    <p><span className="font-bold">CNIC Check:</span> {MATCH_LABELS[approvalTarget.reviewMatchType]?.label || approvalTarget.reviewMatchType}</p>
-                  )}
+                  <p className="text-xs text-slate-400 mt-2">Schedule interview first. Fee / CNIC final review comes after the interview.</p>
                 </div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Interview date & time</label>
                 <input
                   type="datetime-local"
                   className="vibrant-input"
@@ -976,13 +1008,15 @@ export default function AdmissionManagement() {
                 <textarea
                   className="vibrant-input"
                   rows={3}
-                  placeholder="Optional notes"
+                  placeholder="Optional notes for interview invite"
                   value={approvalForm.remarks}
                   onChange={(e) => setApprovalForm((prev) => ({ ...prev, remarks: e.target.value }))}
                 />
                 <div className="flex gap-4 pt-2">
                   <button type="button" onClick={() => setApprovalTarget(null)} className="flex-1 vibrant-btn-secondary">Cancel</button>
-                  <button type="submit" className="flex-1 vibrant-btn-primary">Save & Notify</button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary">
+                    {approvalTarget.status === 'Pending' ? 'Send Invite & Move Under Review' : 'Update Interview'}
+                  </button>
                 </div>
               </form>
             </motion.div>
