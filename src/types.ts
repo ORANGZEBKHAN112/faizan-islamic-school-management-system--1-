@@ -103,6 +103,7 @@ export interface FeeStructure {
   monthlyFee?: number;
   admissionFee: number;
   securityFee?: number;
+  registrationFee?: number;
   examFee: number;
   transportFee: number;
   miscFee: number;
@@ -125,6 +126,7 @@ export interface Fee {
   monthsLabel?: string;
   campusName?: string;
   securityFee?: number;
+  registrationFee?: number;
   summerCampFee?: number;
   idCardFee?: number;
   tripFee?: number;
@@ -211,6 +213,7 @@ export interface FeeSetting {
   monthlyFee: number;
   admissionFee: number;
   securityFee: number;
+  registrationFee?: number;
   examFee?: number;
   transportFee?: number;
   miscFee?: number;
@@ -389,6 +392,9 @@ export interface AdmissionApplication {
   feeDiscountPercent?: number;
   siblingDiscountPercent?: number;
   rejectionReason?: string;
+  referralSource?: string;
+  admissionVoucherStatus?: string;
+  admissionVoucherId?: string;
   interviewAt?: string;
   interviewSmsSent?: boolean;
   interviewSmsSentOn?: string;
@@ -408,6 +414,7 @@ export interface AdmissionFeePreview {
   tuitionFee: number;
   admissionFee: number;
   securityFee: number;
+  registrationFee?: number;
   examFee: number;
   transportFee: number;
   miscFee: number;

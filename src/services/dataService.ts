@@ -627,6 +627,23 @@ export const dataService = {
     return response.data;
   },
 
+  async reverseFeePayment(id: string, data: { historyIndex: number; reason: string; asIncomeReversal?: boolean }) {
+    const response = await api.post(`/fees/${id}/reverse-payment`, data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async adjustFee(id: string, data: { amount: number; adjustmentType: 'increase' | 'decrease'; reason: string; date?: string }) {
+    const response = await api.post(`/fees/${id}/adjust`, data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
+  async fetchRecentCollections(params?: { campusId?: string; year?: string | number; limit?: number }) {
+    const response = await api.get('/fees/recent-collections', { params });
+    return response.data as Array<Record<string, unknown>>;
+  },
+
   async regenerateVoucher(id: string) {
     const response = await api.post(`/fees/${id}/regenerate`);
     this.invalidateCollection('fees');

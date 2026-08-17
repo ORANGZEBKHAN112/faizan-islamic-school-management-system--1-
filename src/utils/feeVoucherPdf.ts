@@ -130,9 +130,10 @@ function buildFeeHeads(voucher: Fee): Array<{ label: string; months: string; amo
   ];
   const extras: Array<[string, number]> = [
     ['Security Fee', Number(voucher.securityFee || 0)],
+    ['Registration Fee', Number(voucher.registrationFee || 0)],
     ['Exam Fee', Number(voucher.examFee || 0)],
     ['Transport Fee', Number(voucher.transportFee || 0)],
-    ['Registration / Misc', Number(voucher.miscFee || 0)],
+    ['Misc Charges', Number(voucher.miscFee || 0)],
     ['Summer Camp', Number(voucher.summerCampFee || 0)],
     ['Educational Trip', Number(voucher.tripFee || 0)],
     ['Arrears', Number(voucher.arrears || 0)],

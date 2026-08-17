@@ -29,7 +29,7 @@ export default function QuickPaySetup() {
 
   const handleTestPayment = async () => {
     if (!config?.isEnabled) {
-      toast.error('QuickPay must be enabled to test.');
+      toast.error('Kuickpay must be enabled to test.');
       return;
     }
     setIsTesting(true);
@@ -198,7 +198,7 @@ export default function QuickPaySetup() {
               </div>
               <PermissionGate module="quickpay" action="update">
                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable QuickPay</span>
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable Kuickpay</span>
                   <button 
                     type="button"
                     onClick={() => setConfig(prev => ({ ...prev!, isEnabled: !prev?.isEnabled }))}

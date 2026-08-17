@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { dataService } from '../../services/dataService';
 import SearchableSelect from '../ui/SearchableSelect';
 import { formatRollNumberForDisplay } from '../../utils/rollNumber';
+import { feeVoucherTransactionType, paymentTransactionType } from '../../utils/feeTransactionType';
 import { deriveAcademicSession } from '../../utils/academicSession';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -47,6 +48,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
   const [custom, setCustom] = useState({
     admissionFee: 0,
     securityFee: 0,
+    registrationFee: 0,
     examFee: 0,
     transportFee: 0,
     miscFee: 0,
@@ -173,7 +175,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
 
   const customTotal = useMemo(() => {
     const amount =
-      selectedMonthTuition + custom.admissionFee + custom.securityFee + custom.examFee +
+      selectedMonthTuition + custom.admissionFee + custom.securityFee + custom.registrationFee + custom.examFee +
       custom.transportFee + custom.miscFee;
     return Math.max(0, amount + custom.arrears + custom.fineAmount - custom.discountAmount);
   }, [custom, selectedMonthTuition]);
@@ -220,6 +222,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
         tuitionFee: selectedMonthTuition,
         admissionFee: custom.admissionFee,
         securityFee: custom.securityFee,
+        registrationFee: custom.registrationFee,
         examFee: custom.examFee,
         transportFee: custom.transportFee,
         miscFee: custom.miscFee,
@@ -257,10 +260,10 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
     doc.text(`${s.campusName || ''} · Outstanding: Rs. ${Number(ledger.summary?.totalOutstanding || 0).toLocaleString()}`, 14, 30);
     autoTable(doc, {
       startY: 36,
-      head: [['Month', 'Year', 'Type', 'Amount', 'Paid', 'Balance', 'Status']],
+      head: [['Period', 'Txn Type', 'Fee Type', 'Amount', 'Paid', 'Balance', 'Status']],
       body: ledger.vouchers.map((v) => [
-        String(v.month ?? ''),
-        String(v.year ?? ''),
+        `${v.month}/${v.year}`,
+        feeVoucherTransactionType(v as { feeType?: string; status?: string; discountAmount?: number; arrears?: number }),
         String(v.feeType ?? ''),
         Number(v.amount || 0).toLocaleString(),
         Number(v.paidAmount || 0).toLocaleString(),
@@ -274,9 +277,18 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
 
   const exportLedgerCsv = () => {
     if (!ledger?.vouchers) return;
-    const header = 'Month,Year,Type,Amount,Paid,Balance,Status,DueDate\n';
+    const header = 'Period,TransactionType,FeeType,Amount,Paid,Balance,Status,DueDate\n';
     const rows = ledger.vouchers.map((v) =>
-      [v.month, v.year, v.feeType, v.amount, v.paidAmount, v.balanceAmount, v.status, v.dueDate].join(',')
+      [
+        `${v.month}/${v.year}`,
+        feeVoucherTransactionType(v as { feeType?: string; status?: string; discountAmount?: number; arrears?: number }),
+        v.feeType,
+        v.amount,
+        v.paidAmount,
+        v.balanceAmount,
+        v.status,
+        v.dueDate,
+      ].join(',')
     ).join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -430,6 +442,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
             {([
               ['admissionFee', 'Admission'],
               ['securityFee', 'Security'],
+              ['registrationFee', 'Registration'],
               ['examFee', 'Exam'],
               ['transportFee', 'Transport'],
               ['miscFee', 'Misc / Extra'],
@@ -524,7 +537,8 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-900/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                       <th className="px-4 py-3">Period</th>
-                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Transaction Type</th>
+                      <th className="px-4 py-3">Fee Type</th>
                       <th className="px-4 py-3">Amount</th>
                       <th className="px-4 py-3">Paid</th>
                       <th className="px-4 py-3">Balance</th>
@@ -535,6 +549,9 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                     {(ledger.vouchers || []).map((v) => (
                       <tr key={String(v.id)}>
                         <td className="px-4 py-3">{String(v.month)}/{String(v.year)}</td>
+                        <td className="px-4 py-3 font-semibold text-primary">
+                          {feeVoucherTransactionType(v as { feeType?: string; status?: string; discountAmount?: number; arrears?: number })}
+                        </td>
                         <td className="px-4 py-3">{String(v.feeType)}</td>
                         <td className="px-4 py-3">{Number(v.amount || 0).toLocaleString()}</td>
                         <td className="px-4 py-3">{Number(v.paidAmount || 0).toLocaleString()}</td>
@@ -551,7 +568,12 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                   <div className="space-y-2">
                     {(ledger.transactions || []).map((t) => (
                       <div key={String(t.id)} className="text-xs text-slate-600 dark:text-slate-300 flex justify-between gap-4 border-b border-slate-100 dark:border-slate-800 py-2">
-                        <span>{String(t.transactionDate)} · {String(t.paymentMethod || '—')} · {String(t.transactionRef || '')}</span>
+                        <span>
+                          <span className="font-black text-primary mr-2">
+                            {paymentTransactionType(t as { status?: string; paymentMethod?: string; amount?: number })}
+                          </span>
+                          {String(t.transactionDate)} · {String(t.paymentMethod || '—')} · {String(t.transactionRef || '')}
+                        </span>
                         <span className="font-black">Rs. {Number(t.amount || 0).toLocaleString()} · {String(t.status)}</span>
                       </div>
                     ))}

@@ -58,6 +58,7 @@ export interface AdmissionFeePreview {
   tuitionFee: number;
   admissionFee: number;
   securityFee: number;
+  registrationFee: number;
   examFee: number;
   transportFee: number;
   miscFee: number;
@@ -90,6 +91,7 @@ export interface FeeStructureRow {
   monthlyFee: number;
   admissionFee: number;
   securityFee: number;
+  registrationFee: number;
   examFee: number;
   transportFee: number;
   miscFee: number;
@@ -166,6 +168,7 @@ export function computeAdmissionFeePreview(
   let tuitionFee = Number(feeStructure.monthlyFee) || 0;
   let admissionFee = options.waiveAdmissionFee ? 0 : (Number(feeStructure.admissionFee) || 0);
   const securityFee = Number(feeStructure.securityFee) || 0;
+  const registrationFee = Number(feeStructure.registrationFee) || 0;
   const examFee = Number(feeStructure.examFee) || 0;
   const transportFee = Number(feeStructure.transportFee) || 0;
   const miscFee = Number(feeStructure.miscFee) || 0;
@@ -176,7 +179,7 @@ export function computeAdmissionFeePreview(
     ? Math.round((tuitionFee * siblingDiscountPercent) / 100)
     : 0;
 
-  const grossSubtotal = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
+  const grossSubtotal = tuitionFee + admissionFee + securityFee + registrationFee + examFee + transportFee + miscFee;
   let manualDiscountAmount = Number(options.discountAmount) || 0;
   const manualDiscountPercent = Number(options.discountPercent) || 0;
   if (manualDiscountPercent > 0) {
@@ -191,9 +194,10 @@ export function computeAdmissionFeePreview(
   ];
   if (admissionFee > 0) lines.push({ label: "Admission fee", amount: admissionFee });
   if (securityFee > 0) lines.push({ label: "Security deposit", amount: securityFee });
+  if (registrationFee > 0) lines.push({ label: "Registration fee", amount: registrationFee });
   if (examFee > 0) lines.push({ label: "Exam fee", amount: examFee });
   if (transportFee > 0) lines.push({ label: "Transport", amount: transportFee });
-  if (miscFee > 0) lines.push({ label: "Registration / misc fee", amount: miscFee });
+  if (miscFee > 0) lines.push({ label: "Misc fee", amount: miscFee });
   if (siblingDiscountAmount > 0) {
     lines.push({ label: `Sibling discount (${siblingDiscountPercent}% on tuition)`, amount: -siblingDiscountAmount });
   }
@@ -210,6 +214,7 @@ export function computeAdmissionFeePreview(
     tuitionFee,
     admissionFee,
     securityFee,
+    registrationFee,
     examFee,
     transportFee,
     miscFee,
@@ -351,12 +356,14 @@ export async function fetchClassFeeStructure(
         ISNULL(fs.monthly_fee, 0) AS classMonthlyFee,
         ISNULL(fs.admission_fee, 0) AS classAdmissionFee,
         ISNULL(fs.security_fee, 0) AS classSecurityFee,
+        ISNULL(fs.registration_fee, 0) AS classRegistrationFee,
         ISNULL(fs.exam_fee, 0) AS classExamFee,
         ISNULL(fs.transport_fee, 0) AS classTransportFee,
         ISNULL(fs.misc_fee, 0) AS classMiscFee,
         ISNULL(st.tuition_fee, 0) AS campusMonthlyFee,
         ISNULL(st.admission_fee, 0) AS campusAdmissionFee,
         ISNULL(st.security_fee, 0) AS campusSecurityFee,
+        ISNULL(st.registration_fee, 0) AS campusRegistrationFee,
         ISNULL(st.exam_fee, 0) AS campusExamFee,
         ISNULL(st.transport_fee, 0) AS campusTransportFee,
         ISNULL(st.misc_fee, 0) AS campusMiscFee
@@ -367,6 +374,7 @@ export async function fetchClassFeeStructure(
           st.tuition_fee,
           st.admission_fee,
           st.security_fee,
+          st.registration_fee,
           st.exam_fee,
           st.transport_fee,
           st.misc_fee
@@ -387,6 +395,7 @@ export async function fetchClassFeeStructure(
     Number(row.classMonthlyFee) +
     Number(row.classAdmissionFee) +
     Number(row.classSecurityFee) +
+    Number(row.classRegistrationFee) +
     Number(row.classExamFee) +
     Number(row.classTransportFee) +
     Number(row.classMiscFee);
@@ -395,12 +404,13 @@ export async function fetchClassFeeStructure(
   const monthlyFee = useClass ? Number(row.classMonthlyFee) : Number(row.campusMonthlyFee);
   const admissionFee = useClass ? Number(row.classAdmissionFee) : Number(row.campusAdmissionFee);
   const securityFee = useClass ? Number(row.classSecurityFee) : Number(row.campusSecurityFee);
+  const registrationFee = useClass ? Number(row.classRegistrationFee) : Number(row.campusRegistrationFee);
   const examFee = useClass ? Number(row.classExamFee) : Number(row.campusExamFee);
   const transportFee = useClass ? Number(row.classTransportFee) : Number(row.campusTransportFee);
   const miscFee = useClass ? Number(row.classMiscFee) : Number(row.campusMiscFee);
 
   if (
-    !monthlyFee && !admissionFee && !securityFee && !examFee && !transportFee && !miscFee
+    !monthlyFee && !admissionFee && !securityFee && !registrationFee && !examFee && !transportFee && !miscFee
   ) {
     return null;
   }
@@ -409,6 +419,7 @@ export async function fetchClassFeeStructure(
     monthlyFee: monthlyFee || 0,
     admissionFee: admissionFee || 0,
     securityFee: securityFee || 0,
+    registrationFee: registrationFee || 0,
     examFee: examFee || 0,
     transportFee: transportFee || 0,
     miscFee: miscFee || 0,
@@ -648,6 +659,7 @@ export async function createEnrollmentFeeVoucher(
     .input("tuition_fee", preview.tuitionFee)
     .input("admission_fee", preview.admissionFee)
     .input("security_fee", preview.securityFee)
+    .input("registration_fee", preview.registrationFee)
     .input("exam_fee", preview.examFee)
     .input("transport_fee", preview.transportFee)
     .input("misc_fee", preview.miscFee)
@@ -659,11 +671,11 @@ export async function createEnrollmentFeeVoucher(
     .query(`
       INSERT INTO Fees (
         id, student_id, amount, month, year, status, due_date, fee_type,
-        tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee,
+        tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee,
         arrears, discount_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
       ) VALUES (
         @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
-        @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee,
+        @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee,
         @arrears, @discount_amount, @balance_amount, 0, @campus_name_snapshot, @months_label
       )
     `);

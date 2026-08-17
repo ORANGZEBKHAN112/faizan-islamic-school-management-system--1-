@@ -13,6 +13,7 @@ import Pagination from '../components/ui/Pagination';
 import TableShell from '../components/ui/TableShell';
 import EmptyState from '../components/ui/EmptyState';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import { toTitleCase } from '../utils/titleCase';
 import { PAKISTAN_PROVINCES, citiesForProvince } from '../utils/pakistanLocations';
 import { usePermissions } from '../context/PermissionContext';
 import { useI18n } from '../context/I18nContext';
@@ -1039,15 +1040,31 @@ export default function StudentManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">First Name</label>
-                    <input required className="vibrant-input" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
+                    <input
+                      required
+                      className="vibrant-input"
+                      value={formData.firstName}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      onBlur={(e) => setFormData((prev) => ({ ...prev, firstName: toTitleCase(e.target.value) }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Last Name</label>
-                    <input className="vibrant-input" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} />
+                    <input
+                      className="vibrant-input"
+                      value={formData.lastName}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      onBlur={(e) => setFormData((prev) => ({ ...prev, lastName: toTitleCase(e.target.value) }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Father's Name</label>
-                    <input className="vibrant-input" value={formData.fatherName} onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })} />
+                    <input
+                      className="vibrant-input"
+                      value={formData.fatherName}
+                      onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                      onBlur={(e) => setFormData((prev) => ({ ...prev, fatherName: toTitleCase(e.target.value) }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">CNIC / B-Form</label>

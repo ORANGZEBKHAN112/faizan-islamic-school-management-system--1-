@@ -15,6 +15,8 @@ import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/camp
 import { formatCnic, isValidCnic, maskCnicInput, normalizeCnic } from '../utils/cnic';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
 import { downloadFeeVoucherPdf } from '../utils/feeVoucherPdf';
+import { toTitleCase } from '../utils/titleCase';
+import { ADMISSION_REFERENCE_OPTIONS } from '../utils/admissionReference';
 
 type AdmissionVoucherPayload = {
   application: {
@@ -113,6 +115,7 @@ export default function AdmissionManagement() {
     contactNumber: '',
     address: '',
     previousSchool: '',
+    referralSource: '',
     testMarks: 0,
     remarks: '',
   });
@@ -156,7 +159,14 @@ export default function AdmissionManagement() {
       return;
     }
     try {
-      await dataService.addAdmission({ ...formData, fatherCnic: normalizeCnic(formData.fatherCnic) });
+      await dataService.addAdmission({
+        ...formData,
+        applicantName: toTitleCase(formData.applicantName),
+        fatherName: toTitleCase(formData.fatherName),
+        previousSchool: toTitleCase(formData.previousSchool),
+        address: toTitleCase(formData.address),
+        fatherCnic: normalizeCnic(formData.fatherCnic),
+      });
       toast.success('Application submitted');
       await load();
       setIsModalOpen(false);
@@ -168,6 +178,7 @@ export default function AdmissionManagement() {
         contactNumber: '',
         address: '',
         previousSchool: '',
+        referralSource: '',
         classId: '',
       }));
     } catch (err) {
@@ -368,9 +379,9 @@ export default function AdmissionManagement() {
     try {
       const report = await dataService.fetchAdmissionReport();
       const escapeCsv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const header = ['Tracking', 'Applicant', 'Campus', 'Class', 'Status', 'Match', 'Test', 'Waived', 'Discount', 'Sibling%', 'Applied'];
+      const header = ['Tracking', 'Applicant', 'Campus', 'Class', 'Status', 'Match', 'Reference', 'Test', 'Waived', 'Discount', 'Sibling%', 'Applied'];
       const rows = (report.rows || []).map((r: Record<string, unknown>) => [
-        r.trackingNo, r.applicantName, r.campusName, r.className, r.status, r.reviewMatchType,
+        r.trackingNo, r.applicantName, r.campusName, r.className, r.status, r.reviewMatchType, r.referralSource,
         r.testMarks, r.waiveAdmissionFee ? 'Yes' : '', r.feeDiscountAmount, r.siblingDiscountPercent, r.appliedOn,
       ]);
       const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
@@ -419,28 +430,21 @@ export default function AdmissionManagement() {
       toast.error('Assign a class first');
       return;
     }
+    if (app.admissionVoucherStatus !== 'Paid') {
+      toast.error('Generate and fully pay the admission voucher before enrollment');
+      return;
+    }
     const isReEnroll = app.reviewMatchType === 're_enrollment';
     if (!await confirm({
-      title: isReEnroll ? 'Reactivate & enroll student?' : 'Enroll student?',
+      title: isReEnroll ? 'Confirm enrollment?' : 'Enroll student?',
       message: isReEnroll
-        ? `${app.applicantName} will be reactivated with existing roll number and arrears carried forward.`
-        : `Create a student record for ${app.applicantName} and generate admission fee voucher?`,
-      confirmLabel: isReEnroll ? 'Reactivate' : 'Enroll',
+        ? `${app.applicantName} will be marked Enrolled (admission fee already paid).`
+        : `Confirm enrollment for ${app.applicantName}? Admission fee is paid.`,
+      confirmLabel: 'Enroll',
     })) return;
     try {
       const result = await dataService.enrollAdmission(app.id);
-      const extra = result.reactivated ? ' (reactivated)' : '';
-      const dueNote = result.totalDue ? ` Fee due: Rs. ${Number(result.totalDue).toLocaleString()}` : '';
-      toast.success(`Enrolled! Roll: ${result.rollNumber}${extra}.${dueNote}`, {
-        action: result.feeVoucherId
-          ? {
-              label: 'Admission voucher',
-              onClick: () => {
-                void openAdmissionVoucher({ ...app, status: 'Enrolled', studentId: result.studentId });
-              },
-            }
-          : undefined,
-      });
+      toast.success(`Enrolled! Roll: ${result.rollNumber}`);
       await load();
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, 'Enrollment failed'));
@@ -448,8 +452,8 @@ export default function AdmissionManagement() {
   };
 
   const openAdmissionVoucher = async (app: AdmissionApplication) => {
-    if (app.status !== 'Enrolled') {
-      toast.error('Enroll the student first, then generate the admission voucher');
+    if (app.status !== 'Enrolled' && app.status !== 'Approved') {
+      toast.error('Approve the application first, then generate the admission voucher');
       return;
     }
     setVoucherTarget(app);
@@ -463,6 +467,7 @@ export default function AdmissionManagement() {
         toast.success(generated.created ? 'Admission voucher generated' : 'Admission voucher ready');
       }
       setVoucherPayload(payload);
+      await load();
     } catch (err) {
       toast.error(apiErrorMessage(err, 'Failed to load admission voucher'));
       setVoucherTarget(null);
@@ -669,16 +674,42 @@ export default function AdmissionManagement() {
                           </>
                         )}
                         {app.status === 'Approved' && (
-                          <button onClick={() => enroll(app)} className="vibrant-btn-primary py-2 px-4 text-[10px] font-black uppercase flex items-center gap-1">
-                            <GraduationCap className="w-3 h-3" /> Enroll
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void openAdmissionVoucher(app)}
+                              className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1"
+                              title="Generate / print admission voucher"
+                            >
+                              <Receipt className="w-3 h-3" /> Admission Voucher
+                            </button>
+                            {app.admissionVoucherStatus && (
+                              <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase ${
+                                app.admissionVoucherStatus === 'Paid' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
+                              }`}>
+                                Fee {app.admissionVoucherStatus}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => enroll(app)}
+                              disabled={app.admissionVoucherStatus !== 'Paid'}
+                              title={app.admissionVoucherStatus !== 'Paid' ? 'Pay admission voucher first' : 'Enroll student'}
+                              className={`py-2 px-4 text-[10px] font-black uppercase flex items-center gap-1 rounded-xl ${
+                                app.admissionVoucherStatus === 'Paid'
+                                  ? 'vibrant-btn-primary'
+                                  : 'bg-slate-100 text-slate-400 cursor-not-allowed dark:bg-slate-800'
+                              }`}
+                            >
+                              <GraduationCap className="w-3 h-3" /> Enroll
+                            </button>
+                          </>
                         )}
                         {app.status === 'Enrolled' && (
                           <button
                             type="button"
                             onClick={() => void openAdmissionVoucher(app)}
                             className="px-3 py-1.5 text-[10px] font-black uppercase bg-primary/10 text-primary rounded-xl flex items-center gap-1"
-                            title="Generate / print admission voucher"
+                            title="Reprint admission voucher"
                           >
                             <Receipt className="w-3 h-3" /> Admission Voucher
                           </button>
@@ -985,8 +1016,21 @@ export default function AdmissionManagement() {
                     label: `${c.className}${c.sectionName ? ` (${c.sectionName})` : ''}${c.capacity ? ` — ${c.enrolledCount ?? 0}/${c.capacity}` : ''}`,
                   }))}
                 />
-                <input className="vibrant-input" placeholder="Applicant full name *" value={formData.applicantName} onChange={(e) => setFormData({ ...formData, applicantName: e.target.value })} required />
-                <input className="vibrant-input" placeholder="Father's name" value={formData.fatherName} onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })} />
+                <input
+                  className="vibrant-input"
+                  placeholder="Applicant full name *"
+                  value={formData.applicantName}
+                  onChange={(e) => setFormData({ ...formData, applicantName: e.target.value })}
+                  onBlur={(e) => setFormData((prev) => ({ ...prev, applicantName: toTitleCase(e.target.value) }))}
+                  required
+                />
+                <input
+                  className="vibrant-input"
+                  placeholder="Father's name"
+                  value={formData.fatherName}
+                  onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                  onBlur={(e) => setFormData((prev) => ({ ...prev, fatherName: toTitleCase(e.target.value) }))}
+                />
                 <input className="vibrant-input font-mono" placeholder="Father CNIC (13 digits) *" value={formData.fatherCnic} onChange={(e) => setFormData({ ...formData, fatherCnic: maskCnicInput(e.target.value) })} required />
                 <input className="vibrant-input font-mono" placeholder="Student B-Form / registration no." value={formData.studentBform} onChange={(e) => setFormData({ ...formData, studentBform: e.target.value })} />
                 <div className="grid grid-cols-2 gap-4">
@@ -1001,8 +1045,27 @@ export default function AdmissionManagement() {
                   />
                 </div>
                 <input className="vibrant-input" placeholder="Contact number" value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} />
-                <input className="vibrant-input" placeholder="Previous school" value={formData.previousSchool} onChange={(e) => setFormData({ ...formData, previousSchool: e.target.value })} />
-                <textarea className="vibrant-input" placeholder="Address" rows={2} value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
+                <SearchableSelect
+                  value={formData.referralSource}
+                  onChange={(referralSource) => setFormData({ ...formData, referralSource })}
+                  placeholder="Reference (how did they hear about us?)"
+                  options={ADMISSION_REFERENCE_OPTIONS.map((r) => ({ value: r, label: r }))}
+                />
+                <input
+                  className="vibrant-input"
+                  placeholder="Previous school"
+                  value={formData.previousSchool}
+                  onChange={(e) => setFormData({ ...formData, previousSchool: e.target.value })}
+                  onBlur={(e) => setFormData((prev) => ({ ...prev, previousSchool: toTitleCase(e.target.value) }))}
+                />
+                <textarea
+                  className="vibrant-input"
+                  placeholder="Address"
+                  rows={2}
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  onBlur={(e) => setFormData((prev) => ({ ...prev, address: toTitleCase(e.target.value) }))}
+                />
                 <div className="flex gap-4 pt-4">
                   <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">Cancel</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">Submit Application</button>
@@ -1048,6 +1111,7 @@ export default function AdmissionManagement() {
                 <div><p className="text-[10px] font-black text-slate-400 uppercase">Test marks</p><p className={`font-bold ${detailTarget.testMarks != null && detailTarget.testMarks < testPassMarks ? 'text-danger' : ''}`}>{detailTarget.testMarks ?? '—'} {detailTarget.testMarks != null ? `(min ${testPassMarks})` : ''}</p></div>
                 <div><p className="text-[10px] font-black text-slate-400 uppercase">Campus</p><p className="font-bold">{detailTarget.campusName}</p></div>
                 <div><p className="text-[10px] font-black text-slate-400 uppercase">Class</p><p className="font-bold">{detailTarget.className || 'Not assigned'}</p></div>
+                <div><p className="text-[10px] font-black text-slate-400 uppercase">Reference</p><p className="font-bold">{detailTarget.referralSource || '—'}</p></div>
                 <div><p className="text-[10px] font-black text-slate-400 uppercase">DOB</p><p className="font-bold">{detailTarget.dateOfBirth || '—'}</p></div>
                 <div><p className="text-[10px] font-black text-slate-400 uppercase">Contact</p><p className="font-bold">{detailTarget.contactNumber || '—'}</p></div>
                 {detailTarget.reviewMatchType && (
@@ -1068,7 +1132,7 @@ export default function AdmissionManagement() {
                 {detailTarget.studentId && (
                   <div className="col-span-2 flex flex-wrap items-center gap-3">
                     <Link to="/students" className="text-primary font-bold text-sm hover:underline">View enrolled student →</Link>
-                    {detailTarget.status === 'Enrolled' && (
+                    {detailTarget.status === 'Enrolled' || detailTarget.status === 'Approved' ? (
                       <button
                         type="button"
                         onClick={() => void openAdmissionVoucher(detailTarget)}
@@ -1076,7 +1140,7 @@ export default function AdmissionManagement() {
                       >
                         <Receipt className="w-3 h-3" /> Admission Voucher
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -1158,6 +1222,7 @@ export default function AdmissionManagement() {
                   v.tuitionFee ? { label: 'Tuition (monthly)', amount: Number(v.tuitionFee) } : null,
                   v.admissionFee ? { label: 'Admission fee', amount: Number(v.admissionFee) } : null,
                   v.securityFee ? { label: 'Security fee', amount: Number(v.securityFee) } : null,
+                  v.registrationFee ? { label: 'Registration fee', amount: Number(v.registrationFee) } : null,
                   v.examFee ? { label: 'Exam fee', amount: Number(v.examFee) } : null,
                   v.transportFee ? { label: 'Transport fee', amount: Number(v.transportFee) } : null,
                   v.miscFee ? { label: 'Registration / misc fee', amount: Number(v.miscFee) } : null,
@@ -1202,9 +1267,17 @@ export default function AdmissionManagement() {
                       </table>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3">
-                      <button type="button" onClick={printAdmissionVoucher} className="vibrant-btn-primary flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold">
+                      <button type="button" onClick={() => void printAdmissionVoucher()} className="vibrant-btn-primary flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold">
                         <Printer className="w-4 h-4" /> Print / Download PDF
                       </button>
+                      {voucherPayload.voucher.status !== 'Paid' && (
+                        <a
+                          href={`/fees?studentId=${encodeURIComponent(voucherPayload.application.studentId || voucherPayload.voucher.studentId || '')}`}
+                          className="vibrant-btn-secondary flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold"
+                        >
+                          Collect payment
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }}
@@ -1213,7 +1286,9 @@ export default function AdmissionManagement() {
                         Close
                       </button>
                     </div>
-                    <p className="text-[11px] text-slate-400 text-center">Reprint anytime from Admissions · payments update status in Fee Management</p>
+                    <p className="text-[11px] text-slate-400 text-center">
+                      Workflow: Generate voucher → Collect payment → Enroll (enabled only when Paid)
+                    </p>
                   </div>
                 );
               })()}

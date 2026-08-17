@@ -14,12 +14,8 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import {
-  CAMPUS_STATES,
-  citiesForCampusRegion,
-  regionsForCampusState,
-  stateForCampusRegion,
-} from '../utils/campusRegions';
+import { CAMPUS_STATES, citiesForCampusRegion, regionsForCampusState, stateForCampusRegion } from '../utils/campusRegions';
+import { toTitleCase } from '../utils/titleCase';
 
 export default function CampusManagement() {
   const confirm = useConfirm();
@@ -336,6 +332,7 @@ export default function CampusManagement() {
                         className={`vibrant-input ${fieldErrors.campusName ? 'vibrant-input-error' : ''}`}
                         value={formData.campusName}
                         onChange={(e) => setFormData({ ...formData, campusName: e.target.value })}
+                        onBlur={(e) => setFormData((prev) => ({ ...prev, campusName: toTitleCase(e.target.value) }))}
                         placeholder="e.g. Faizan Campus Multan"
                       />
                     </FormField>

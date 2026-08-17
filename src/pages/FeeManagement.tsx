@@ -55,7 +55,7 @@ export default function FeeManagement() {
     receivedAmount: 0,
     discountAmount: 0,
     fineAmount: 0,
-    paymentMethod: 'Quick Pay',
+    paymentMethod: 'Kuickpay',
     transactionRef: ''
   });
   const [isExtraChargeOpen, setIsExtraChargeOpen] = useState(false);
@@ -64,12 +64,20 @@ export default function FeeManagement() {
     tuitionFee: 0,
     admissionFee: 0,
     securityFee: 0,
+    registrationFee: 0,
     examFee: 0,
     transportFee: 0,
     miscFee: 0,
     arrears: 0,
     dueDate: '',
     validityDate: '',
+  });
+  const [isAdjustOpen, setIsAdjustOpen] = useState(false);
+  const [adjustForm, setAdjustForm] = useState({
+    amount: 0,
+    adjustmentType: 'increase' as 'increase' | 'decrease',
+    reason: '',
+    date: new Date().toISOString().slice(0, 10),
   });
   const [extraChargeForm, setExtraChargeForm] = useState({
     studentId: '',
@@ -125,6 +133,7 @@ export default function FeeManagement() {
     tuitionFee: 0,
     admissionFee: 0,
     securityFee: 0,
+    registrationFee: 0,
     examFee: 0,
     transportFee: 0,
     miscFee: 0,
@@ -428,7 +437,7 @@ export default function FeeManagement() {
       receivedAmount: totalPayable,
       discountAmount: 0,
       fineAmount: 0,
-      paymentMethod: 'Quick Pay',
+      paymentMethod: 'Kuickpay',
       transactionRef: ''
     });
     setIsPaymentModalOpen(true);
@@ -440,6 +449,7 @@ export default function FeeManagement() {
       tuitionFee: voucher.tuitionFee ?? voucher.amount ?? 0,
       admissionFee: voucher.admissionFee ?? 0,
       securityFee: voucher.securityFee ?? 0,
+      registrationFee: voucher.registrationFee ?? 0,
       examFee: voucher.examFee ?? 0,
       transportFee: voucher.transportFee ?? 0,
       miscFee: voucher.miscFee ?? 0,
@@ -448,6 +458,58 @@ export default function FeeManagement() {
       validityDate: voucher.validityDate || defaultValidityDate(voucher.year, voucher.month),
     });
     setIsEditVoucherOpen(true);
+  };
+
+  const openAdjustModal = (voucher: Fee) => {
+    setSelectedVoucher(voucher);
+    setAdjustForm({
+      amount: 0,
+      adjustmentType: 'increase',
+      reason: '',
+      date: new Date().toISOString().slice(0, 10),
+    });
+    setIsAdjustOpen(true);
+  };
+
+  const handleReversePayment = async (historyIndex: number) => {
+    if (!selectedVoucher) return;
+    const reason = window.prompt('Reason for collection reversal?');
+    if (!reason?.trim()) return;
+    try {
+      await dataService.reverseFeePayment(selectedVoucher.id, {
+        historyIndex,
+        reason: reason.trim(),
+      });
+      toast.success('Collection reversed');
+      setIsPaymentModalOpen(false);
+      await refreshVouchers();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to reverse collection');
+    }
+  };
+
+  const handleAdjustFee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVoucher) return;
+    if (adjustForm.amount <= 0 || !adjustForm.reason.trim()) {
+      toast.error('Enter amount and reason');
+      return;
+    }
+    try {
+      await dataService.adjustFee(selectedVoucher.id, {
+        amount: adjustForm.amount,
+        adjustmentType: adjustForm.adjustmentType,
+        reason: adjustForm.reason.trim(),
+        date: adjustForm.date,
+      });
+      toast.success('Fee adjusted');
+      setIsAdjustOpen(false);
+      await refreshVouchers();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to adjust fee');
+    }
   };
 
   const handleEditVoucher = async (e: React.FormEvent) => {
@@ -630,6 +692,7 @@ export default function FeeManagement() {
         tuitionFee: 0,
         admissionFee: 0,
         securityFee: 0,
+        registrationFee: 0,
         examFee: 0,
         transportFee: 0,
         miscFee: 0,
@@ -1159,7 +1222,7 @@ export default function FeeManagement() {
                 { value: 'Paid', label: 'Paid Only' },
                 { value: 'Partially Paid', label: 'Partially Paid' },
                 { value: 'Unpaid', label: 'Unpaid Only' },
-                { value: 'Pending', label: 'Processing (Quick Pay)' },
+                { value: 'Pending', label: 'Processing (Kuickpay)' },
               ]}
             />
           </div>
@@ -1248,6 +1311,17 @@ export default function FeeManagement() {
                       </td>
                       <td className="px-8 py-5 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <PermissionGate module="fees" action="update">
+                            <motion.button
+                              whileHover={{ scale: 1.05, y: -2 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => openAdjustModal(voucher)}
+                              className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all"
+                              title="Fee adjustment"
+                            >
+                              Adjust
+                            </motion.button>
+                          </PermissionGate>
                           {voucher.status !== 'Paid' && (voucher.paidAmount || 0) === 0 && (
                             <>
                               <PermissionGate module="fees" action="update">
@@ -1370,6 +1444,16 @@ export default function FeeManagement() {
                 </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Security Fee</label>
+                    <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.securityFee} onChange={(e) => setStructureForm({ ...structureForm, securityFee: Number(e.target.value) })} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registration Fee</label>
+                    <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.registrationFee} onChange={(e) => setStructureForm({ ...structureForm, registrationFee: Number(e.target.value) })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.examFee} onChange={(e) => setStructureForm({ ...structureForm, examFee: Number(e.target.value) })} />
                   </div>
@@ -1434,9 +1518,23 @@ export default function FeeManagement() {
                       </div>
                       <div className="space-y-1 mt-2">
                         {parsePaymentHistory(selectedVoucher.paymentHistory).map((h: any, i: number) => (
-                           <div key={i} className="flex justify-between text-[8px] font-medium text-slate-400 font-mono">
-                             <span>{new Date(h.date).toLocaleDateString()} ({h.method})</span>
-                             <span>Rs. {h.amount}</span>
+                           <div key={i} className="flex justify-between items-center gap-2 text-[8px] font-medium text-slate-400 font-mono">
+                             <span className={h.reversed ? 'line-through opacity-60' : ''}>
+                               {h.date ? new Date(h.date).toLocaleDateString() : '—'} ({h.method || h.type || 'Payment'})
+                               {h.reversed ? ' · REVERSED' : ''}
+                             </span>
+                             <span className="flex items-center gap-2">
+                               <span>Rs. {h.amount}</span>
+                               {!h.reversed && Number(h.amount || 0) > 0 && String(h.type || 'payment') !== 'adjustment' && String(h.type || '') !== 'reversal' && (
+                                 <button
+                                   type="button"
+                                   onClick={() => handleReversePayment(i)}
+                                   className="text-[8px] font-black uppercase text-rose-500 hover:underline"
+                                 >
+                                   Reverse
+                                 </button>
+                               )}
+                             </span>
                            </div>
                         ))}
                       </div>
@@ -1510,7 +1608,7 @@ export default function FeeManagement() {
                       onChange={(paymentMethod) => setPaymentForm({ ...paymentForm, paymentMethod })}
                       searchPlaceholder="Search method…"
                       options={[
-                        { value: 'Quick Pay', label: 'Quick Pay (Online)' },
+                        { value: 'Kuickpay', label: 'Kuickpay (Online)' },
                         { value: 'Cash', label: 'Cash' },
                         { value: 'Bank Transfer', label: 'Bank Transfer' },
                       ]}
@@ -1638,6 +1736,7 @@ export default function FeeManagement() {
                     ['tuitionFee', 'Tuition Fee'],
                     ['admissionFee', 'Admission Fee'],
                     ['securityFee', 'Security Deposit'],
+                    ['registrationFee', 'Registration Fee'],
                     ['examFee', 'Exam Fee'],
                     ['transportFee', 'Transport Fee'],
                     ['miscFee', 'Misc Fee'],
@@ -1668,6 +1767,51 @@ export default function FeeManagement() {
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setIsEditVoucherOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase">Cancel</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Save Changes</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isAdjustOpen && selectedVoucher && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-md p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight">Fee Adjustment</h3>
+                <button type="button" onClick={() => setIsAdjustOpen(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-7 h-7" /></button>
+              </div>
+              <p className="text-sm text-slate-500 mb-6">{selectedVoucher.studentName} · current Rs. {(selectedVoucher.amount || 0).toLocaleString()}</p>
+              <form onSubmit={handleAdjustFee} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Type</label>
+                    <SearchableSelect
+                      value={adjustForm.adjustmentType}
+                      onChange={(adjustmentType) => setAdjustForm({ ...adjustForm, adjustmentType: adjustmentType as 'increase' | 'decrease' })}
+                      options={[
+                        { value: 'increase', label: 'Increase' },
+                        { value: 'decrease', label: 'Decrease' },
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount</label>
+                    <input type="number" min={1} required className="vibrant-input" value={adjustForm.amount} onChange={(e) => setAdjustForm({ ...adjustForm, amount: Number(e.target.value) || 0 })} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Date</label>
+                  <input type="date" required className="vibrant-input" value={adjustForm.date} onChange={(e) => setAdjustForm({ ...adjustForm, date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Reason</label>
+                  <textarea required className="vibrant-input min-h-[80px]" value={adjustForm.reason} onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })} />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setIsAdjustOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase">Cancel</button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Apply Adjustment</button>
                 </div>
               </form>
             </motion.div>

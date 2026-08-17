@@ -72,7 +72,7 @@ export const en = {
     fees: 'Fees',
     expenses: 'Expenses',
     reports: 'Reports',
-    quickpay: 'Quick Pay',
+    quickpay: 'Kuickpay',
   },
   pages: {
     dashboard: {
@@ -158,7 +158,7 @@ export const en = {
       description: 'Analyze school financial performance and metrics.',
     },
     quickpay: {
-      title: 'QuickPay Integration',
+      title: 'Kuickpay Integration',
       description: 'Configure and monitor online payment gateway.',
     },
     studentPortal: {

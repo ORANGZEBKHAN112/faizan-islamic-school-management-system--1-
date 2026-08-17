@@ -36,6 +36,8 @@ export default function Reports() {
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [collections, setCollections] = useState<Array<Record<string, unknown>>>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +58,54 @@ export default function Reports() {
     })();
     return () => { cancelled = true; };
   }, [filterCampus, filterYear]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setCollectionsLoading(true);
+      try {
+        const rows = await dataService.fetchRecentCollections({
+          campusId: filterCampus !== 'all' ? filterCampus : undefined,
+          year: filterYear,
+          limit: 30,
+        });
+        if (!cancelled) setCollections(Array.isArray(rows) ? rows : []);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setCollections([]);
+      } finally {
+        if (!cancelled) setCollectionsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filterCampus, filterYear]);
+
+  const handleIncomeReverse = async (feeId: string, historyIndex: number, studentName: string) => {
+    const reason = window.prompt(`Reason to reverse income for ${studentName}?`);
+    if (!reason?.trim()) return;
+    try {
+      await dataService.reverseFeePayment(feeId, {
+        historyIndex,
+        reason: reason.trim(),
+        asIncomeReversal: true,
+      });
+      toast.success('Income reversed');
+      const rows = await dataService.fetchRecentCollections({
+        campusId: filterCampus !== 'all' ? filterCampus : undefined,
+        year: filterYear,
+        limit: 30,
+      });
+      setCollections(Array.isArray(rows) ? rows : []);
+      const data = await dataService.fetchReportSummary({
+        campusId: filterCampus !== 'all' ? filterCampus : undefined,
+        year: filterYear,
+      });
+      setSummary(data);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to reverse income');
+    }
+  };
 
   const stats = summary || {
     totalExpected: 0, totalCollected: 0, totalPending: 0, totalExpenses: 0, defaulters: 0, netProfit: 0,
@@ -200,6 +250,67 @@ export default function Reports() {
             </h3>
           </motion.div>
         ))}
+      </div>
+
+      <div className="vibrant-card overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-black uppercase tracking-tight text-slate-900 dark:text-white">Income Reversal</h3>
+            <p className="text-xs font-bold text-slate-400 mt-1">Reverse a recorded fee collection without deleting the original payment history</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <TableShell hint="Recent collections eligible for income reversal">
+            <table className="w-full min-w-[720px] text-left border-collapse table-sticky-head">
+              <thead>
+                <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                  <th className="px-6 py-4">Student</th>
+                  <th className="px-6 py-4">Campus</th>
+                  <th className="px-6 py-4">Payment</th>
+                  <th className="px-6 py-4">Amount</th>
+                  <th className="px-6 py-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {collectionsLoading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">Loading collections…</td>
+                  </tr>
+                ) : collections.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">No reversible income found</td>
+                  </tr>
+                ) : (
+                  collections.flatMap((row) => {
+                    const list = Array.isArray(row.collections) ? row.collections as Array<Record<string, unknown>> : [];
+                    return list.map((c) => (
+                      <tr key={`${row.id}-${c.historyIndex}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-slate-900 dark:text-white">{String(row.studentName || '—')}</div>
+                          <div className="text-[10px] font-mono text-slate-400">{String(row.rollNumber || '')}</div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{String(row.campusName || '—')}</td>
+                        <td className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                          {c.date ? new Date(String(c.date)).toLocaleDateString() : '—'} · {String(c.method || 'Cash')}
+                        </td>
+                        <td className="px-6 py-4 font-black text-slate-900 dark:text-white">Rs. {Number(c.amount || 0).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleIncomeReverse(String(row.id), Number(c.historyIndex), String(row.studentName || 'student'))}
+                            className="px-3 py-2 rounded-xl bg-rose-500/10 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all"
+                          >
+                            Reverse Income
+                          </button>
+                        </td>
+                      </tr>
+                    ));
+                  })
+                )}
+              </tbody>
+            </table>
+          </TableShell>
+        </div>
       </div>
 
       {/* Charts Row */}

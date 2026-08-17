@@ -74,7 +74,7 @@ export const ar: LocaleMessages = {
     fees: 'الرسوم',
     expenses: 'المصروفات',
     reports: 'التقارير',
-    quickpay: 'Quick Pay',
+    quickpay: 'Kuickpay',
   },
   pages: {
     dashboard: {
@@ -160,7 +160,7 @@ export const ar: LocaleMessages = {
       description: 'تحليل الأداء المالي والمؤشرات في المدرسة.',
     },
     quickpay: {
-      title: 'تكامل QuickPay',
+      title: 'تكامل Kuickpay',
       description: 'إعداد ومراقبة بوابة الدفع الإلكتروني.',
     },
     studentPortal: {

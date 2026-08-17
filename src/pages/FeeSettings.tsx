@@ -16,6 +16,7 @@ const emptyForm = {
   tuitionFee: 0,
   admissionFee: 0,
   securityFee: 0,
+  registrationFee: 0,
   examFee: 0,
   transportFee: 0,
   miscFee: 0,
@@ -91,6 +92,7 @@ export default function FeeSettings() {
       tuitionFee: row.tuitionFee ?? row.monthlyFee ?? 0,
       admissionFee: row.admissionFee ?? 0,
       securityFee: row.securityFee ?? 0,
+      registrationFee: row.registrationFee ?? 0,
       examFee: row.examFee ?? 0,
       transportFee: row.transportFee ?? 0,
       miscFee: row.miscFee ?? 0,
@@ -221,6 +223,7 @@ export default function FeeSettings() {
                 <th className="px-8 py-5">Monthly Fee</th>
                 <th className="px-8 py-5">Admission</th>
                 <th className="px-8 py-5">Security</th>
+                <th className="px-8 py-5">Registration</th>
                 <th className="px-8 py-5">Last Updated</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
@@ -228,7 +231,7 @@ export default function FeeSettings() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-8 py-10 text-center">
+                  <td colSpan={7} className="px-8 py-10 text-center">
                     <div className="flex items-center justify-center gap-3 text-slate-400">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
                       <span className="text-[10px] font-black uppercase tracking-widest">Loading structures…</span>
@@ -251,6 +254,9 @@ export default function FeeSettings() {
                     </td>
                     <td className="px-8 py-5 font-black text-slate-900 dark:text-white">
                       Rs. {row.securityFee ?? 0}
+                    </td>
+                    <td className="px-8 py-5 font-black text-slate-900 dark:text-white">
+                      Rs. {row.registrationFee ?? 0}
                     </td>
                     <td className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                       {row.lastUpdated ? new Date(row.lastUpdated).toLocaleDateString() : '—'}
@@ -355,33 +361,37 @@ export default function FeeSettings() {
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registration (Rs.)</label>
+                    <input type="number" className="vibrant-input" value={formData.registrationFee} onChange={(e) => setFormData({ ...formData, registrationFee: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.examFee} onChange={(e) => setFormData({ ...formData, examFee: parseFloat(e.target.value) || 0 })} />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Transport (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.transportFee} onChange={(e) => setFormData({ ...formData, transportFee: parseFloat(e.target.value) || 0 })} />
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Summer Camp (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.summerCampFee} onChange={(e) => setFormData({ ...formData, summerCampFee: parseFloat(e.target.value) || 0 })} />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Card (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.idCardFee} onChange={(e) => setFormData({ ...formData, idCardFee: parseFloat(e.target.value) || 0 })} />
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Trip (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.tripFee} onChange={(e) => setFormData({ ...formData, tripFee: parseFloat(e.target.value) || 0 })} />
                   </div>
-                  <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Misc (Rs.)</label>
-                    <input type="number" className="vibrant-input" value={formData.miscFee} onChange={(e) => setFormData({ ...formData, miscFee: parseFloat(e.target.value) || 0 })} />
-                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Misc (Rs.)</label>
+                  <input type="number" className="vibrant-input" value={formData.miscFee} onChange={(e) => setFormData({ ...formData, miscFee: parseFloat(e.target.value) || 0 })} />
                 </div>
 
                 <div className="flex gap-4 pt-6 border-t border-slate-100 dark:border-slate-800">

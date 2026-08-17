@@ -8,6 +8,8 @@ import DevCredit from '../components/ui/DevCredit';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Campus, Class } from '../types';
 import { isValidCnic, maskCnicInput, normalizeCnic } from '../utils/cnic';
+import { toTitleCase } from '../utils/titleCase';
+import { ADMISSION_REFERENCE_OPTIONS } from '../utils/admissionReference';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import { useI18n } from '../context/I18nContext';
 
@@ -31,6 +33,7 @@ export default function PublicAdmissionApply() {
     contactNumber: '',
     address: '',
     previousSchool: '',
+    referralSource: '',
   });
 
   useEffect(() => {
@@ -73,7 +76,14 @@ export default function PublicAdmissionApply() {
     }
     setSubmitting(true);
     try {
-      const result = await dataService.submitPublicAdmission({ ...formData, fatherCnic: normalizeCnic(formData.fatherCnic) });
+      const result = await dataService.submitPublicAdmission({
+        ...formData,
+        applicantName: toTitleCase(formData.applicantName),
+        fatherName: toTitleCase(formData.fatherName),
+        previousSchool: toTitleCase(formData.previousSchool),
+        address: toTitleCase(formData.address),
+        fatherCnic: normalizeCnic(formData.fatherCnic),
+      });
       setTrackingNo(result.trackingNo || '');
       setSubmitted(true);
       toast.success('Application submitted!');
@@ -183,6 +193,7 @@ export default function PublicAdmissionApply() {
                     className="vibrant-input"
                     value={formData.applicantName}
                     onChange={(e) => setFormData({ ...formData, applicantName: e.target.value })}
+                    onBlur={(e) => setFormData((prev) => ({ ...prev, applicantName: toTitleCase(e.target.value) }))}
                   />
                 </div>
                 <div className="space-y-2">
@@ -191,6 +202,7 @@ export default function PublicAdmissionApply() {
                     className="vibrant-input"
                     value={formData.fatherName}
                     onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                    onBlur={(e) => setFormData((prev) => ({ ...prev, fatherName: toTitleCase(e.target.value) }))}
                   />
                 </div>
                 <div className="space-y-2">
@@ -242,11 +254,21 @@ export default function PublicAdmissionApply() {
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reference</label>
+                  <SearchableSelect
+                    value={formData.referralSource}
+                    onChange={(referralSource) => setFormData({ ...formData, referralSource })}
+                    placeholder="How did you hear about us?"
+                    options={ADMISSION_REFERENCE_OPTIONS.map((r) => ({ value: r, label: r }))}
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Previous school</label>
                   <input
                     className="vibrant-input"
                     value={formData.previousSchool}
                     onChange={(e) => setFormData({ ...formData, previousSchool: e.target.value })}
+                    onBlur={(e) => setFormData((prev) => ({ ...prev, previousSchool: toTitleCase(e.target.value) }))}
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -256,6 +278,7 @@ export default function PublicAdmissionApply() {
                     rows={3}
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    onBlur={(e) => setFormData((prev) => ({ ...prev, address: toTitleCase(e.target.value) }))}
                   />
                 </div>
               </div>

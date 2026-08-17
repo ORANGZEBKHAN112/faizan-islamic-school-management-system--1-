@@ -53,6 +53,7 @@ import {
   pickUniqueLoginUsername,
   normalizeStaffUsernames,
 } from "./server/userLogin.js";
+import { admissionCountsInPeriod } from "./server/admissionCutoff.js";
 
 interface JwtPayload {
   id: string;
@@ -812,6 +813,7 @@ const COLUMN_MAP: Record<string, string> = {
   applicantName: "applicant_name",
   previousSchool: "previous_school",
   appliedOn: "applied_on",
+  referralSource: "referral_source",
   testMarks: "test_marks",
   reviewedBy: "reviewed_by",
   reviewedOn: "reviewed_on",
@@ -830,6 +832,7 @@ const COLUMN_MAP: Record<string, string> = {
   paymentHistory: "payment_history",
   tuitionFee: "tuition_fee",
   admissionFee: "admission_fee",
+  registrationFee: "registration_fee",
   examFee: "exam_fee",
   transportFee: "transport_fee",
   miscFee: "misc_fee",
@@ -1018,6 +1021,8 @@ async function connectToDb() {
           ALTER TABLE FeeSettings ADD transport_fee DECIMAL(18, 2) DEFAULT 0;
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeSettings') AND name = 'misc_fee')
           ALTER TABLE FeeSettings ADD misc_fee DECIMAL(18, 2) DEFAULT 0;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeSettings') AND name = 'registration_fee')
+          ALTER TABLE FeeSettings ADD registration_fee DECIMAL(18, 2) DEFAULT 0;
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeSettings') AND name = 'summer_camp_fee')
           ALTER TABLE FeeSettings ADD summer_camp_fee DECIMAL(18, 2) DEFAULT 0;
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeSettings') AND name = 'id_card_fee')
@@ -1065,6 +1070,8 @@ async function connectToDb() {
         
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'misc_fee')
         ALTER TABLE Fees ADD misc_fee DECIMAL(18, 2) DEFAULT 0;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'registration_fee')
+        ALTER TABLE Fees ADD registration_fee DECIMAL(18, 2) DEFAULT 0;
         
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'arrears')
         ALTER TABLE Fees ADD arrears DECIMAL(18, 2) DEFAULT 0;
@@ -1300,6 +1307,8 @@ async function connectToDb() {
             ALTER TABLE FeeStructures ADD session NVARCHAR(20);
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'security_fee')
             ALTER TABLE FeeStructures ADD security_fee DECIMAL(18, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'registration_fee')
+            ALTER TABLE FeeStructures ADD registration_fee DECIMAL(18, 2) DEFAULT 0;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'summer_camp_fee')
             ALTER TABLE FeeStructures ADD summer_camp_fee DECIMAL(18, 2) DEFAULT 0;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'id_card_fee')
@@ -1475,6 +1484,8 @@ async function connectToDb() {
             ALTER TABLE AdmissionApplications ADD sibling_discount_percent DECIMAL(5, 2) DEFAULT 0;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'rejection_reason')
             ALTER TABLE AdmissionApplications ADD rejection_reason NVARCHAR(100);
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'referral_source')
+            ALTER TABLE AdmissionApplications ADD referral_source NVARCHAR(50);
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'tracking_no')
             ALTER TABLE AdmissionApplications ADD tracking_no NVARCHAR(30);
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'student_bform')
@@ -1551,6 +1562,8 @@ async function migrateFeeStructuresSession(pool: tediousSql.ConnectionPool): Pro
         ALTER TABLE FeeStructures ADD session NVARCHAR(20);
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'security_fee')
         ALTER TABLE FeeStructures ADD security_fee DECIMAL(18, 2) DEFAULT 0;
+      IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'registration_fee')
+        ALTER TABLE FeeStructures ADD registration_fee DECIMAL(18, 2) DEFAULT 0;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'summer_camp_fee')
         ALTER TABLE FeeStructures ADD summer_camp_fee DECIMAL(18, 2) DEFAULT 0;
       IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeStructures') AND name = 'id_card_fee')
@@ -1851,13 +1864,14 @@ async function startServer() {
         .input("contact_number", a.contactNumber || null)
         .input("address", a.address || null)
         .input("previous_school", a.previousSchool || null)
+        .input("referral_source", a.referralSource || null)
         .query(`
           INSERT INTO AdmissionApplications (
             id, tracking_no, campus_id, class_id, applicant_name, father_name, father_cnic, student_bform,
-            date_of_birth, gender, contact_number, address, previous_school, status
+            date_of_birth, gender, contact_number, address, previous_school, referral_source, status
           ) VALUES (
             @id, @tracking_no, @campus_id, @class_id, @applicant_name, @father_name, @father_cnic, @student_bform,
-            @date_of_birth, @gender, @contact_number, @address, @previous_school, 'Pending'
+            @date_of_birth, @gender, @contact_number, @address, @previous_school, @referral_source, 'Pending'
           )
         `);
 
@@ -2615,6 +2629,7 @@ async function startServer() {
           ISNULL(fs.tuition_fee, 0) AS monthlyFee,
           ISNULL(fs.admission_fee, 0) AS admissionFee,
           ISNULL(fs.security_fee, 0) AS securityFee,
+          ISNULL(fs.registration_fee, 0) AS registrationFee,
           ISNULL(fs.exam_fee, 0) AS examFee,
           ISNULL(fs.transport_fee, 0) AS transportFee,
           ISNULL(fs.misc_fee, 0) AS miscFee,
@@ -2684,6 +2699,7 @@ async function startServer() {
       const tuitionFee = Number(req.body.tuitionFee ?? req.body.monthlyFee ?? 0);
       const admissionFee = Number(req.body.admissionFee ?? 0);
       const securityFee = Number(req.body.securityFee ?? 0);
+      const registrationFee = Number(req.body.registrationFee ?? 0);
       const examFee = Number(req.body.examFee ?? 0);
       const transportFee = Number(req.body.transportFee ?? 0);
       const miscFee = Number(req.body.miscFee ?? 0);
@@ -2706,6 +2722,7 @@ async function startServer() {
           .input("tuition_fee", tuitionFee)
           .input("admission_fee", admissionFee)
           .input("security_fee", securityFee)
+          .input("registration_fee", registrationFee)
           .input("exam_fee", examFee)
           .input("transport_fee", transportFee)
           .input("misc_fee", miscFee)
@@ -2715,6 +2732,7 @@ async function startServer() {
           .query(`
             UPDATE FeeStructures SET
               tuition_fee = @tuition_fee, admission_fee = @admission_fee, security_fee = @security_fee,
+              registration_fee = @registration_fee,
               exam_fee = @exam_fee, transport_fee = @transport_fee, misc_fee = @misc_fee,
               summer_camp_fee = @summer_camp_fee, id_card_fee = @id_card_fee, trip_fee = @trip_fee,
               last_updated = GETDATE()
@@ -2731,6 +2749,7 @@ async function startServer() {
         .input("tuition_fee", tuitionFee)
         .input("admission_fee", admissionFee)
         .input("security_fee", securityFee)
+        .input("registration_fee", registrationFee)
         .input("exam_fee", examFee)
         .input("transport_fee", transportFee)
         .input("misc_fee", miscFee)
@@ -2739,10 +2758,10 @@ async function startServer() {
         .input("trip_fee", tripFee)
         .query(`
           INSERT INTO FeeStructures (
-            id, campus_id, class_id, session, tuition_fee, admission_fee, security_fee,
+            id, campus_id, class_id, session, tuition_fee, admission_fee, security_fee, registration_fee,
             exam_fee, transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
           ) VALUES (
-            @id, @campus_id, NULL, @session, @tuition_fee, @admission_fee, @security_fee,
+            @id, @campus_id, NULL, @session, @tuition_fee, @admission_fee, @security_fee, @registration_fee,
             @exam_fee, @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE()
           )
         `);
@@ -2791,6 +2810,7 @@ async function startServer() {
             .input("monthly_fee", fs.tuition_fee ?? 0)
             .input("admission_fee", fs.admission_fee ?? 0)
             .input("security_fee", fs.security_fee ?? 0)
+            .input("registration_fee", fs.registration_fee ?? 0)
             .input("exam_fee", fs.exam_fee ?? 0)
             .input("transport_fee", fs.transport_fee ?? 0)
             .input("misc_fee", fs.misc_fee ?? 0)
@@ -2800,6 +2820,7 @@ async function startServer() {
             .query(`
               UPDATE FeeSettings SET
                 monthly_fee = @monthly_fee, admission_fee = @admission_fee, security_fee = @security_fee,
+                registration_fee = @registration_fee,
                 exam_fee = @exam_fee, transport_fee = @transport_fee, misc_fee = @misc_fee,
                 summer_camp_fee = @summer_camp_fee, id_card_fee = @id_card_fee, trip_fee = @trip_fee,
                 last_updated = GETDATE()
@@ -2812,6 +2833,7 @@ async function startServer() {
             .input("monthly_fee", fs.tuition_fee ?? 0)
             .input("admission_fee", fs.admission_fee ?? 0)
             .input("security_fee", fs.security_fee ?? 0)
+            .input("registration_fee", fs.registration_fee ?? 0)
             .input("exam_fee", fs.exam_fee ?? 0)
             .input("transport_fee", fs.transport_fee ?? 0)
             .input("misc_fee", fs.misc_fee ?? 0)
@@ -2820,10 +2842,10 @@ async function startServer() {
             .input("trip_fee", fs.trip_fee ?? 0)
             .query(`
               INSERT INTO FeeSettings (
-                id, class_id, monthly_fee, admission_fee, security_fee, exam_fee,
+                id, class_id, monthly_fee, admission_fee, security_fee, registration_fee, exam_fee,
                 transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
               ) VALUES (
-                @id, @class_id, @monthly_fee, @admission_fee, @security_fee, @exam_fee,
+                @id, @class_id, @monthly_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee,
                 @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE()
               )
             `);
@@ -2856,6 +2878,7 @@ async function startServer() {
           ISNULL(fs.monthly_fee, 0) AS monthlyFee,
           ISNULL(fs.admission_fee, 0) AS admissionFee,
           ISNULL(fs.security_fee, 0) AS securityFee,
+          ISNULL(fs.registration_fee, 0) AS registrationFee,
           ISNULL(fs.exam_fee, 0) AS examFee,
           ISNULL(fs.transport_fee, 0) AS transportFee,
           ISNULL(fs.misc_fee, 0) AS miscFee,
@@ -2907,6 +2930,7 @@ async function startServer() {
           .input("monthly_fee", f.monthlyFee)
           .input("admission_fee", f.admissionFee)
           .input("security_fee", f.securityFee)
+          .input("registration_fee", f.registrationFee ?? 0)
           .input("exam_fee", f.examFee ?? 0)
           .input("transport_fee", f.transportFee ?? 0)
           .input("misc_fee", f.miscFee ?? 0)
@@ -2918,6 +2942,7 @@ async function startServer() {
               monthly_fee = @monthly_fee,
               admission_fee = @admission_fee,
               security_fee = @security_fee,
+              registration_fee = @registration_fee,
               exam_fee = @exam_fee,
               transport_fee = @transport_fee,
               misc_fee = @misc_fee,
@@ -2937,6 +2962,7 @@ async function startServer() {
           .input("monthly_fee", f.monthlyFee)
           .input("admission_fee", f.admissionFee)
           .input("security_fee", f.securityFee)
+          .input("registration_fee", f.registrationFee ?? 0)
           .input("exam_fee", f.examFee ?? 0)
           .input("transport_fee", f.transportFee ?? 0)
           .input("misc_fee", f.miscFee ?? 0)
@@ -2944,8 +2970,8 @@ async function startServer() {
           .input("id_card_fee", f.idCardFee ?? 0)
           .input("trip_fee", f.tripFee ?? 0)
           .query(`
-            INSERT INTO FeeSettings (id, class_id, monthly_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated)
-            VALUES (@id, @class_id, @monthly_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE())
+            INSERT INTO FeeSettings (id, class_id, monthly_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated)
+            VALUES (@id, @class_id, @monthly_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE())
           `);
         res.status(201).json({ ...f, id });
       }
@@ -2996,6 +3022,7 @@ async function startServer() {
             .input("monthly_fee", fs.monthly_fee ?? 0)
             .input("admission_fee", fs.admission_fee ?? 0)
             .input("security_fee", fs.security_fee ?? 0)
+            .input("registration_fee", fs.registration_fee ?? 0)
             .input("exam_fee", fs.exam_fee ?? 0)
             .input("transport_fee", fs.transport_fee ?? 0)
             .input("misc_fee", fs.misc_fee ?? 0)
@@ -3005,6 +3032,7 @@ async function startServer() {
             .query(`
               UPDATE FeeSettings SET
                 monthly_fee = @monthly_fee, admission_fee = @admission_fee, security_fee = @security_fee,
+                registration_fee = @registration_fee,
                 exam_fee = @exam_fee, transport_fee = @transport_fee, misc_fee = @misc_fee,
                 summer_camp_fee = @summer_camp_fee, id_card_fee = @id_card_fee, trip_fee = @trip_fee,
                 last_updated = GETDATE()
@@ -3017,6 +3045,7 @@ async function startServer() {
             .input("monthly_fee", fs.monthly_fee ?? 0)
             .input("admission_fee", fs.admission_fee ?? 0)
             .input("security_fee", fs.security_fee ?? 0)
+            .input("registration_fee", fs.registration_fee ?? 0)
             .input("exam_fee", fs.exam_fee ?? 0)
             .input("transport_fee", fs.transport_fee ?? 0)
             .input("misc_fee", fs.misc_fee ?? 0)
@@ -3025,10 +3054,10 @@ async function startServer() {
             .input("trip_fee", fs.trip_fee ?? 0)
             .query(`
               INSERT INTO FeeSettings (
-                id, class_id, monthly_fee, admission_fee, security_fee, exam_fee,
+                id, class_id, monthly_fee, admission_fee, security_fee, registration_fee, exam_fee,
                 transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
               ) VALUES (
-                @id, @class_id, @monthly_fee, @admission_fee, @security_fee, @exam_fee,
+                @id, @class_id, @monthly_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee,
                 @transport_fee, @misc_fee, @summer_camp_fee, @id_card_fee, @trip_fee, GETDATE()
               )
             `);
@@ -3069,6 +3098,8 @@ async function startServer() {
           SET
             monthly_fee = ISNULL(st.tuition_fee, 0),
             admission_fee = ISNULL(st.admission_fee, 0),
+            security_fee = ISNULL(st.security_fee, 0),
+            registration_fee = ISNULL(st.registration_fee, 0),
             exam_fee = ISNULL(st.exam_fee, 0),
             transport_fee = ISNULL(st.transport_fee, 0),
             misc_fee = ISNULL(st.misc_fee, 0),
@@ -3088,7 +3119,7 @@ async function startServer() {
         .input("campusId", campusFilter || null)
         .query(`
           INSERT INTO FeeSettings (
-            id, class_id, monthly_fee, admission_fee, security_fee, exam_fee,
+            id, class_id, monthly_fee, admission_fee, security_fee, registration_fee, exam_fee,
             transport_fee, misc_fee, summer_camp_fee, id_card_fee, trip_fee, last_updated
           )
           SELECT
@@ -3096,7 +3127,8 @@ async function startServer() {
             c.id,
             ISNULL(st.tuition_fee, 0),
             ISNULL(st.admission_fee, 0),
-            0,
+            ISNULL(st.security_fee, 0),
+            ISNULL(st.registration_fee, 0),
             ISNULL(st.exam_fee, 0),
             ISNULL(st.transport_fee, 0),
             ISNULL(st.misc_fee, 0),
@@ -3319,6 +3351,7 @@ async function startServer() {
           f.misc_fee AS miscFee,
           f.arrears AS arrears,
           f.security_fee AS securityFee,
+          f.registration_fee AS registrationFee,
           f.summer_camp_fee AS summerCampFee,
           f.id_card_fee AS idCardFee,
           f.trip_fee AS tripFee,
@@ -3457,6 +3490,290 @@ async function startServer() {
   app.put("/api/fees/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
   app.put("/api/feevouchers/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
 
+  const feeStatusFromBalance = (paidAmount: number, balanceAmount: number) => {
+    if (balanceAmount <= 0) return "Paid";
+    if (paidAmount > 0) return "Partially Paid";
+    return "Unpaid";
+  };
+
+  app.post("/api/fees/:id/reverse-payment", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { id } = req.params;
+      const historyIndex = Number(req.body?.historyIndex);
+      const reason = String(req.body?.reason || "").trim();
+      const asIncomeReversal = Boolean(req.body?.asIncomeReversal);
+      if (!Number.isInteger(historyIndex) || historyIndex < 0) {
+        return res.status(400).json({ message: "historyIndex is required" });
+      }
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const currentResult = await pool.request().input("id", id).query("SELECT * FROM Fees WHERE id = @id");
+      const currentFee = currentResult.recordset[0];
+      if (!currentFee) return res.status(404).json({ message: "Fee record not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const studentCampusResult = await pool.request()
+        .input("studentId", currentFee.student_id)
+        .query("SELECT campus_id FROM Students WHERE id = @studentId");
+      const studentCampus = studentCampusResult.recordset[0];
+      if (!studentCampus) return res.status(404).json({ message: "Student not found" });
+      const campusErr = await assertCampusWrite(authUser, studentCampus.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      let history: Array<Record<string, unknown>> = [];
+      try {
+        history = JSON.parse(currentFee.payment_history || "[]");
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+      if (historyIndex >= history.length) {
+        return res.status(400).json({ message: "Invalid payment history index" });
+      }
+
+      const entry = history[historyIndex];
+      if (entry?.reversed) {
+        return res.status(409).json({ message: "Payment already reversed" });
+      }
+      const entryType = String(entry?.type || "payment");
+      if (entryType === "adjustment" || entryType === "reversal") {
+        return res.status(400).json({ message: "Only collection payments can be reversed here" });
+      }
+
+      const reverseAmount = Number(entry?.amount || 0);
+      const reverseDiscount = Number(entry?.discount || 0);
+      const reverseFine = Number(entry?.fine || 0);
+      if (reverseAmount <= 0 && reverseDiscount <= 0 && reverseFine <= 0) {
+        return res.status(400).json({ message: "Nothing to reverse on this history entry" });
+      }
+
+      const paidAmount = Math.max(0, Number(currentFee.paid_amount || 0) - reverseAmount);
+      const discountAmount = Math.max(0, Number(currentFee.discount_amount || 0) - reverseDiscount);
+      const fineAmount = Math.max(0, Number(currentFee.fine_amount || 0) - reverseFine);
+      const baseAmount = Number(currentFee.amount || 0) + Number(currentFee.arrears || 0);
+      const netPayable = baseAmount + fineAmount - discountAmount;
+      const balanceAmount = Math.max(0, netPayable - paidAmount);
+      const status = feeStatusFromBalance(paidAmount, balanceAmount);
+      const reversedOn = new Date().toISOString();
+      const actor = authUser.username || req.auth?.username || "unknown";
+
+      history[historyIndex] = {
+        ...entry,
+        reversed: true,
+        reversedOn,
+        reversedBy: actor,
+        reverseReason: reason,
+        reverseKind: asIncomeReversal ? "income" : "collection",
+      };
+      history.push({
+        type: "reversal",
+        date: reversedOn,
+        amount: -reverseAmount,
+        discount: -reverseDiscount,
+        fine: -reverseFine,
+        method: asIncomeReversal ? "Income Reversal" : "Collection Reversal",
+        ref: `REV-${historyIndex + 1}`,
+        reason,
+        reversedBy: actor,
+        reversedOn,
+        sourceIndex: historyIndex,
+      });
+
+      await pool.request()
+        .input("id", id)
+        .input("status", status)
+        .input("paid_amount", paidAmount)
+        .input("discount_amount", discountAmount)
+        .input("fine_amount", fineAmount)
+        .input("balance_amount", balanceAmount)
+        .input("payment_history", JSON.stringify(history))
+        .query(`
+          UPDATE Fees SET
+            status = @status,
+            paid_amount = @paid_amount,
+            discount_amount = @discount_amount,
+            fine_amount = @fine_amount,
+            balance_amount = @balance_amount,
+            payment_history = @payment_history
+          WHERE id = @id
+        `);
+
+      await recomputeStudentOutstanding(currentFee.student_id);
+      res.json({
+        message: asIncomeReversal ? "Income reversed" : "Collection reversed",
+        id,
+        status,
+        paidAmount,
+        balanceAmount,
+        history,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error reversing payment");
+    }
+  });
+
+  app.post("/api/fees/:id/adjust", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { id } = req.params;
+      const amount = Math.abs(Number(req.body?.amount || 0));
+      const adjustmentType = String(req.body?.adjustmentType || req.body?.type || "").toLowerCase();
+      const reason = String(req.body?.reason || "").trim();
+      const adjustDate = String(req.body?.date || new Date().toISOString().slice(0, 10));
+
+      if (!(amount > 0)) return res.status(400).json({ message: "amount must be greater than zero" });
+      if (adjustmentType !== "increase" && adjustmentType !== "decrease") {
+        return res.status(400).json({ message: "adjustmentType must be increase or decrease" });
+      }
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const currentResult = await pool.request().input("id", id).query("SELECT * FROM Fees WHERE id = @id");
+      const currentFee = currentResult.recordset[0];
+      if (!currentFee) return res.status(404).json({ message: "Fee record not found" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const studentCampusResult = await pool.request()
+        .input("studentId", currentFee.student_id)
+        .query("SELECT campus_id FROM Students WHERE id = @studentId");
+      const studentCampus = studentCampusResult.recordset[0];
+      if (!studentCampus) return res.status(404).json({ message: "Student not found" });
+      const campusErr = await assertCampusWrite(authUser, studentCampus.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const delta = adjustmentType === "increase" ? amount : -amount;
+      const nextAmount = Math.max(0, Number(currentFee.amount || 0) + delta);
+      const paidAmount = Number(currentFee.paid_amount || 0);
+      const discountAmount = Number(currentFee.discount_amount || 0);
+      const fineAmount = Number(currentFee.fine_amount || 0);
+      const arrears = Number(currentFee.arrears || 0);
+      const netPayable = nextAmount + arrears + fineAmount - discountAmount;
+      const balanceAmount = Math.max(0, netPayable - paidAmount);
+      const status = feeStatusFromBalance(paidAmount, balanceAmount);
+      const actor = authUser.username || req.auth?.username || "unknown";
+      const adjustedOn = new Date().toISOString();
+
+      let history: Array<Record<string, unknown>> = [];
+      try {
+        history = JSON.parse(currentFee.payment_history || "[]");
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+      history.push({
+        type: "adjustment",
+        date: adjustedOn,
+        amount: delta,
+        adjustmentType,
+        reason,
+        adjustedBy: actor,
+        adjustedOn,
+        adjustDate,
+        method: "Fee Adjustment",
+        ref: `ADJ-${adjustmentType}`,
+      });
+
+      await pool.request()
+        .input("id", id)
+        .input("amount", nextAmount)
+        .input("status", status)
+        .input("balance_amount", balanceAmount)
+        .input("payment_history", JSON.stringify(history))
+        .query(`
+          UPDATE Fees SET
+            amount = @amount,
+            status = @status,
+            balance_amount = @balance_amount,
+            payment_history = @payment_history
+          WHERE id = @id
+        `);
+
+      await recomputeStudentOutstanding(currentFee.student_id);
+      res.json({
+        message: "Fee adjusted",
+        id,
+        amount: nextAmount,
+        balanceAmount,
+        status,
+        history,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error adjusting fee");
+    }
+  });
+
+  app.get("/api/fees/recent-collections", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
+
+      const year = Number(req.query.year) || new Date().getFullYear();
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40));
+      const request = pool.request()
+        .input("year", year)
+        .input("campusId", campusFilter || null)
+        .input("limit", limit);
+
+      const result = await request.query(`
+        SELECT TOP (@limit)
+          f.id,
+          f.student_id AS studentId,
+          s.student_name AS studentName,
+          s.admission_no AS rollNumber,
+          f.amount,
+          f.paid_amount AS paidAmount,
+          f.balance_amount AS balanceAmount,
+          f.status,
+          f.fee_type AS feeType,
+          f.payment_history AS paymentHistory,
+          f.payment_method AS paymentMethod,
+          CONVERT(VARCHAR, f.payment_date, 23) AS paymentDate,
+          COALESCE(f.campus_name_snapshot, cp.campus_name) AS campusName
+        FROM Fees f
+        JOIN Students s ON s.id = f.student_id
+        LEFT JOIN Campuses cp ON cp.id = s.campus_id
+        WHERE f.year = @year
+          AND ISNULL(f.paid_amount, 0) > 0
+          AND (@campusId IS NULL OR s.campus_id = @campusId)
+        ORDER BY ISNULL(f.payment_date, f.created_at) DESC
+      `);
+
+      const rows = result.recordset.map((row: Record<string, unknown>) => {
+        let history: Array<Record<string, unknown>> = [];
+        try {
+          history = JSON.parse(String(row.paymentHistory || "[]"));
+          if (!Array.isArray(history)) history = [];
+        } catch {
+          history = [];
+        }
+        const collections = history
+          .map((h, index) => ({ ...(h as Record<string, unknown>), historyIndex: index }))
+          .filter((h: Record<string, unknown>) =>
+            Number(h.amount || 0) > 0 &&
+            !h.reversed &&
+            String(h.type || "payment") !== "adjustment" &&
+            String(h.type || "") !== "reversal"
+          );
+        return { ...row, collections };
+      }).filter((row: { collections: unknown[] }) => row.collections.length > 0);
+
+      res.json(rows);
+    } catch (err) {
+      sendServerError(res, err, "Error fetching recent collections");
+    }
+  });
+
   app.patch("/api/fees/:id/voucher", requireRoles(FEE_ROLES), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -3487,13 +3804,14 @@ async function startServer() {
       const tuitionFee = Number(body.tuitionFee ?? currentFee.tuition_fee ?? 0);
       const admissionFee = Number(body.admissionFee ?? currentFee.admission_fee ?? 0);
       const securityFee = Number(body.securityFee ?? currentFee.security_fee ?? 0);
+      const registrationFee = Number(body.registrationFee ?? currentFee.registration_fee ?? 0);
       const examFee = Number(body.examFee ?? currentFee.exam_fee ?? 0);
       const transportFee = Number(body.transportFee ?? currentFee.transport_fee ?? 0);
       const miscFee = Number(body.miscFee ?? currentFee.misc_fee ?? 0);
       const arrears = Number(body.arrears ?? currentFee.arrears ?? 0);
       const dueDate = body.dueDate ?? currentFee.due_date;
       const validityDate = body.validityDate ?? currentFee.validity_date;
-      const amount = tuitionFee + admissionFee + securityFee + examFee + transportFee + miscFee;
+      const amount = tuitionFee + admissionFee + securityFee + registrationFee + examFee + transportFee + miscFee;
       const balanceAmount = amount + arrears;
 
       await pool.request()
@@ -3502,6 +3820,7 @@ async function startServer() {
         .input("tuition_fee", tuitionFee)
         .input("admission_fee", admissionFee)
         .input("security_fee", securityFee)
+        .input("registration_fee", registrationFee)
         .input("exam_fee", examFee)
         .input("transport_fee", transportFee)
         .input("misc_fee", miscFee)
@@ -3515,6 +3834,7 @@ async function startServer() {
             tuition_fee = @tuition_fee,
             admission_fee = @admission_fee,
             security_fee = @security_fee,
+            registration_fee = @registration_fee,
             exam_fee = @exam_fee,
             transport_fee = @transport_fee,
             misc_fee = @misc_fee,
@@ -3601,8 +3921,7 @@ async function startServer() {
       let feeType = fee.fee_type || "Monthly";
 
       if (fee.admission_date) {
-        const admDate = new Date(fee.admission_date);
-        if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
+        if (admissionCountsInPeriod(fee.admission_date, month, year)) {
           admissionFee = structure.admission_fee || 0;
           securityFee = structure.security_fee || 0;
           feeType = "Admission";
@@ -4105,8 +4424,7 @@ async function startServer() {
       let feeType = "Monthly";
 
       if (student.admission_date) {
-        const admDate = new Date(student.admission_date);
-        if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
+        if (admissionCountsInPeriod(student.admission_date, month, year)) {
           admissionFee = structure.admission_fee || 0;
           securityFee = structure.security_fee || 0;
           feeType = "Admission";
@@ -4232,6 +4550,7 @@ async function startServer() {
         tuitionFee = 0,
         admissionFee = 0,
         securityFee = 0,
+        registrationFee = 0,
         examFee = 0,
         transportFee = 0,
         miscFee = 0,
@@ -4250,6 +4569,7 @@ async function startServer() {
       const t = Number(tuitionFee) || 0;
       const a = Number(admissionFee) || 0;
       const sec = Number(securityFee) || 0;
+      const reg = Number(registrationFee) || 0;
       const ex = Number(examFee) || 0;
       const tr = Number(transportFee) || 0;
       const mi = Number(miscFee) || 0;
@@ -4257,7 +4577,7 @@ async function startServer() {
       const disc = Number(discountAmount) || 0;
       const fine = Number(fineAmount) || 0;
       const paid = Math.max(0, Number(reqPaidAmount) || 0);
-      const amount = t + a + sec + ex + tr + mi;
+      const amount = t + a + sec + reg + ex + tr + mi;
       const gross = amount + ar + fine - disc;
       if (gross <= 0) {
         return res.status(400).json({ message: "Custom voucher total must be greater than zero" });
@@ -4298,6 +4618,7 @@ async function startServer() {
         .input("tuition_fee", t)
         .input("admission_fee", a)
         .input("security_fee", sec)
+        .input("registration_fee", reg)
         .input("exam_fee", ex)
         .input("transport_fee", tr)
         .input("misc_fee", mi)
@@ -4312,11 +4633,11 @@ async function startServer() {
         .query(`
           INSERT INTO Fees (
             id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
-            tuition_fee, admission_fee, security_fee, exam_fee, transport_fee, misc_fee,
+            tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee,
             arrears, discount_amount, fine_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
           ) VALUES (
             @id, @student_id, @amount, @month, @year, @status, @due_date, @validity_date, @fee_type,
-            @tuition_fee, @admission_fee, @security_fee, @exam_fee, @transport_fee, @misc_fee,
+            @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee,
             @arrears, @discount_amount, @fine_amount, @balance_amount, @paid_amount, @campus_name_snapshot, @months_label
           )
         `);
@@ -5885,11 +6206,26 @@ async function startServer() {
                ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
                ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
                a.rejection_reason AS rejectionReason,
+               a.referral_source AS referralSource,
                CONVERT(VARCHAR, a.interview_at, 120) AS interviewAt,
                ISNULL(a.interview_sms_sent, 0) AS interviewSmsSent,
                CONVERT(VARCHAR, a.interview_sms_sent_on, 120) AS interviewSmsSentOn,
                c.address AS campusAddress,
-               c.phone AS campusPhone
+               c.phone AS campusPhone,
+               (
+                 SELECT TOP 1 f.status
+                 FROM Fees f
+                 WHERE f.student_id = a.student_id
+                   AND (f.fee_type = 'Admission' OR ISNULL(f.months_label, '') LIKE 'Admission%')
+                 ORDER BY f.created_at DESC
+               ) AS admissionVoucherStatus,
+               (
+                 SELECT TOP 1 f.id
+                 FROM Fees f
+                 WHERE f.student_id = a.student_id
+                   AND (f.fee_type = 'Admission' OR ISNULL(f.months_label, '') LIKE 'Admission%')
+                 ORDER BY f.created_at DESC
+               ) AS admissionVoucherId
         FROM AdmissionApplications a
         LEFT JOIN Campuses c ON a.campus_id = c.id
         LEFT JOIN Classes cl ON a.class_id = cl.id
@@ -5931,13 +6267,14 @@ async function startServer() {
         .input("previous_school", a.previousSchool || null)
         .input("test_marks", a.testMarks ?? null)
         .input("remarks", a.remarks || null)
+        .input("referral_source", a.referralSource || null)
         .query(`
           INSERT INTO AdmissionApplications (
             id, tracking_no, campus_id, class_id, applicant_name, father_name, father_cnic, student_bform,
-            date_of_birth, gender, contact_number, address, previous_school, test_marks, remarks, status
+            date_of_birth, gender, contact_number, address, previous_school, test_marks, remarks, referral_source, status
           ) VALUES (
             @id, @tracking_no, @campus_id, @class_id, @applicant_name, @father_name, @father_cnic, @student_bform,
-            @date_of_birth, @gender, @contact_number, @address, @previous_school, @test_marks, @remarks, 'Pending'
+            @date_of_birth, @gender, @contact_number, @address, @previous_school, @test_marks, @remarks, @referral_source, 'Pending'
           )
         `);
       res.status(201).json({ ...a, id, trackingNo, status: "Pending" });
@@ -6121,6 +6458,7 @@ async function startServer() {
                  ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
                  ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
                  a.rejection_reason AS rejectionReason,
+                 a.referral_source AS referralSource,
                  CONVERT(VARCHAR, a.applied_on, 120) AS appliedOn,
                  CONVERT(VARCHAR, a.reviewed_on, 120) AS reviewedOn
           FROM AdmissionApplications a
@@ -6464,121 +6802,46 @@ async function startServer() {
       const campusErr = await assertCampusWrite(authUser, app.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
-      const cap = await assertClassCapacity(app.class_id);
-      if (!cap.ok) return res.status(400).json({ message: cap.message });
-
-      const fatherCnic = normalizeCnic(app.father_cnic);
-      const admissionDate = new Date().toISOString().split("T")[0];
-      let studentId: string;
-      let rollNumber: string;
-      let reactivated = false;
-      let carryArrears = 0;
-
-      if (app.review_match_type === "re_enrollment" && app.linked_student_id) {
-        const linkedResult = await pool.request()
-          .input("id", app.linked_student_id)
-          .query(`
-            SELECT id, admission_no, status, outstanding_fees FROM Students WHERE id = @id
-          `);
-        const linked = linkedResult.recordset[0];
-        if (!linked) return res.status(400).json({ message: "Linked student record not found" });
-        if (linked.status === "Active") {
-          return res.status(409).json({ message: "Linked student is already active" });
-        }
-
-        studentId = String(linked.id);
-        rollNumber = String(linked.admission_no);
-        carryArrears = Number(linked.outstanding_fees) || 0;
-        reactivated = true;
-
-        await pool.request()
-          .input("id", studentId)
-          .input("campus_id", app.campus_id)
-          .input("class_id", app.class_id)
-          .input("student_name", app.applicant_name)
-          .input("father_name", app.father_name)
-          .input("father_cnic", fatherCnic || null)
-          .input("father_mobile", app.contact_number)
-          .input("registration_no", app.student_bform || null)
-          .input("dob", app.date_of_birth)
-          .input("admission_date", admissionDate)
-          .input("gender", app.gender)
-          .input("address", app.address)
-          .query(`
-            UPDATE Students SET
-              campus_id = @campus_id,
-              class_id = @class_id,
-              student_name = @student_name,
-              father_name = @father_name,
-              father_cnic = @father_cnic,
-              father_mobile = @father_mobile,
-              registration_no = COALESCE(@registration_no, registration_no),
-              dob = @dob,
-              admission_date = @admission_date,
-              gender = @gender,
-              address = @address,
-              status = 'Active'
-            WHERE id = @id
-          `);
-      } else {
-        const year = new Date().getFullYear();
-        const countResult = await pool.request()
-          .input("pattern", `STU-${year}-%`)
-          .query("SELECT COUNT(*) AS cnt FROM Students WHERE admission_no LIKE @pattern");
-        const seq = (countResult.recordset[0]?.cnt ?? 0) + 1;
-        rollNumber = `STU-${year}-${String(seq).padStart(4, "0")}`;
-        studentId = crypto.randomUUID();
-
-        await pool.request()
-          .input("id", studentId)
-          .input("campus_id", app.campus_id)
-          .input("class_id", app.class_id)
-          .input("admission_no", rollNumber)
-          .input("student_name", app.applicant_name)
-          .input("father_name", app.father_name)
-          .input("father_cnic", fatherCnic || null)
-          .input("father_mobile", app.contact_number)
-          .input("registration_no", app.student_bform || null)
-          .input("dob", app.date_of_birth)
-          .input("admission_date", admissionDate)
-          .input("gender", app.gender)
-          .input("address", app.address)
-          .input("status", "Active")
-          .query(`
-            INSERT INTO Students (id, campus_id, class_id, admission_no, registration_no, student_name, father_name,
-              father_cnic, father_mobile, dob, admission_date, gender, address, status, outstanding_fees)
-            VALUES (@id, @campus_id, @class_id, @admission_no, @registration_no, @student_name, @father_name,
-              @father_cnic, @father_mobile, @dob, @admission_date, @gender, @address, @status, 0)
-          `);
-
-        if (!reactivated) {
-          try {
-            const hashed = await bcrypt.hash(rollNumber, 10);
-            await pool.request()
-              .input("id", crypto.randomUUID())
-              .input("fullName", app.applicant_name)
-              .input("username", rollNumber)
-              .input("passwordHash", hashed)
-              .input("role", "Student")
-              .input("campusId", app.campus_id)
-              .query(`
-                INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
-                VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 1, GETDATE())
-              `);
-          } catch {
-            // Student record created; login account is optional
-          }
-        }
+      // #32: admission voucher must exist and be fully Paid before enroll
+      if (!app.student_id) {
+        return res.status(400).json({
+          message: "Generate and pay the admission voucher before enrolling the student",
+        });
+      }
+      const voucherCheck = await pool.request()
+        .input("studentId", app.student_id)
+        .query(`
+          SELECT TOP 1 id, status, ISNULL(balance_amount, 0) AS balanceAmount, ISNULL(paid_amount, 0) AS paidAmount
+          FROM Fees
+          WHERE student_id = @studentId
+            AND (fee_type = 'Admission' OR ISNULL(months_label, '') LIKE 'Admission%')
+          ORDER BY created_at DESC
+        `);
+      const admVoucher = voucherCheck.recordset[0];
+      if (!admVoucher) {
+        return res.status(400).json({ message: "Generate the admission voucher and collect payment before enrollment" });
+      }
+      if (String(admVoucher.status) !== "Paid" || Number(admVoucher.balanceAmount) > 0) {
+        return res.status(400).json({
+          message: `Admission voucher must be fully paid before enrollment (current status: ${admVoucher.status})`,
+        });
       }
 
-      const feeVoucher = await createEnrollmentFeeVoucher(pool, studentId, app.class_id, {
-        waiveAdmissionFee: Boolean(app.waive_admission_fee),
-        discountAmount: Number(app.fee_discount_amount) || 0,
-        discountPercent: Number(app.fee_discount_percent) || 0,
-        siblingDiscountPercent: Number(app.sibling_discount_percent) || 0,
-        carryArrears: app.review_match_type === "re_enrollment" ? carryArrears : 0,
-      });
-      await recomputeStudentOutstanding(studentId);
+      const studentRow = await pool.request()
+        .input("id", app.student_id)
+        .query(`SELECT id, admission_no AS rollNumber FROM Students WHERE id = @id`);
+      if (!studentRow.recordset[0]) {
+        return res.status(400).json({ message: "Linked student record not found — regenerate admission voucher" });
+      }
+
+      await pool.request()
+        .input("id", id)
+        .input("student_id", app.student_id)
+        .input("reviewed_by", req.auth?.username || null)
+        .query(`
+          UPDATE AdmissionApplications SET status = 'Enrolled', student_id = @student_id,
+            reviewed_by = @reviewed_by, reviewed_on = GETDATE() WHERE id = @id
+        `);
 
       try {
         await refreshDashboardCampusStats(pool, app.campus_id || null);
@@ -6586,30 +6849,21 @@ async function startServer() {
         console.warn("Dashboard stats refresh after enrollment failed:", refreshErr);
       }
 
-      await pool.request()
-        .input("id", id)
-        .input("student_id", studentId)
-        .input("reviewed_by", req.auth?.username || null)
-        .query(`
-          UPDATE AdmissionApplications SET status = 'Enrolled', student_id = @student_id,
-            reviewed_by = @reviewed_by, reviewed_on = GETDATE() WHERE id = @id
-        `);
-
       res.json({
-        message: reactivated ? "Student reactivated and enrolled" : "Student enrolled successfully",
-        studentId,
-        rollNumber,
-        reactivated,
-        feeVoucherId: feeVoucher.feeId,
-        totalDue: feeVoucher.totalDue,
-        carryArrears: app.review_match_type === "re_enrollment" ? carryArrears : 0,
+        message: "Student enrolled successfully",
+        studentId: app.student_id,
+        rollNumber: studentRow.recordset[0].rollNumber,
+        reactivated: false,
+        feeVoucherId: admVoucher.id,
+        totalDue: 0,
+        carryArrears: 0,
       });
     } catch (err) {
       sendServerError(res, err, "Error enrolling student");
     }
   });
 
-  /** Load or create admission fee voucher for an enrolled application (#31). */
+  /** Load admission fee voucher for Approved or Enrolled applications (#31/#32). */
   async function loadAdmissionVoucherPayload(applicationId: string) {
     const appResult = await pool!.request().input("id", applicationId).query(`
       SELECT a.id, a.status, a.student_id AS studentId, a.class_id AS classId,
@@ -6619,7 +6873,14 @@ async function startServer() {
              a.fee_discount_percent AS feeDiscountPercent,
              a.sibling_discount_percent AS siblingDiscountPercent,
              a.review_match_type AS reviewMatchType,
+             a.linked_student_id AS linkedStudentId,
              a.campus_id AS campusId,
+             a.father_cnic AS fatherCnic,
+             a.contact_number AS contactNumber,
+             a.student_bform AS studentBform,
+             a.date_of_birth AS dateOfBirth,
+             a.gender AS gender,
+             a.address AS address,
              c.campus_name AS campusName,
              cl.class_name AS className,
              s.admission_no AS rollNumber
@@ -6631,41 +6892,163 @@ async function startServer() {
     `);
     const application = appResult.recordset[0];
     if (!application) return { error: { status: 404, message: "Application not found" } as const };
-    if (application.status !== "Enrolled" || !application.studentId) {
-      return { error: { status: 400, message: "Enroll the student before generating an admission voucher" } as const };
+    if (application.status !== "Enrolled" && application.status !== "Approved") {
+      return { error: { status: 400, message: "Approve the application before generating an admission voucher" } as const };
     }
     if (!application.classId) {
       return { error: { status: 400, message: "Assign a class before generating an admission voucher" } as const };
     }
 
-    const existing = await pool!.request()
-      .input("studentId", application.studentId)
-      .query(`
-        SELECT TOP 1
-          f.id, f.student_id AS studentId, f.amount, f.month, f.year, f.status, f.due_date AS dueDate,
-          f.fee_type AS feeType, f.months_label AS monthsLabel,
-          ISNULL(f.tuition_fee, 0) AS tuitionFee,
-          ISNULL(f.admission_fee, 0) AS admissionFee,
-          ISNULL(f.security_fee, 0) AS securityFee,
-          ISNULL(f.exam_fee, 0) AS examFee,
-          ISNULL(f.transport_fee, 0) AS transportFee,
-          ISNULL(f.misc_fee, 0) AS miscFee,
-          ISNULL(f.arrears, 0) AS arrears,
-          ISNULL(f.discount_amount, 0) AS discountAmount,
-          ISNULL(f.paid_amount, 0) AS paidAmount,
-          ISNULL(f.balance_amount, 0) AS balanceAmount,
-          f.campus_name_snapshot AS campusName,
-          CONVERT(VARCHAR, f.created_at, 120) AS createdAt
-        FROM Fees f
-        WHERE f.student_id = @studentId
-          AND (
-            f.fee_type = 'Admission'
-            OR ISNULL(f.months_label, '') LIKE 'Admission%'
-          )
-        ORDER BY f.created_at DESC
-      `);
+    let voucher = null;
+    if (application.studentId) {
+      const existing = await pool!.request()
+        .input("studentId", application.studentId)
+        .query(`
+          SELECT TOP 1
+            f.id, f.student_id AS studentId, f.amount, f.month, f.year, f.status, f.due_date AS dueDate,
+            f.fee_type AS feeType, f.months_label AS monthsLabel,
+            ISNULL(f.tuition_fee, 0) AS tuitionFee,
+            ISNULL(f.admission_fee, 0) AS admissionFee,
+            ISNULL(f.security_fee, 0) AS securityFee,
+            ISNULL(f.registration_fee, 0) AS registrationFee,
+            ISNULL(f.exam_fee, 0) AS examFee,
+            ISNULL(f.transport_fee, 0) AS transportFee,
+            ISNULL(f.misc_fee, 0) AS miscFee,
+            ISNULL(f.arrears, 0) AS arrears,
+            ISNULL(f.discount_amount, 0) AS discountAmount,
+            ISNULL(f.paid_amount, 0) AS paidAmount,
+            ISNULL(f.balance_amount, 0) AS balanceAmount,
+            f.campus_name_snapshot AS campusName,
+            CONVERT(VARCHAR, f.created_at, 120) AS createdAt
+          FROM Fees f
+          WHERE f.student_id = @studentId
+            AND (
+              f.fee_type = 'Admission'
+              OR ISNULL(f.months_label, '') LIKE 'Admission%'
+            )
+          ORDER BY f.created_at DESC
+        `);
+      voucher = existing.recordset[0] || null;
+    }
 
-    return { application, voucher: existing.recordset[0] || null };
+    return { application, voucher };
+  }
+
+  /** Create/reactivate student for an Approved application without marking Enrolled (#32). */
+  async function ensureAdmissionStudentRecord(app: Record<string, unknown>) {
+    const fatherCnic = normalizeCnic(String(app.father_cnic || app.fatherCnic || ""));
+    const admissionDate = new Date().toISOString().split("T")[0];
+    let studentId: string;
+    let rollNumber: string;
+    let reactivated = false;
+    let carryArrears = 0;
+
+    if (app.student_id || app.studentId) {
+      studentId = String(app.student_id || app.studentId);
+      const existing = await pool!.request().input("id", studentId).query(`
+        SELECT id, admission_no AS rollNumber FROM Students WHERE id = @id
+      `);
+      if (existing.recordset[0]) {
+        return {
+          studentId,
+          rollNumber: String(existing.recordset[0].rollNumber || ""),
+          reactivated: false,
+          carryArrears: 0,
+        };
+      }
+    }
+
+    if ((app.review_match_type || app.reviewMatchType) === "re_enrollment" && (app.linked_student_id || app.linkedStudentId)) {
+      const linkedId = String(app.linked_student_id || app.linkedStudentId);
+      const linkedResult = await pool!.request()
+        .input("id", linkedId)
+        .query(`SELECT id, admission_no, status, outstanding_fees FROM Students WHERE id = @id`);
+      const linked = linkedResult.recordset[0];
+      if (!linked) throw new Error("Linked student record not found");
+      if (linked.status === "Active") throw new Error("Linked student is already active");
+
+      studentId = String(linked.id);
+      rollNumber = String(linked.admission_no);
+      carryArrears = Number(linked.outstanding_fees) || 0;
+      reactivated = true;
+
+      await pool!.request()
+        .input("id", studentId)
+        .input("campus_id", app.campus_id || app.campusId)
+        .input("class_id", app.class_id || app.classId)
+        .input("student_name", app.applicant_name || app.applicantName)
+        .input("father_name", app.father_name || app.fatherName)
+        .input("father_cnic", fatherCnic || null)
+        .input("father_mobile", app.contact_number || app.contactNumber)
+        .input("registration_no", app.student_bform || app.studentBform || null)
+        .input("dob", app.date_of_birth || app.dateOfBirth)
+        .input("admission_date", admissionDate)
+        .input("gender", app.gender)
+        .input("address", app.address)
+        .query(`
+          UPDATE Students SET
+            campus_id = @campus_id, class_id = @class_id, student_name = @student_name,
+            father_name = @father_name, father_cnic = @father_cnic, father_mobile = @father_mobile,
+            registration_no = COALESCE(@registration_no, registration_no),
+            dob = @dob, admission_date = @admission_date, gender = @gender, address = @address,
+            status = 'Active'
+          WHERE id = @id
+        `);
+    } else {
+      const year = new Date().getFullYear();
+      const countResult = await pool!.request()
+        .input("pattern", `STU-${year}-%`)
+        .query("SELECT COUNT(*) AS cnt FROM Students WHERE admission_no LIKE @pattern");
+      const seq = (countResult.recordset[0]?.cnt ?? 0) + 1;
+      rollNumber = `STU-${year}-${String(seq).padStart(4, "0")}`;
+      studentId = crypto.randomUUID();
+
+      await pool!.request()
+        .input("id", studentId)
+        .input("campus_id", app.campus_id || app.campusId)
+        .input("class_id", app.class_id || app.classId)
+        .input("admission_no", rollNumber)
+        .input("student_name", app.applicant_name || app.applicantName)
+        .input("father_name", app.father_name || app.fatherName)
+        .input("father_cnic", fatherCnic || null)
+        .input("father_mobile", app.contact_number || app.contactNumber)
+        .input("registration_no", app.student_bform || app.studentBform || null)
+        .input("dob", app.date_of_birth || app.dateOfBirth)
+        .input("admission_date", admissionDate)
+        .input("gender", app.gender)
+        .input("address", app.address)
+        .input("status", "Active")
+        .query(`
+          INSERT INTO Students (id, campus_id, class_id, admission_no, registration_no, student_name, father_name,
+            father_cnic, father_mobile, dob, admission_date, gender, address, status, outstanding_fees)
+          VALUES (@id, @campus_id, @class_id, @admission_no, @registration_no, @student_name, @father_name,
+            @father_cnic, @father_mobile, @dob, @admission_date, @gender, @address, @status, 0)
+        `);
+
+      try {
+        const hashed = await bcrypt.hash(rollNumber, 10);
+        await pool!.request()
+          .input("id", crypto.randomUUID())
+          .input("fullName", app.applicant_name || app.applicantName)
+          .input("username", rollNumber)
+          .input("passwordHash", hashed)
+          .input("role", "Student")
+          .input("campusId", app.campus_id || app.campusId)
+          .query(`
+            INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
+            VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 1, GETDATE())
+          `);
+      } catch {
+        // optional login
+      }
+    }
+
+    await pool!.request()
+      .input("id", app.id)
+      .input("student_id", studentId)
+      .query(`UPDATE AdmissionApplications SET student_id = @student_id WHERE id = @id`);
+
+    return { studentId, rollNumber, reactivated, carryArrears };
   }
 
   app.get("/api/admissions/:id/admission-voucher", requireModulePermission("admissions", "view"), async (req, res) => {
@@ -6707,21 +7090,45 @@ async function startServer() {
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
 
-      const loaded = await loadAdmissionVoucherPayload(req.params.id);
+      let loaded = await loadAdmissionVoucherPayload(req.params.id);
       if ("error" in loaded && loaded.error) {
         return res.status(loaded.error.status).json({ message: loaded.error.message });
       }
       const campusErr = await assertCampusWrite(authUser, loaded.application.campusId);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
+      if (loaded.application.reviewMatchType === "duplicate_active") {
+        return res.status(409).json({ message: "Cannot generate voucher — an active student with matching details already exists" });
+      }
+      if (!loaded.application.reviewMatchType) {
+        return res.status(400).json({ message: "Complete CNIC review before generating an admission voucher" });
+      }
+
+      let studentId = loaded.application.studentId as string | null;
+      let rollNumber = loaded.application.rollNumber as string | null;
+      let carryArrears = 0;
+      if (!studentId) {
+        const cap = await assertClassCapacity(loaded.application.classId);
+        if (!cap.ok) return res.status(400).json({ message: cap.message });
+        const ensured = await ensureAdmissionStudentRecord(loaded.application);
+        studentId = ensured.studentId;
+        rollNumber = ensured.rollNumber;
+        carryArrears = ensured.carryArrears;
+        loaded = await loadAdmissionVoucherPayload(req.params.id);
+        if ("error" in loaded && loaded.error) {
+          return res.status(loaded.error.status).json({ message: loaded.error.message });
+        }
+      }
+
       let voucher = loaded.voucher;
       let created = false;
       if (!voucher) {
-        const createdVoucher = await createEnrollmentFeeVoucher(pool, loaded.application.studentId, loaded.application.classId, {
+        const createdVoucher = await createEnrollmentFeeVoucher(pool, studentId!, loaded.application.classId, {
           waiveAdmissionFee: Boolean(loaded.application.waiveAdmissionFee),
           discountAmount: Number(loaded.application.feeDiscountAmount) || 0,
           discountPercent: Number(loaded.application.feeDiscountPercent) || 0,
           siblingDiscountPercent: Number(loaded.application.siblingDiscountPercent) || 0,
+          carryArrears: loaded.application.reviewMatchType === "re_enrollment" ? carryArrears : 0,
         });
         if (!createdVoucher.feeId) {
           return res.status(400).json({
@@ -6729,7 +7136,12 @@ async function startServer() {
               || "No admission charges configured for this class/campus. Add a fee structure in Fee Settings, then try again.",
           });
         }
-        await recomputeStudentOutstanding(loaded.application.studentId);
+        await recomputeStudentOutstanding(studentId!);
+        try {
+          await refreshDashboardCampusStats(pool, loaded.application.campusId || null);
+        } catch {
+          // non-fatal
+        }
         const refreshed = await loadAdmissionVoucherPayload(req.params.id);
         voucher = refreshed.voucher;
         created = true;
@@ -6744,8 +7156,8 @@ async function startServer() {
           fatherName: loaded.application.fatherName,
           campusName: loaded.application.campusName,
           className: loaded.application.className,
-          rollNumber: loaded.application.rollNumber,
-          studentId: loaded.application.studentId,
+          rollNumber: rollNumber || loaded.application.rollNumber,
+          studentId: studentId || loaded.application.studentId,
           status: loaded.application.status,
         },
         voucher,

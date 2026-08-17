@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
 import sql from "mssql";
+import { admissionCountsInPeriod } from "./admissionCutoff.js";
 
 const require = createRequire(import.meta.url);
 // archiver CJS default export
@@ -329,8 +330,7 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
             let feeType = "Monthly";
 
             if (includeAdmissions && student.admission_date) {
-              const admDate = new Date(student.admission_date);
-              if (admDate.getMonth() + 1 === month && admDate.getFullYear() === year) {
+              if (admissionCountsInPeriod(student.admission_date, month, year)) {
                 admissionFee = student.admission_fee || 0;
                 securityFee = student.security_fee || 0;
                 feeType = "Admission";

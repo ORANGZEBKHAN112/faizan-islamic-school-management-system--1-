@@ -9,6 +9,7 @@ import Pagination from '../components/ui/Pagination';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
+import { toTitleCase } from '../utils/titleCase';
 
 const scopeUser = getStoredUser();
 
@@ -198,7 +199,14 @@ export default function StaffManagement() {
                 <h3 className="text-2xl font-black">{editingId ? 'Edit Staff' : 'New Staff Member'}</h3>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <input className="vibrant-input" placeholder="Full name" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} required />
+                <input
+                  className="vibrant-input"
+                  placeholder="Full name"
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  onBlur={(e) => setFormData((prev) => ({ ...prev, fullName: toTitleCase(e.target.value) }))}
+                  required
+                />
                 <input className="vibrant-input" placeholder="CNIC" value={formData.cnic} onChange={(e) => setFormData({ ...formData, cnic: e.target.value })} required />
                 <div className="grid grid-cols-2 gap-4">
                   <SearchableSelect
