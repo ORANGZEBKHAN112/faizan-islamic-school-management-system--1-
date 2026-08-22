@@ -27,7 +27,8 @@ export default function UserManagement() {
     username: '',
     email: '',
     role: 'Teacher' as UserRole,
-    campusId: '',
+    campusIds: [] as string[],
+    schoolWide: false,
     isActive: true,
     password: '',
   });
@@ -69,11 +70,32 @@ export default function UserManagement() {
       username: '',
       email: '',
       role: 'Teacher',
-      campusId: '',
+      campusIds: [],
+      schoolWide: false,
       isActive: true,
       password: '',
     });
     setEditingId(null);
+  };
+
+  const campusLabel = (user: User) => {
+    if (user.role === 'Super Admin') return 'All';
+    const ids = user.campusIds?.length ? user.campusIds : (user.campusId ? [user.campusId] : []);
+    if (!ids.length) return user.role === 'Admin' ? 'All' : '—';
+    return ids
+      .map((id) => campuses.find((c) => c.id === id)?.campusName || id.slice(0, 8))
+      .join(', ');
+  };
+
+  const toggleCampus = (campusId: string) => {
+    setFormData((prev) => {
+      const has = prev.campusIds.includes(campusId);
+      return {
+        ...prev,
+        schoolWide: false,
+        campusIds: has ? prev.campusIds.filter((id) => id !== campusId) : [...prev.campusIds, campusId],
+      };
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,8 +104,17 @@ export default function UserManagement() {
       toast.error('Full name and username are required');
       return;
     }
-    if (formData.role !== 'Super Admin' && formData.role !== 'Student' && !formData.campusId) {
-      toast.error(formData.role === 'Principal' ? 'Campus is required for Principal accounts' : 'Campus is required for this role');
+
+    const isSuper = formData.role === 'Super Admin';
+    const allowSchoolWide = formData.role === 'Admin' && formData.schoolWide;
+    const campusIds = isSuper || allowSchoolWide ? [] : formData.campusIds;
+
+    if (!isSuper && !allowSchoolWide && formData.role !== 'Student' && campusIds.length === 0) {
+      toast.error(
+        formData.role === 'Admin'
+          ? 'Select campuses or enable All campuses'
+          : 'Select at least one campus'
+      );
       return;
     }
 
@@ -93,7 +124,8 @@ export default function UserManagement() {
           fullName: formData.fullName,
           email: formData.email || null,
           role: formData.role,
-          campusId: formData.campusId || null,
+          campusId: campusIds[0] || null,
+          campusIds,
           isActive: formData.isActive,
         };
         if (formData.password.trim()) payload.password = formData.password;
@@ -108,9 +140,11 @@ export default function UserManagement() {
           username: formData.username,
           email: formData.email || null,
           role: formData.role,
-          campusId: formData.campusId || null,
+          campusId: campusIds[0] || null,
+          campusIds,
           isActive: formData.isActive,
           password: formData.password || formData.username,
+          viaUserManagement: true,
         });
         toast.success('User created');
       }
@@ -126,12 +160,14 @@ export default function UserManagement() {
 
   const handleEdit = (user: User) => {
     setEditingId(user.id);
+    const ids = user.campusIds?.length ? user.campusIds : (user.campusId ? [user.campusId] : []);
     setFormData({
       fullName: user.fullName,
       username: user.username,
       email: user.email || '',
       role: user.role,
-      campusId: user.campusId || '',
+      campusIds: ids,
+      schoolWide: user.role === 'Admin' && ids.length === 0,
       isActive: user.isActive,
       password: '',
     });
@@ -147,6 +183,8 @@ export default function UserManagement() {
     );
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const showCampusPicker = formData.role !== 'Super Admin' && formData.role !== 'Student';
 
   return (
     <div className="space-y-8 pb-12">
@@ -231,8 +269,8 @@ export default function UserManagement() {
                       {user.role}
                     </span>
                   </td>
-                  <td className="px-8 py-5 text-sm text-slate-500">
-                    {campuses.find((c) => c.id === user.campusId)?.campusName || (user.role === 'Super Admin' ? 'All' : '—')}
+                  <td className="px-8 py-5 text-sm text-slate-500 max-w-xs">
+                    {campusLabel(user)}
                   </td>
                   <td className="px-8 py-5">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${user.isActive ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
@@ -287,57 +325,105 @@ export default function UserManagement() {
                     required
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    {formData.role === 'Student'
-                      ? 'Students use their roll number (e.g. STU-2026-0001) to log in.'
-                      : 'Staff use a short name (e.g. danish2), not a student roll number.'}
+                    Staff use a short name (e.g. danish2), not a student roll number.
                   </p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Email</label>
                   <input type="email" className="vibrant-input" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role</label>
-                    <SearchableSelect
-                      value={formData.role}
-                      onChange={(role) => {
-                        const nextRole = role as UserRole;
-                        const nextUsername = nextRole === 'Student'
-                          ? formData.username
-                          : (isStudentRollUsername(formData.username)
-                            ? suggestLoginUsername(formData.fullName)
-                            : formData.username);
-                        setFormData({ ...formData, role: nextRole, username: nextUsername });
-                      }}
-                      searchPlaceholder="Search role…"
-                      options={(() => {
-                        const fromApi = roleOptions.filter((r) => r.name !== 'Student' && r.isActive !== false);
-                        const names = new Set(fromApi.map((r) => r.name));
-                        const merged = [...fromApi];
-                        for (const name of ROLES) {
-                          if (!names.has(name)) {
-                            merged.push({ id: name, name, isSystem: true, isActive: true } as AppRole);
-                          }
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role</label>
+                  <SearchableSelect
+                    value={formData.role}
+                    onChange={(role) => {
+                      const nextRole = role as UserRole;
+                      const nextUsername = isStudentRollUsername(formData.username)
+                        ? suggestLoginUsername(formData.fullName)
+                        : formData.username;
+                      setFormData({
+                        ...formData,
+                        role: nextRole,
+                        username: nextUsername,
+                        schoolWide: nextRole === 'Admin' ? formData.schoolWide : false,
+                        campusIds: nextRole === 'Super Admin' ? [] : formData.campusIds,
+                      });
+                    }}
+                    searchPlaceholder="Search role…"
+                    options={(() => {
+                      const fromApi = roleOptions.filter((r) => r.name !== 'Student' && r.isActive !== false);
+                      const names = new Set(fromApi.map((r) => r.name));
+                      const merged = [...fromApi];
+                      for (const name of ROLES) {
+                        if (!names.has(name)) {
+                          merged.push({ id: name, name, isSystem: true, isActive: true } as AppRole);
                         }
-                        return merged.map((r) => ({ value: r.name, label: r.name }));
-                      })()}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                      Campus{formData.role === 'Principal' || (formData.role !== 'Super Admin' && formData.role !== 'Student') ? ' *' : ''}
-                    </label>
-                    <SearchableSelect
-                      value={formData.campusId}
-                      onChange={(campusId) => setFormData({ ...formData, campusId })}
-                      disabled={formData.role === 'Super Admin'}
-                      placeholder={formData.role === 'Principal' ? 'Select campus (required)' : '— None / School-wide —'}
-                      searchPlaceholder="Search campuses…"
-                      options={campuses.map((c) => ({ value: c.id, label: c.campusName }))}
-                    />
-                  </div>
+                      }
+                      return merged.map((r) => ({ value: r.name, label: r.name }));
+                    })()}
+                  />
                 </div>
+
+                {showCampusPicker && (
+                  <div className="space-y-3">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Campuses *
+                    </label>
+                    {formData.role === 'Admin' && (
+                      <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={formData.schoolWide}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              schoolWide: e.target.checked,
+                              campusIds: e.target.checked ? [] : formData.campusIds,
+                            })
+                          }
+                          className="rounded border-slate-300 text-primary"
+                        />
+                        <span className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                          All campuses (school-wide Admin)
+                        </span>
+                      </label>
+                    )}
+                    {!formData.schoolWide && (
+                      <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                        {campuses.length === 0 ? (
+                          <p className="p-4 text-sm text-slate-400">No campuses available</p>
+                        ) : (
+                          campuses.map((c) => (
+                            <label
+                              key={c.id}
+                              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.campusIds.includes(c.id)}
+                                onChange={() => toggleCampus(c.id)}
+                                className="rounded border-slate-300 text-primary"
+                              />
+                              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                {c.campusName}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-400">
+                      Select multiple campuses to grant access to each. Same role rights apply on all selected campuses.
+                    </p>
+                  </div>
+                )}
+
+                {formData.role === 'Super Admin' && (
+                  <p className="text-xs text-slate-500 bg-primary/5 rounded-xl p-3">
+                    Super Admin always has access to all campuses.
+                  </p>
+                )}
+
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
                     {editingId ? 'New Password (optional)' : 'Password (defaults to username)'}

@@ -7,7 +7,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { User, Campus, DashboardStats, FeeAuditLogEntry, FeeAuditSummary } from '../types';
 import { dataService } from '../services/dataService';
-import { canPickCampus, campusQueryParam, defaultCampusFilter, pathWithCampus } from '../utils/campusScope';
+import { canPickCampus, campusQueryParam, campusesForUser, defaultCampusFilter, pathWithCampus } from '../utils/campusScope';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/ui/PageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -232,7 +232,7 @@ export default function Dashboard({ user }: DashboardProps) {
                   onChange={setSelectedCampus}
                   options={[
                     { value: 'all', label: 'All campuses' },
-                    ...campusOptions.map((c) => ({ value: c.id, label: c.campusName })),
+                    ...campusesForUser(user, campusOptions).map((c) => ({ value: c.id, label: c.campusName })),
                   ]}
                   placeholder="All campuses"
                   searchPlaceholder="Search campuses…"

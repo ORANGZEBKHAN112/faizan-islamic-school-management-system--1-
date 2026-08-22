@@ -72,6 +72,16 @@ CREATE TABLE Users (
     uid NVARCHAR(255)
 );
 
+-- 4b. UserCampuses (multi-campus assignment; Users.campusId remains primary)
+CREATE TABLE UserCampuses (
+    userId NVARCHAR(50) NOT NULL,
+    campusId NVARCHAR(50) NOT NULL,
+    CONSTRAINT PK_UserCampuses PRIMARY KEY (userId, campusId),
+    CONSTRAINT FK_UserCampuses_Users FOREIGN KEY (userId) REFERENCES Users(id) ON DELETE CASCADE,
+    CONSTRAINT FK_UserCampuses_Campuses FOREIGN KEY (campusId) REFERENCES Campuses(id)
+);
+CREATE INDEX IX_UserCampuses_campusId ON UserCampuses(campusId);
+
 -- 5. Staff
 CREATE TABLE Staff (
     id NVARCHAR(50) PRIMARY KEY,
@@ -173,8 +183,10 @@ CREATE TABLE Fees (
     summer_camp_fee DECIMAL(18, 2) DEFAULT 0,
     id_card_fee DECIMAL(18, 2) DEFAULT 0,
     trip_fee DECIMAL(18, 2) DEFAULT 0,
+    kuickpay_consumer_number NVARCHAR(18) NULL,
     CONSTRAINT FK_Fees_Students FOREIGN KEY (student_id) REFERENCES Students(id)
 );
+CREATE UNIQUE INDEX UX_Fees_kuickpay_consumer_number ON Fees(kuickpay_consumer_number) WHERE kuickpay_consumer_number IS NOT NULL;
 
 -- 9b. FeeAuditLog (adjustments, reversals, payment updates)
 CREATE TABLE FeeAuditLog (
@@ -201,6 +213,22 @@ CREATE INDEX IX_FeeAuditLog_performed_on ON FeeAuditLog(performed_on DESC);
 CREATE INDEX IX_FeeAuditLog_student ON FeeAuditLog(student_id, performed_on DESC);
 CREATE INDEX IX_FeeAuditLog_action ON FeeAuditLog(action_type, performed_on DESC);
 
+-- 9c. KuickpayPaymentLog (BPS payment posts)
+CREATE TABLE KuickpayPaymentLog (
+    id NVARCHAR(50) PRIMARY KEY,
+    fee_id NVARCHAR(50) NOT NULL,
+    student_id NVARCHAR(50) NOT NULL,
+    consumer_number NVARCHAR(18) NOT NULL,
+    tran_auth_id NVARCHAR(6) NOT NULL,
+    amount DECIMAL(18, 2) NOT NULL,
+    tran_date NVARCHAR(8) NOT NULL,
+    tran_time NVARCHAR(6) NULL,
+    bank_mnemonic NVARCHAR(20) NULL,
+    reserved NVARCHAR(200) NULL,
+    created_at DATETIME DEFAULT GETDATE()
+);
+CREATE INDEX IX_KuickpayPaymentLog_consumer_auth ON KuickpayPaymentLog(consumer_number, tran_auth_id, tran_date);
+
 -- 10. Transactions (payment gateway log)
 CREATE TABLE Transactions (
     id NVARCHAR(50) PRIMARY KEY,
@@ -214,7 +242,7 @@ CREATE TABLE Transactions (
     response_log NVARCHAR(MAX)
 );
 
--- 11. QuickPayConfig
+-- 11. QuickPayConfig (Kuickpay BPS credentials + consumer number allocator)
 CREATE TABLE QuickPayConfig (
     id NVARCHAR(50) PRIMARY KEY,
     merchant_id NVARCHAR(255) NOT NULL,
@@ -222,6 +250,10 @@ CREATE TABLE QuickPayConfig (
     callback_url NVARCHAR(MAX),
     mode NVARCHAR(20) DEFAULT 'Sandbox',
     isEnabled BIT DEFAULT 0,
+    bps_username NVARCHAR(50) NULL,
+    bps_password NVARCHAR(100) NULL,
+    consumer_prefix NVARCHAR(5) NULL,
+    next_consumer_seq BIGINT DEFAULT 1,
     last_updated DATETIME DEFAULT GETDATE()
 );
 

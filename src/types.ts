@@ -16,6 +16,8 @@ export interface User {
   email?: string;
   role: UserRole;
   campusId?: string;
+  /** Assigned campuses (multi-campus access). Empty/undefined + school-wide role = all. */
+  campusIds?: string[];
   isActive: boolean;
   createdOn: string;
   uid?: string;
@@ -130,6 +132,7 @@ export interface Fee {
   summerCampFee?: number;
   idCardFee?: number;
   tripFee?: number;
+  kuickpayConsumerNumber?: string;
   dueDate: string;
   validityDate?: string;
   paymentDate?: string;
@@ -165,6 +168,13 @@ export interface QuickPayConfig {
   callbackUrl: string;
   mode: 'Sandbox' | 'Live';
   isEnabled: boolean;
+  /** BPS header username (falls back to merchantId). */
+  bpsUsername?: string;
+  bpsPassword?: string;
+  bpsPasswordSet?: boolean;
+  /** 5-digit Kuickpay institution prefix for consumer numbers. */
+  consumerPrefix?: string;
+  nextConsumerSeq?: number;
 }
 
 export interface Attendance {

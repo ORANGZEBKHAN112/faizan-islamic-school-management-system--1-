@@ -4,6 +4,7 @@ import path from "path";
 import { createRequire } from "module";
 import sql from "mssql";
 import { admissionCountsInPeriod } from "./admissionCutoff.js";
+import { ensureKuickpayConsumerNumber } from "./kuickpayBps.js";
 
 const require = createRequire(import.meta.url);
 // archiver CJS default export
@@ -261,6 +262,7 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
 
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
+      const createdFeeIds: string[] = [];
       try {
         for (const month of monthsToGenerate) {
           const defaultDue = new Date(year, month - 1, 10).toISOString().split("T")[0];
@@ -382,9 +384,17 @@ export async function runFeeGenerationJob(pool: sql.ConnectionPool, jobId: strin
                 )
               `);
             processedCount++;
+            createdFeeIds.push(id);
           }
         }
         await transaction.commit();
+        for (const feeId of createdFeeIds) {
+          try {
+            await ensureKuickpayConsumerNumber(pool, feeId);
+          } catch (assignErr) {
+            console.warn("Kuickpay consumer assign skipped:", assignErr);
+          }
+        }
       } catch (batchErr) {
         await transaction.rollback();
         throw batchErr;

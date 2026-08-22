@@ -54,12 +54,28 @@ import {
   normalizeStaffUsernames,
 } from "./server/userLogin.js";
 import { admissionCountsInPeriod } from "./server/admissionCutoff.js";
+import {
+  authFromHeaders,
+  applyKuickpayPayment,
+  backfillKuickpayConsumerNumbers,
+  buildInquirySuccess,
+  credentialsMatch,
+  ensureKuickpayConsumerNumber,
+  findFeeByConsumerNumber,
+  inquiryError,
+  isKuickpayEnabled,
+  loadKuickpayConfig,
+  parseKuickpayAmount,
+  paymentError,
+  resolveBpsCredentials,
+} from "./server/kuickpayBps.js";
 
 interface JwtPayload {
   id: string;
   username: string;
   role: string;
   campusId?: string;
+  campusIds?: string[];
 }
 
 interface AuthUserRow {
@@ -67,7 +83,11 @@ interface AuthUserRow {
   username: string;
   role: string;
   campusId: string | null;
+  campusIds: string[];
 }
+
+/** null = school-wide; string = one campus; string[] = multi-campus IN filter. */
+type CampusFilterValue = string | string[] | null;
 
 declare global {
   namespace Express {
@@ -182,6 +202,9 @@ function isPublicApiRoute(req: Request): boolean {
   if (path === "/api/health") return true;
   if (path === "/api/auth/login" && req.method === "POST") return true;
   if (path === "/api/payments/quickpay-callback" && req.method === "POST") return true;
+  if (path === "/api/v1/BillInquiry" && req.method === "POST") return true;
+  if (path === "/api/v1/BillPayment" && req.method === "POST") return true;
+  if (path === "/api/v1/payment" && req.method === "POST") return true;
   if (path === "/api/public/campuses" && req.method === "GET") return true;
   if (path === "/api/public/classes" && req.method === "GET") return true;
   if (path === "/api/public/admissions" && req.method === "POST") return true;
@@ -302,12 +325,14 @@ function normalizeSessionLabel(raw: unknown, fallbackYear?: number, fallbackMont
   return deriveAcademicSession(y, m);
 }
 
-function buildFeeFilterClauses(req: Request, request: tediousSql.Request, campusFilter: string | null) {
+function buildFeeFilterClauses(
+  req: Request,
+  request: tediousSql.Request,
+  campusFilter: CampusFilterValue
+) {
   const whereParts: string[] = [];
-  if (campusFilter) {
-    whereParts.push("s.campus_id = @campusId");
-    request.input("campusId", campusFilter);
-  }
+  const campusClause = bindCampusColumnFilter(request, campusFilter, "s.campus_id", "campusId");
+  if (campusClause) whereParts.push(campusClause);
 
   const studentId = String(req.query.studentId || "").trim();
   if (studentId) {
@@ -395,7 +420,14 @@ function redactQuickPayConfig(row: Record<string, unknown>) {
     mapped[mapToResponseKey(key)] = row[key];
   });
   const hasKey = Boolean(mapped.apiKey);
-  return { ...mapped, apiKey: "", apiKeySet: hasKey };
+  const hasBpsPassword = Boolean(mapped.bpsPassword);
+  return {
+    ...mapped,
+    apiKey: "",
+    apiKeySet: hasKey,
+    bpsPassword: "",
+    bpsPasswordSet: hasBpsPassword,
+  };
 }
 
 const GENERIC_WRITE_ROLES: Record<string, Set<string>> = {
@@ -411,36 +443,118 @@ const GENERIC_WRITE_ROLES: Record<string, Set<string>> = {
   inventory: SUPER_ADMIN_ROLES,
 };
 
-function isSchoolWideRole(role: string, campusId: string | null | undefined): boolean {
-  return role === "Super Admin" || (role === "Admin" && !campusId);
+function isSchoolWideRole(role: string, campusId: string | null | undefined, campusIds: string[] = []): boolean {
+  if (role === "Super Admin") return true;
+  if (role === "Admin" && !campusId && campusIds.length === 0) return true;
+  return false;
 }
 
-/** null = school-wide; string = one campus; undefined = user has no campus assignment. */
-function resolveCampusScope(user: AuthUserRow): string | null | undefined {
-  if (isSchoolWideRole(user.role, user.campusId)) return null;
-  return user.campusId || undefined;
+/**
+ * null = school-wide (all campuses)
+ * string[] = allowed campuses (length >= 1)
+ * undefined = no campus assignment (denied)
+ */
+function resolveCampusScope(user: AuthUserRow): string[] | null | undefined {
+  const ids = (user.campusIds && user.campusIds.length > 0)
+    ? user.campusIds
+    : (user.campusId ? [user.campusId] : []);
+  if (isSchoolWideRole(user.role, user.campusId, ids)) return null;
+  if (ids.length === 0) return undefined;
+  return ids;
 }
 
 function resolveCampusFilter(
   user: AuthUserRow,
   queryCampusId?: unknown
-): { filter: string | null; denied: boolean } {
+): { filter: CampusFilterValue; denied: boolean } {
   const scope = resolveCampusScope(user);
   if (scope === undefined) return { filter: null, denied: true };
-  if (scope) return { filter: scope, denied: false };
   const q = queryCampusId && queryCampusId !== "all" ? String(queryCampusId) : null;
-  return { filter: q, denied: false };
+  if (scope === null) {
+    return { filter: q, denied: false };
+  }
+  if (q) {
+    if (!scope.includes(q)) return { filter: null, denied: true };
+    return { filter: q, denied: false };
+  }
+  return { filter: scope.length === 1 ? scope[0] : scope, denied: false };
 }
 
-function mapUserFromRow(user: Record<string, unknown>) {
+/** Returns SQL predicate or null when no campus restriction. */
+function bindCampusColumnFilter(
+  request: tediousSql.Request,
+  campusFilter: CampusFilterValue,
+  columnExpr: string,
+  paramBase = "campusId"
+): string | null {
+  if (!campusFilter) return null;
+  if (typeof campusFilter === "string") {
+    request.input(paramBase, campusFilter);
+    return `${columnExpr} = @${paramBase}`;
+  }
+  if (campusFilter.length === 0) return "1=0";
+  if (campusFilter.length === 1) {
+    request.input(paramBase, campusFilter[0]);
+    return `${columnExpr} = @${paramBase}`;
+  }
+  campusFilter.forEach((id, i) => request.input(`${paramBase}_${i}`, id));
+  return `${columnExpr} IN (${campusFilter.map((_, i) => `@${paramBase}_${i}`).join(", ")})`;
+}
+
+/** Replaces legacy `(@campusId IS NULL OR col = @campusId)` patterns. */
+function campusMatchOrAll(
+  request: tediousSql.Request,
+  campusFilter: CampusFilterValue,
+  columnExpr: string,
+  paramBase = "campusId"
+): string {
+  return bindCampusColumnFilter(request, campusFilter, columnExpr, paramBase) || "1=1";
+}
+
+function resolveEffectiveCampusId(
+  scope: string[] | null | undefined,
+  requestedCampusId: unknown,
+  opts?: { requireWhenMulti?: boolean }
+): { campusId: string | null; error?: string } {
+  if (scope === undefined) return { campusId: null, error: "User is not assigned to a campus" };
+  const requested = requestedCampusId && requestedCampusId !== "all" ? String(requestedCampusId) : null;
+  if (scope === null) return { campusId: requested };
+  if (requested) {
+    if (!scope.includes(requested)) {
+      return { campusId: null, error: "Forbidden — cannot modify another campus" };
+    }
+    return { campusId: requested };
+  }
+  if (scope.length === 1) return { campusId: scope[0] };
+  if (opts?.requireWhenMulti !== false) {
+    return { campusId: null, error: "Select a campus" };
+  }
+  return { campusId: null };
+}
+
+async function assertCampusFilterWrite(
+  user: AuthUserRow,
+  campusFilter: CampusFilterValue
+): Promise<string | null> {
+  if (!campusFilter) return null;
+  if (typeof campusFilter === "string") return assertCampusWrite(user, campusFilter);
+  return null;
+}
+
+function mapUserFromRow(user: Record<string, unknown>, campusIds?: string[]) {
   const createdOnRaw = user.createdOn ?? user.created_on ?? user.CreatedOn;
+  const primary = (user.campusId ?? user.campus_id ?? null) as string | null;
+  const ids = campusIds && campusIds.length > 0
+    ? campusIds
+    : (primary ? [primary] : []);
   return {
     id: String(user.id ?? ""),
     fullName: String(user.fullName ?? user.full_name ?? user.FullName ?? ""),
     username: String(user.username ?? user.Username ?? ""),
     email: (user.email ?? user.Email ?? null) as string | null,
     role: String(user.role ?? user.Role ?? ""),
-    campusId: (user.campusId ?? user.campus_id ?? null) as string | null,
+    campusId: primary || ids[0] || null,
+    campusIds: ids,
     isActive: Boolean(user.isActive ?? user.is_active ?? user.IsActive ?? true),
     createdOn: createdOnRaw
       ? new Date(createdOnRaw as string | number | Date).toISOString().slice(0, 10)
@@ -455,11 +569,71 @@ function isUserActive(user: Record<string, unknown>): boolean {
   return active === undefined ? true : Boolean(active);
 }
 
+async function loadUserCampusIds(userId: string): Promise<string[]> {
+  if (!pool || !pool.connected) await connectToDb();
+  if (!pool) return [];
+  try {
+    const result = await pool.request()
+      .input("userId", userId)
+      .query(`
+        SELECT campusId FROM UserCampuses WHERE userId = @userId
+        ORDER BY campusId
+      `);
+    return result.recordset.map((r) => String(r.campusId)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function loadCampusIdsByUserIds(userIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!userIds.length || !pool) return map;
+  try {
+    const request = pool.request();
+    userIds.forEach((id, i) => request.input(`u${i}`, id));
+    const inList = userIds.map((_, i) => `@u${i}`).join(", ");
+    const result = await request.query(`
+      SELECT userId, campusId FROM UserCampuses
+      WHERE userId IN (${inList})
+      ORDER BY userId, campusId
+    `);
+    for (const row of result.recordset) {
+      const uid = String(row.userId);
+      const list = map.get(uid) || [];
+      list.push(String(row.campusId));
+      map.set(uid, list);
+    }
+  } catch {
+    // table may not exist yet during early boot
+  }
+  return map;
+}
+
+async function replaceUserCampuses(userId: string, campusIds: string[]): Promise<void> {
+  if (!pool) return;
+  const unique = [...new Set(campusIds.map((c) => String(c || "").trim()).filter(Boolean))];
+  await pool.request().input("userId", userId).query(`DELETE FROM UserCampuses WHERE userId = @userId`);
+  for (const campusId of unique) {
+    await pool.request()
+      .input("userId", userId)
+      .input("campusId", campusId)
+      .query(`INSERT INTO UserCampuses (userId, campusId) VALUES (@userId, @campusId)`);
+  }
+}
+
+function normalizeCampusIdsInput(body: Record<string, unknown>): string[] {
+  if (Array.isArray(body.campusIds)) {
+    return [...new Set(body.campusIds.map((c) => String(c || "").trim()).filter(Boolean))];
+  }
+  if (body.campusId) return [String(body.campusId).trim()].filter(Boolean);
+  return [];
+}
+
 async function assertCampusWrite(user: AuthUserRow, targetCampusId: string): Promise<string | null> {
   const scope = resolveCampusScope(user);
   if (scope === undefined) return "User is not assigned to a campus";
   if (!targetCampusId) return "Campus is required";
-  if (scope && targetCampusId !== scope) return "Forbidden — cannot modify another campus";
+  if (scope && !scope.includes(targetCampusId)) return "Forbidden — cannot modify another campus";
 
   if (!pool || !pool.connected) await connectToDb();
   if (!pool) return "Database connection not available";
@@ -479,7 +653,17 @@ async function loadAuthUser(req: Request): Promise<AuthUserRow | null> {
   const result = await pool.request()
     .input("username", req.auth.username)
     .query("SELECT id, username, role, campusId FROM Users WHERE username = @username AND isActive = 1");
-  return result.recordset[0] || null;
+  const row = result.recordset[0];
+  if (!row) return null;
+  const campusIds = await loadUserCampusIds(String(row.id));
+  const primary = (row.campusId as string | null) || campusIds[0] || null;
+  return {
+    id: String(row.id),
+    username: String(row.username),
+    role: String(row.role),
+    campusId: primary,
+    campusIds: campusIds.length ? campusIds : (primary ? [primary] : []),
+  };
 }
 
 // Multer setup for Excel uploads (using memory storage for better compatibility)
@@ -918,6 +1102,11 @@ const COLUMN_MAP: Record<string, string> = {
   callbackUrl: "callback_url",
   isEnabled: "isEnabled",
   mode: "mode",
+  bpsUsername: "bps_username",
+  bpsPassword: "bps_password",
+  consumerPrefix: "consumer_prefix",
+  nextConsumerSeq: "next_consumer_seq",
+  kuickpayConsumerNumber: "kuickpay_consumer_number",
   // Attendance
   recordedBy: "recorded_by",
   // Expenses
@@ -952,6 +1141,7 @@ const TABLE_INSERT_WHITELIST: Record<string, Set<string>> = {
   ]),
   QuickPayConfig: new Set([
     "id", "merchantId", "apiKey", "callbackUrl", "isEnabled", "mode",
+    "bpsUsername", "bpsPassword", "consumerPrefix", "nextConsumerSeq",
   ]),
   FeeStructures: new Set([
     "id", "campusId", "classId", "tuitionFee", "admissionFee", "examFee", "transportFee", "miscFee",
@@ -1174,6 +1364,53 @@ async function connectToDb() {
           ALTER TABLE Fees ADD trip_fee DECIMAL(18, 2) DEFAULT 0;
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'validity_date')
           ALTER TABLE Fees ADD validity_date DATE;
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'kuickpay_consumer_number')
+          ALTER TABLE Fees ADD kuickpay_consumer_number NVARCHAR(18) NULL;
+
+        IF OBJECT_ID('QuickPayConfig', 'U') IS NULL
+        BEGIN
+          CREATE TABLE QuickPayConfig (
+            id NVARCHAR(50) PRIMARY KEY,
+            merchant_id NVARCHAR(100),
+            api_key NVARCHAR(255),
+            callback_url NVARCHAR(500),
+            mode NVARCHAR(20) DEFAULT 'Sandbox',
+            isEnabled BIT DEFAULT 0,
+            bps_username NVARCHAR(50),
+            bps_password NVARCHAR(100),
+            consumer_prefix NVARCHAR(5) DEFAULT '01520',
+            next_consumer_seq BIGINT DEFAULT 1
+          );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'bps_username')
+            ALTER TABLE QuickPayConfig ADD bps_username NVARCHAR(50) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'bps_password')
+            ALTER TABLE QuickPayConfig ADD bps_password NVARCHAR(100) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'consumer_prefix')
+            ALTER TABLE QuickPayConfig ADD consumer_prefix NVARCHAR(5) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'next_consumer_seq')
+            ALTER TABLE QuickPayConfig ADD next_consumer_seq BIGINT DEFAULT 1;
+        END
+
+        IF OBJECT_ID('KuickpayPaymentLog', 'U') IS NULL
+        BEGIN
+          CREATE TABLE KuickpayPaymentLog (
+            id NVARCHAR(50) PRIMARY KEY,
+            fee_id NVARCHAR(50) NOT NULL,
+            student_id NVARCHAR(50) NOT NULL,
+            consumer_number NVARCHAR(18) NOT NULL,
+            tran_auth_id NVARCHAR(6) NOT NULL,
+            amount DECIMAL(18, 2) NOT NULL,
+            tran_date NVARCHAR(8) NOT NULL,
+            tran_time NVARCHAR(6) NULL,
+            bank_mnemonic NVARCHAR(20) NULL,
+            reserved NVARCHAR(200) NULL,
+            created_at DATETIME DEFAULT GETDATE()
+          );
+          CREATE INDEX IX_KuickpayPaymentLog_consumer_auth ON KuickpayPaymentLog(consumer_number, tran_auth_id, tran_date);
+        END
 
         -- Migration: Populate paid_amount for already paid vouchers to fix analytics
         UPDATE Fees SET paid_amount = amount + ISNULL(arrears, 0) 
@@ -1616,6 +1853,49 @@ async function connectToDb() {
       console.log("Verified database schema (Students and Transactions tables)");
     } catch (schemaErr) {
       console.error("Error verifying database schema:", schemaErr);
+    }
+
+    try {
+      await pool.request().query(`
+        IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Fees') AND name = 'kuickpay_consumer_number')
+          AND NOT EXISTS (
+            SELECT 1 FROM sys.indexes WHERE name = 'UX_Fees_kuickpay_consumer_number' AND object_id = OBJECT_ID('Fees')
+          )
+          CREATE UNIQUE INDEX UX_Fees_kuickpay_consumer_number ON Fees(kuickpay_consumer_number)
+          WHERE kuickpay_consumer_number IS NOT NULL;
+      `);
+    } catch (kuickpayIdxErr) {
+      console.error("Error creating Kuickpay consumer number index:", kuickpayIdxErr);
+    }
+
+    try {
+      await pool.request().query(`
+        IF OBJECT_ID('UserCampuses', 'U') IS NULL
+        BEGIN
+          CREATE TABLE UserCampuses (
+            userId NVARCHAR(50) NOT NULL,
+            campusId NVARCHAR(50) NOT NULL,
+            CONSTRAINT PK_UserCampuses PRIMARY KEY (userId, campusId)
+          );
+          CREATE INDEX IX_UserCampuses_campusId ON UserCampuses(campusId);
+        END
+
+        -- Backfill from primary Users.campusId
+        IF OBJECT_ID('UserCampuses', 'U') IS NOT NULL AND OBJECT_ID('Users', 'U') IS NOT NULL
+        BEGIN
+          INSERT INTO UserCampuses (userId, campusId)
+          SELECT u.id, u.campusId
+          FROM Users u
+          WHERE u.campusId IS NOT NULL
+            AND LTRIM(RTRIM(u.campusId)) <> ''
+            AND NOT EXISTS (
+              SELECT 1 FROM UserCampuses uc
+              WHERE uc.userId = u.id AND uc.campusId = u.campusId
+            );
+        END
+      `);
+    } catch (userCampusesErr) {
+      console.error("Error ensuring UserCampuses table:", userCampusesErr);
     }
 
     await seedAdmin();
@@ -2066,7 +2346,8 @@ async function startServer() {
       }
 
       const permissions = await getRolePermissions(user.role);
-      const mapped = mapUserFromRow(user);
+      const campusIds = await loadUserCampusIds(String(user.id));
+      const mapped = mapUserFromRow(user, campusIds);
 
       res.json({
         ...mapped,
@@ -2297,9 +2578,9 @@ async function startServer() {
       const request = pool.request();
       const whereParts: string[] = [];
 
-      if (campusFilter) {
-        whereParts.push("s.campus_id = @campusId");
-        request.input("campusId", campusFilter);
+      {
+        const _cf = bindCampusColumnFilter(request, campusFilter, "s.campus_id", "campusId");
+        if (_cf) whereParts.push(_cf);
       }
 
       const classId = String(req.query.classId || "").trim();
@@ -2385,9 +2666,9 @@ async function startServer() {
       const search = String(req.query.search || "").trim();
       const request = pool.request().input("limit", limit);
       const whereParts: string[] = ["s.status = 'Active'"];
-      if (campusFilter) {
-        whereParts.push("s.campus_id = @campusId");
-        request.input("campusId", campusFilter);
+      {
+        const _cf = bindCampusColumnFilter(request, campusFilter, "s.campus_id", "campusId");
+        if (_cf) whereParts.push(_cf);
       }
       if (search) {
         whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search)");
@@ -2424,8 +2705,8 @@ async function startServer() {
       if (denied) return res.json([]);
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE id = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "id", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const query = `
         SELECT 
@@ -2606,8 +2887,8 @@ async function startServer() {
       if (denied) return res.json([]);
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE cl.campus_id = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "cl.campus_id", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const query = `
         SELECT 
@@ -3178,8 +3459,11 @@ async function startServer() {
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.body?.campusId);
       if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
+      if (Array.isArray(campusFilter)) {
+        return res.status(400).json({ message: "Select a campus for this action" });
+      }
       if (campusFilter) {
-        const campusErr = await assertCampusWrite(authUser, campusFilter);
+        const campusErr = await assertCampusFilterWrite(authUser, campusFilter);
         if (campusErr) return res.status(403).json({ message: campusErr });
       }
       const overwrite = Boolean(req.body?.overwrite);
@@ -3259,7 +3543,7 @@ async function startServer() {
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.body?.campusId);
       if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
       if (campusFilter) {
-        const campusErr = await assertCampusWrite(authUser, campusFilter);
+        const campusErr = await assertCampusFilterWrite(authUser, campusFilter);
         if (campusErr) return res.status(403).json({ message: campusErr });
       }
 
@@ -3446,6 +3730,7 @@ async function startServer() {
           f.arrears AS arrears,
           f.security_fee AS securityFee,
           f.registration_fee AS registrationFee,
+          f.kuickpay_consumer_number AS kuickpayConsumerNumber,
           f.summer_camp_fee AS summerCampFee,
           f.id_card_fee AS idCardFee,
           f.trip_fee AS tripFee,
@@ -3877,7 +4162,8 @@ async function startServer() {
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
       if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
 
-      const request = pool.request().input("campusId", campusFilter || null);
+      const request = pool.request();
+      const campusClause = campusMatchOrAll(request, campusFilter, "campus_id", "campusId");
       const summary = await request.query(`
         SELECT
           ISNULL(SUM(CASE WHEN action_type IN ('collection_reversal', 'income_reversal') THEN amount ELSE 0 END), 0) AS totalReversed,
@@ -3889,7 +4175,7 @@ async function startServer() {
           COUNT(*) AS totalEvents,
           COUNT(DISTINCT student_id) AS affectedStudents
         FROM FeeAuditLog
-        WHERE (@campusId IS NULL OR campus_id = @campusId)
+        WHERE ${campusClause}
       `);
 
       res.json(summary.recordset[0] || {
@@ -4255,7 +4541,139 @@ async function startServer() {
     }
   });
 
-  // QuickPay Callback Route (public webhook — signature + idempotency)
+  // Kuickpay BPS — merchant hosts Inquiry + Payment (called by Kuickpay)
+  const handleKuickpayBillInquiry = async (req: Request, res: Response) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json(inquiryError("05", "Database unavailable"));
+
+      const cfg = await loadKuickpayConfig(pool);
+      if (!isKuickpayEnabled(cfg)) {
+        return res.status(400).json(inquiryError("05", "Kuickpay is not enabled"));
+      }
+      const expected = resolveBpsCredentials(cfg);
+      const provided = authFromHeaders(req as unknown as { headers: Record<string, unknown> });
+      if (!credentialsMatch(provided, expected)) {
+        return res.status(401).json(inquiryError("04", "Invalid credentials"));
+      }
+
+      const body = req.body || {};
+      const consumerNumber = String(
+        body.consumerNumber || body.consumer_number || body.ConsumerNumber || ""
+      ).replace(/\D/g, "");
+      if (!consumerNumber) {
+        return res.status(400).json(inquiryError("04", "consumerNumber is required"));
+      }
+
+      const fee = await findFeeByConsumerNumber(pool, consumerNumber);
+      if (!fee) {
+        return res.json(inquiryError("01", "Consumer number not found"));
+      }
+
+      res.json(buildInquirySuccess(fee, consumerNumber));
+    } catch (err) {
+      console.error("Kuickpay BillInquiry error:", err);
+      res.status(500).json(inquiryError("05", "Processing failed"));
+    }
+  };
+
+  const handleKuickpayBillPayment = async (req: Request, res: Response) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json(paymentError("05", "Database unavailable"));
+
+      const cfg = await loadKuickpayConfig(pool);
+      if (!isKuickpayEnabled(cfg)) {
+        return res.status(400).json(paymentError("05", "Kuickpay is not enabled"));
+      }
+      const expected = resolveBpsCredentials(cfg);
+      const provided = authFromHeaders(req as unknown as { headers: Record<string, unknown> });
+      if (!credentialsMatch(provided, expected)) {
+        return res.status(401).json(paymentError("04", "Invalid credentials"));
+      }
+
+      const body = req.body || {};
+      const consumerNumber = String(
+        body.consumer_number || body.consumerNumber || body.ConsumerNumber || ""
+      ).replace(/\D/g, "");
+      const tranAuthId = String(body.tran_auth_id || body.tranAuthId || "").replace(/\D/g, "").slice(0, 6);
+      const tranDate = String(body.tran_date || body.tranDate || "").replace(/\D/g, "").slice(0, 8);
+      const tranTime = String(body.tran_time || body.tranTime || "").replace(/\D/g, "").slice(0, 6);
+      const bankMnemonic = String(body.bank_mnemonic || body.bankMnemonic || "").slice(0, 8);
+      const reserved = String(body.Reserved || body.reserved || "");
+      const amount = parseKuickpayAmount(body.transaction_amount ?? body.transactionAmount ?? body.amount);
+
+      if (!consumerNumber || !tranAuthId || !tranDate || !bankMnemonic) {
+        return res.status(400).json(paymentError("04", "Missing required payment fields"));
+      }
+      if (tranAuthId.length !== 6) {
+        return res.status(400).json(paymentError("04", "tran_auth_id must be 6 digits"));
+      }
+
+      const fee = await findFeeByConsumerNumber(pool, consumerNumber);
+      if (!fee) {
+        return res.json(paymentError("01", "Voucher number does not exist"));
+      }
+
+      const result = await applyKuickpayPayment(pool, {
+        fee,
+        consumerNumber,
+        amount,
+        tranAuthId,
+        tranDate,
+        tranTime,
+        bankMnemonic,
+        reserved,
+        recomputeStudentOutstanding,
+      });
+
+      if (result.response_Code === "00") {
+        try {
+          await insertFeeAuditLog({
+            feeId: String(fee.id),
+            studentId: String(fee.student_id),
+            campusId: (fee.campusId as string) || null,
+            actionType: "payment",
+            amount,
+            previousPaid: Number(fee.paid_amount || 0),
+            newPaid: Number(fee.paid_amount || 0) + amount,
+            previousBalance: Number(fee.balance_amount || 0),
+            newBalance: result.balanceAmount ?? 0,
+            previousStatus: String(fee.status || ""),
+            newStatus: result.status || "",
+            reason: `Kuickpay BPS ${tranAuthId}`,
+            performedBy: "kuickpay-bps",
+            notes: `bank=${bankMnemonic}; date=${tranDate}`,
+          });
+        } catch {
+          // optional
+        }
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error("Kuickpay BillPayment error:", err);
+      res.status(500).json(paymentError("05", "Processing failed"));
+    }
+  };
+
+  app.post("/api/v1/BillInquiry", handleKuickpayBillInquiry);
+  app.post("/api/v1/BillPayment", handleKuickpayBillPayment);
+  app.post("/api/v1/payment", handleKuickpayBillPayment);
+
+  app.post("/api/fees/assign-kuickpay-ids", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const limit = Math.min(2000, Math.max(1, Number(req.body?.limit) || 500));
+      const assigned = await backfillKuickpayConsumerNumbers(pool, limit);
+      res.json({ message: "Kuickpay consumer numbers assigned", assigned });
+    } catch (err) {
+      sendServerError(res, err, "Error assigning Kuickpay IDs");
+    }
+  });
+
+  // QuickPay Callback Route (legacy webhook — kept for backward compatibility)
   app.post("/api/payments/quickpay-callback", async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -4386,7 +4804,9 @@ async function startServer() {
       }
 
       const { campusId, month: reqMonth, months: reqMonths, year: reqYear, session: reqSession, includeAdmissions, includeArrears, dueDate: reqDueDate, validityDate: reqValidityDate } = req.body;
-      const effectiveCampusId = scope || (campusId && campusId !== "all" ? campusId : null);
+      const effective = resolveEffectiveCampusId(scope, campusId);
+      if (effective.error) return res.status(403).json({ message: effective.error });
+      const effectiveCampusId = effective.campusId;
       if (effectiveCampusId) {
         const campusErr = await assertCampusWrite(authUser, String(effectiveCampusId));
         if (campusErr) return res.status(403).json({ message: campusErr });
@@ -4459,7 +4879,7 @@ async function startServer() {
       if (!job) return res.status(404).json({ message: "Job not found" });
 
       const scope = resolveCampusScope(authUser);
-      if (scope && job.campusId && job.campusId !== scope) {
+      if (scope && job.campusId && !scope.includes(String(job.campusId))) {
         return res.status(403).json({ message: "Forbidden" });
       }
       res.json(job);
@@ -4478,8 +4898,12 @@ async function startServer() {
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.body?.campusId);
       if (denied) return res.status(403).json({ message: "User is not assigned to a campus" });
       if (campusFilter) {
-        const campusErr = await assertCampusWrite(authUser, campusFilter);
+        const campusErr = await assertCampusFilterWrite(authUser, campusFilter);
         if (campusErr) return res.status(403).json({ message: campusErr });
+      }
+
+      if (Array.isArray(campusFilter)) {
+        return res.status(400).json({ message: "Select a campus for fee export" });
       }
 
       const jobId = crypto.randomUUID();
@@ -4585,9 +5009,9 @@ async function startServer() {
       const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50));
       const request = pool.request().input("limit", limit);
       const whereParts: string[] = [];
-      if (campusFilter) {
-        whereParts.push("r.campus_id = @campusId");
-        request.input("campusId", campusFilter);
+      {
+        const _cf = bindCampusColumnFilter(request, campusFilter, "r.campus_id", "campusId");
+        if (_cf) whereParts.push(_cf);
       }
 
       const query = `
@@ -4746,7 +5170,8 @@ async function startServer() {
         `);
 
       await recomputeStudentOutstanding(studentId);
-      res.status(201).json({ id, amount, feeType, month, year, message: "Single voucher created" });
+      const kuickpayConsumerNumber = await ensureKuickpayConsumerNumber(pool, id);
+      res.status(201).json({ id, amount, feeType, month, year, kuickpayConsumerNumber, message: "Single voucher created" });
     } catch (err) {
       sendServerError(res, err, "Error creating single voucher");
     }
@@ -4769,7 +5194,7 @@ async function startServer() {
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const scope = resolveCampusScope(authUser);
-      if (scope && student.campusId !== scope) {
+      if (scope && student.campusId && !scope.includes(String(student.campusId))) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -4919,8 +5344,10 @@ async function startServer() {
         `);
 
       await recomputeStudentOutstanding(studentId);
+      const kuickpayConsumerNumber = await ensureKuickpayConsumerNumber(pool, id);
       res.status(201).json({
         id, amount: amount > 0 ? amount : gross, balanceAmount, paidAmount: appliedPaid, status, feeType,
+        kuickpayConsumerNumber,
         message: "Custom voucher created",
       });
     } catch (err) {
@@ -4947,7 +5374,7 @@ async function startServer() {
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const scope = resolveCampusScope(authUser);
-      if (scope && student.campusId !== scope) {
+      if (scope && student.campusId && !scope.includes(String(student.campusId))) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -5054,7 +5481,8 @@ async function startServer() {
 
       await recomputeStudentOutstanding(studentId);
 
-      res.status(201).json({ id, feeType, amount: chargeAmount, message: `${feeType} charge created` });
+      const kuickpayConsumerNumber = await ensureKuickpayConsumerNumber(pool, id);
+      res.status(201).json({ id, feeType, amount: chargeAmount, kuickpayConsumerNumber, message: `${feeType} charge created` });
     } catch (err) {
       sendServerError(res, err, "Error creating extra charge");
     }
@@ -5749,9 +6177,11 @@ async function startServer() {
         LEFT JOIN Students s ON s.admission_no = u.username AND s.status = 'Active'
         WHERE u.role <> 'Student'
       `);
-      const users = result.recordset
+      const usersRaw = result.recordset;
+      const campusMap = await loadCampusIdsByUserIds(usersRaw.map((r) => String(r.id)));
+      const users = usersRaw
         .map((row) => {
-          const mapped = mapUserFromRow(row as Record<string, unknown>);
+          const mapped = mapUserFromRow(row as Record<string, unknown>, campusMap.get(String(row.id)));
           const linkedStudentRoll = row.linkedStudentRoll as string | null;
           return linkedStudentRoll ? { ...mapped, linkedStudentRoll } : mapped;
         })
@@ -5768,6 +6198,9 @@ async function startServer() {
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const { id } = req.params;
       const { fullName, email, role, campusId, isActive, password, username } = req.body;
+      const campusIdsInput = Array.isArray(req.body.campusIds) || req.body.campusId !== undefined
+        ? normalizeCampusIdsInput(req.body || {})
+        : undefined;
 
       if (req.auth?.id === id && isActive === false) {
         return res.status(400).json({ message: "Cannot deactivate your own account" });
@@ -5822,8 +6255,12 @@ async function startServer() {
         request.input("username", nextUsername);
         updates.push("username = @username");
       }
-      if (campusId !== undefined) {
-        request.input("campusId", campusId || null);
+      if (campusIdsInput !== undefined || campusId !== undefined) {
+        const ids = campusIdsInput !== undefined
+          ? campusIdsInput
+          : (campusId ? [String(campusId)] : []);
+        const primary = ids[0] || null;
+        request.input("campusId", primary);
         updates.push("campusId = @campusId");
       }
       if (isActive !== undefined) {
@@ -5835,14 +6272,25 @@ async function startServer() {
         request.input("passwordHash", hashed);
         updates.push("passwordHash = @passwordHash");
       }
-      if (updates.length === 0) {
+      if (updates.length === 0 && campusIdsInput === undefined) {
         return res.status(400).json({ message: "No fields to update" });
       }
-      await request.query(`UPDATE Users SET ${updates.join(", ")} WHERE id = @id`);
+      if (updates.length > 0) {
+        await request.query(`UPDATE Users SET ${updates.join(", ")} WHERE id = @id`);
+      }
+      if (campusIdsInput !== undefined) {
+        const finalRole = role ?? existing.role;
+        if (finalRole === "Super Admin") {
+          await replaceUserCampuses(id, []);
+        } else {
+          await replaceUserCampuses(id, campusIdsInput);
+        }
+      }
       const updated = await pool.request()
         .input("id", id)
         .query(`SELECT * FROM Users WHERE id = @id`);
-      res.json(mapUserFromRow(updated.recordset[0] as Record<string, unknown>));
+      const campusIds = await loadUserCampusIds(id);
+      res.json(mapUserFromRow(updated.recordset[0] as Record<string, unknown>, campusIds));
     } catch (err) {
       sendServerError(res, err, "Error updating user");
     }
@@ -5859,8 +6307,8 @@ async function startServer() {
       if (denied) return res.json([]);
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE st.campusId = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "st.campusId", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const result = await request.query(`
         SELECT st.id, st.fullName, st.cnic, st.qualification, st.salary,
@@ -5956,8 +6404,8 @@ async function startServer() {
       if (denied) return res.json([]);
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE e.campus_id = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "e.campus_id", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const result = await request.query(`
         SELECT e.id, e.title, e.exam_type AS examType, e.class_id AS classId,
@@ -6458,8 +6906,8 @@ async function startServer() {
       if (denied) return res.json([]);
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE a.campus_id = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "a.campus_id", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const result = await request.query(`
         SELECT a.id, a.campus_id AS campusId, c.campus_name AS campusName,
@@ -6709,8 +7157,8 @@ async function startServer() {
       if (denied) return res.json({ summary: {}, rows: [] });
 
       const request = pool.request();
-      const campusWhere = campusFilter ? " WHERE a.campus_id = @campusId" : "";
-      if (campusFilter) request.input("campusId", campusFilter);
+      const _cfW = bindCampusColumnFilter(request, campusFilter, "a.campus_id", "campusId");
+      const campusWhere = _cfW ? ` WHERE ${_cfW}` : "";
 
       const summaryResult = await request.query(`
         SELECT
@@ -6727,7 +7175,8 @@ async function startServer() {
       `);
 
       const rowsRequest = pool.request();
-      if (campusFilter) rowsRequest.input("campusId", campusFilter);
+      const rowsCampus = bindCampusColumnFilter(rowsRequest, campusFilter, "a.campus_id", "campusId");
+      const rowsWhere = rowsCampus ? ` WHERE ${rowsCampus}` : "";
       const rowsResult = await rowsRequest.query(`
           SELECT a.tracking_no AS trackingNo, a.applicant_name AS applicantName,
                  c.campus_name AS campusName, cl.class_name AS className,
@@ -6744,7 +7193,7 @@ async function startServer() {
           FROM AdmissionApplications a
           LEFT JOIN Campuses c ON c.id = a.campus_id
           LEFT JOIN Classes cl ON cl.id = a.class_id
-          ${campusWhere}
+          ${rowsWhere}
           ORDER BY a.applied_on DESC
         `);
 
@@ -7478,7 +7927,8 @@ async function startServer() {
       }
 
       const year = parseInt(String(req.query.year || new Date().getFullYear()), 10);
-      const request = pool.request().input("year", year).input("campusId", campusFilter || null);
+      const request = pool.request().input("year", year);
+      const feeCampus = campusMatchOrAll(request, campusFilter, "s.campus_id", "campusId");
 
       const feeAgg = await request.query(`
         SELECT
@@ -7488,15 +7938,17 @@ async function startServer() {
           COUNT(DISTINCT CASE WHEN f.status IN ('Unpaid','Partially Paid') THEN f.student_id END) AS defaulters
         FROM Fees f
         JOIN Students s ON f.student_id = s.id
-        WHERE f.year = @year AND (@campusId IS NULL OR s.campus_id = @campusId)
+        WHERE f.year = @year AND ${feeCampus}
       `);
 
+      const expenseCampus = campusMatchOrAll(request, campusFilter, "e.campus_id", "expCampus");
       const expenseAgg = await request.query(`
         SELECT ISNULL(SUM(e.amount), 0) AS totalExpenses
         FROM Expenses e
-        WHERE YEAR(e.date) = @year AND (@campusId IS NULL OR e.campus_id = @campusId)
+        WHERE YEAR(e.date) = @year AND ${expenseCampus}
       `);
 
+      const monthlyCampus = campusMatchOrAll(request, campusFilter, "s.campus_id", "monCampus");
       const monthly = await request.query(`
         SELECT f.month,
           ISNULL(SUM(f.paid_amount), 0) AS collected,
@@ -7504,7 +7956,7 @@ async function startServer() {
         FROM Fees f
         JOIN Students s ON f.student_id = s.id
         WHERE f.year = @year AND f.month > 0
-          AND (@campusId IS NULL OR s.campus_id = @campusId)
+          AND ${monthlyCampus}
         GROUP BY f.month
         ORDER BY f.month
       `);
@@ -7563,17 +8015,18 @@ async function startServer() {
       }
 
       try {
-        await refreshDashboardCampusStats(pool, campusFilter || null);
+        const refreshId = typeof campusFilter === "string" ? campusFilter : null;
+        await refreshDashboardCampusStats(pool, refreshId);
       } catch (refreshErr) {
         console.warn("Dashboard stats refresh on read failed:", refreshErr);
       }
 
-      const liveActiveResult = campusFilter
-        ? await pool.request().input("campusId", campusFilter).query(`SELECT COUNT(*) AS n FROM Students WHERE status = 'Active' AND campus_id = @campusId`)
-        : await pool.request().query(`SELECT COUNT(*) AS n FROM Students WHERE status = 'Active'`);
+      const liveActiveReq = pool.request();
+      const liveActiveClause = bindCampusColumnFilter(liveActiveReq, campusFilter, "campus_id", "campusId");
+      const liveActiveResult = await liveActiveReq.query(
+        `SELECT COUNT(*) AS n FROM Students WHERE status = 'Active'${liveActiveClause ? ` AND ${liveActiveClause}` : ""}`
+      );
       const liveActiveStudents = Number(liveActiveResult.recordset[0]?.n || 0);
-
-      const request = pool.request().input("campusId", campusFilter || null);
 
       let statsData: Record<string, unknown>;
       if (!campusFilter) {
@@ -7611,7 +8064,7 @@ async function startServer() {
           `);
           statsData = retry.recordset[0] || statsData;
         }
-      } else {
+      } else if (typeof campusFilter === "string") {
         const matCampus = await pool.request()
           .input("campusId", campusFilter)
           .query(`
@@ -7631,7 +8084,8 @@ async function startServer() {
         if (matCampus.recordset[0]) {
           statsData = matCampus.recordset[0];
         } else {
-          const stats = await request.query(`
+          const statsReq = pool.request().input("campusId", campusFilter);
+          const stats = await statsReq.query(`
             SELECT 
               (SELECT COUNT(*) FROM Students WHERE status = 'Active' AND campus_id = @campusId) as activeStudents,
               (SELECT ISNULL(SUM(f.paid_amount), 0) FROM Fees f JOIN Students s ON f.student_id = s.id WHERE s.campus_id = @campusId) as totalCollected,
@@ -7646,26 +8100,55 @@ async function startServer() {
           `);
           statsData = stats.recordset[0] || {};
         }
+      } else {
+        // Multi-campus: aggregate materialised rows for allowed campuses
+        const multiReq = pool.request();
+        const multiClause = bindCampusColumnFilter(multiReq, campusFilter, "campus_id", "dc");
+        const matMulti = await multiReq.query(`
+          SELECT
+            ISNULL(SUM(active_students), 0) AS activeStudents,
+            ISNULL(SUM(total_collected), 0) AS totalCollected,
+            ISNULL(SUM(total_outstanding), 0) AS totalOutstanding,
+            COUNT(*) AS campusCount,
+            ISNULL(SUM(defaulters), 0) AS defaulters,
+            ISNULL(SUM(pending_admissions), 0) AS pendingAdmissions,
+            ISNULL(SUM(exams_scheduled), 0) AS examsScheduled,
+            ISNULL(SUM(online_collections), 0) AS onlineCollections,
+            ISNULL(SUM(total_expenses), 0) AS totalExpenses
+          FROM DashboardCampusStats
+          WHERE ${multiClause || "1=1"}
+        `);
+        statsData = matMulti.recordset[0] || {};
+        const classReq = pool.request();
+        const classClause = bindCampusColumnFilter(classReq, campusFilter, "campus_id", "cl");
+        const classCount = await classReq.query(
+          `SELECT COUNT(*) AS n FROM Classes WHERE ${classClause || "1=1"}`
+        );
+        statsData.classCount = Number(classCount.recordset[0]?.n || 0);
       }
 
-      const monthly = await request.query(`
+      const monthlyReq = pool.request();
+      const monthlyCampus = campusMatchOrAll(monthlyReq, campusFilter, "s.campus_id", "mCampus");
+      const monthly = await monthlyReq.query(`
         SELECT f.month, f.year,
           ISNULL(SUM(f.paid_amount), 0) AS collected,
           ISNULL(SUM(CASE WHEN f.balance_amount > 0 THEN f.balance_amount ELSE 0 END), 0) AS pending
         FROM Fees f
         JOIN Students s ON f.student_id = s.id
         WHERE f.month > 0 AND f.year = YEAR(GETDATE())
-          AND (@campusId IS NULL OR s.campus_id = @campusId)
+          AND ${monthlyCampus}
         GROUP BY f.month, f.year
         ORDER BY f.month
       `);
 
-      const recent = await request.query(`
+      const recentReq = pool.request();
+      const recentCampus = campusMatchOrAll(recentReq, campusFilter, "s.campus_id", "rCampus");
+      const recent = await recentReq.query(`
         SELECT TOP 5 t.id, t.amount, s.student_name AS studentName,
                CONVERT(VARCHAR, t.transaction_date, 120) AS transactionDate
         FROM Transactions t
         JOIN Students s ON t.student_id = s.id
-        WHERE t.status = 'Success' AND (@campusId IS NULL OR s.campus_id = @campusId)
+        WHERE t.status = 'Success' AND ${recentCampus}
         ORDER BY t.transaction_date DESC
       `);
 
@@ -7727,21 +8210,17 @@ async function startServer() {
 
         const request = pool.request();
         if (collection === "expenses") {
-          if (campusFilter) {
-            request.input("campusId", campusFilter);
-            result = await request.query(`SELECT * FROM Expenses WHERE campus_id = @campusId`);
-          } else {
-            result = await request.query(`SELECT * FROM Expenses`);
-          }
-        } else if (campusFilter) {
-          request.input("campusId", campusFilter);
-          result = await request.query(`
-            SELECT a.* FROM Attendance a
-            INNER JOIN Students s ON a.student_id = s.id
-            WHERE s.campus_id = @campusId
-          `);
+          const cf = bindCampusColumnFilter(request, campusFilter, "campus_id", "campusId");
+          result = await request.query(
+            cf ? `SELECT * FROM Expenses WHERE ${cf}` : `SELECT * FROM Expenses`
+          );
         } else {
-          result = await request.query(`SELECT * FROM Attendance`);
+          const cf = bindCampusColumnFilter(request, campusFilter, "s.campus_id", "campusId");
+          result = await request.query(
+            cf
+              ? `SELECT a.* FROM Attendance a INNER JOIN Students s ON a.student_id = s.id WHERE ${cf}`
+              : `SELECT * FROM Attendance`
+          );
         }
       } else {
         result = await pool.request().query(`SELECT * FROM ${tableName}`);
@@ -7845,9 +8324,9 @@ async function startServer() {
     const body = { ...req.body };
     if (col === "quickpay-config") {
       const apiKey = String(body.apiKey ?? "");
-      if (!apiKey || apiKey.includes("•")) {
-        delete body.apiKey;
-      }
+      if (!apiKey.trim() || apiKey.includes("•")) delete body.apiKey;
+      const bpsPassword = String(body.bpsPassword ?? "");
+      if (!bpsPassword.trim() || bpsPassword.includes("•")) delete body.bpsPassword;
     }
 
     const keys = Object.keys(body).filter(k => k !== 'id');
@@ -7953,25 +8432,29 @@ async function startServer() {
         return res.status(403).json({ message: "Account is disabled" });
       }
 
+      const campusIds = await loadUserCampusIds(String(user.id));
+
       const token = jwt.sign(
         {
           id: user.id,
           username: user.username,
           role: user.role,
-          campusId: user.campusId || undefined,
+          campusId: user.campusId || campusIds[0] || undefined,
+          campusIds: campusIds.length ? campusIds : undefined,
         },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
 
       const permissions = await getRolePermissions(user.role);
-      const mapped = mapUserFromRow(user);
+      const mapped = mapUserFromRow(user, campusIds);
 
       res.json({
         token,
         user: {
           ...mapped,
           campusId: mapped.campusId || undefined,
+          campusIds: mapped.campusIds,
           permissions,
         }
       });
@@ -7988,7 +8471,9 @@ async function startServer() {
         return res.status(503).json({ message: "Database connection not available. Please try again later." });
       }
 
-      const { fullName, username, email, role, campusId, isActive } = req.body;
+      const { fullName, username, email, role, isActive } = req.body;
+      const campusIds = normalizeCampusIdsInput(req.body || {});
+      const campusId = campusIds[0] || req.body.campusId || null;
       if (!fullName || !username || !role) {
         return res.status(400).json({ message: "fullName, username and role are required" });
       }
@@ -8010,11 +8495,13 @@ async function startServer() {
         return res.status(403).json({ message: "Forbidden — admin role required to create this account" });
       }
 
-      if (campusId) {
+      if (campusIds.length) {
         const authUser = await loadAuthUser(req);
         if (!authUser) return res.status(401).json({ message: "Unauthorized" });
-        const campusErr = await assertCampusWrite(authUser, String(campusId));
-        if (campusErr) return res.status(403).json({ message: campusErr });
+        for (const cid of campusIds) {
+          const campusErr = await assertCampusWrite(authUser, cid);
+          if (campusErr) return res.status(403).json({ message: campusErr });
+        }
       }
 
       // Default password is the username (e.g. the student roll number) unless one is provided.
@@ -8029,6 +8516,8 @@ async function startServer() {
 
       const hashed = await bcrypt.hash(String(password), 10);
       const id = crypto.randomUUID();
+      const primaryCampus =
+        targetRole === "Super Admin" ? null : (campusId || null);
 
       await pool.request()
         .input("id", id)
@@ -8037,12 +8526,16 @@ async function startServer() {
         .input("email", email || null)
         .input("passwordHash", hashed)
         .input("role", targetRole)
-        .input("campusId", campusId || null)
+        .input("campusId", primaryCampus)
         .input("isActive", isActive === false ? 0 : 1)
         .query(`
           INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
           VALUES (@id, @fullName, @username, @email, @passwordHash, @role, @campusId, @isActive, GETDATE())
         `);
+
+      if (targetRole !== "Super Admin" && campusIds.length) {
+        await replaceUserCampuses(id, campusIds);
+      }
 
       res.status(201).json({
         id,
@@ -8050,7 +8543,8 @@ async function startServer() {
         username,
         email: email || null,
         role: targetRole,
-        campusId: campusId || null,
+        campusId: primaryCampus,
+        campusIds: targetRole === "Super Admin" ? [] : campusIds,
         isActive: isActive !== false,
       });
     } catch (error) {

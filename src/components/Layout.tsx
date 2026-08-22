@@ -62,20 +62,29 @@ export default function Layout({ user }: LayoutProps) {
   }, []);
 
   useEffect(() => {
-    if (!user.campusId) {
+    const ids = user.campusIds?.length ? user.campusIds : (user.campusId ? [user.campusId] : []);
+    if (!ids.length) {
       setCampusName(null);
       return;
     }
     let cancelled = false;
     dataService.fetchCampuses().then((campuses: Campus[]) => {
       if (cancelled) return;
-      const match = campuses.find((c) => c.id === user.campusId);
-      setCampusName(match?.campusName ?? null);
+      const names = ids
+        .map((id) => campuses.find((c) => c.id === id)?.campusName)
+        .filter(Boolean) as string[];
+      if (names.length === 0) {
+        setCampusName(null);
+      } else if (names.length === 1) {
+        setCampusName(names[0]);
+      } else {
+        setCampusName(`${names[0]} +${names.length - 1} campuses`);
+      }
     }).catch(() => {
       if (!cancelled) setCampusName(null);
     });
     return () => { cancelled = true; };
-  }, [user.campusId]);
+  }, [user.campusId, user.campusIds]);
 
   const handleLogout = () => {
     localStorage.removeItem('user');

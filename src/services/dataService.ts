@@ -669,6 +669,12 @@ export const dataService = {
     return response.data as Array<Record<string, unknown>>;
   },
 
+  async assignKuickpayConsumerNumbers(limit = 500) {
+    const response = await api.post('/fees/assign-kuickpay-ids', { limit });
+    this.invalidateCollection('fees');
+    return response.data as { assigned: number; message: string };
+  },
+
   async regenerateVoucher(id: string) {
     const response = await api.post(`/fees/${id}/regenerate`);
     this.invalidateCollection('fees');

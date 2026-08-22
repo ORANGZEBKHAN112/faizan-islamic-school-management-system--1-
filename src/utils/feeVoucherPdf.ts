@@ -204,7 +204,7 @@ function drawCopy(
   blurb.forEach((line, i) => doc.text(line, x, y + i * 3.6));
   y += 13;
 
-  const kuickId = voucher.transactionRef || voucher.id;
+  const kuickId = voucher.kuickpayConsumerNumber || voucher.transactionRef || voucher.id;
   const payable = voucherRemaining(voucher);
 
   // KuickPay ID box

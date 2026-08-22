@@ -1,5 +1,6 @@
 import type sql from "mssql";
 import crypto from "crypto";
+import { ensureKuickpayConsumerNumber } from "./kuickpayBps.js";
 
 export type AdmissionMatchType = "new" | "re_enrollment" | "sibling" | "duplicate_active" | "duplicate_application";
 
@@ -680,5 +681,6 @@ export async function createEnrollmentFeeVoucher(
       )
     `);
 
+  await ensureKuickpayConsumerNumber(pool, feeId);
   return { feeId, totalDue: preview.totalDue };
 }

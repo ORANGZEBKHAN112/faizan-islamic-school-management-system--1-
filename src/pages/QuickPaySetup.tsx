@@ -57,12 +57,16 @@ export default function QuickPaySetup() {
     if (!config) return;
     
     // Validation
-    if (!config.merchantId.trim()) {
-      toast.error('Merchant ID is required');
+    if (!config.bpsUsername?.trim() && !config.merchantId.trim()) {
+      toast.error('BPS username is required');
       return;
     }
-    if (!config.apiKey.trim() && !config.apiKeySet) {
-      toast.error('API Key is required');
+    if (!config.bpsPassword?.trim() && !config.apiKey.trim() && !config.bpsPasswordSet && !config.apiKeySet) {
+      toast.error('BPS password is required');
+      return;
+    }
+    if (!config.consumerPrefix || config.consumerPrefix.replace(/\D/g, '').length !== 5) {
+      toast.error('Consumer prefix must be exactly 5 digits from Kuickpay');
       return;
     }
 
@@ -153,28 +157,46 @@ export default function QuickPaySetup() {
               </h3>
             </div>
             <form onSubmit={handleSave} className="p-8 space-y-6">
+              <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                <p className="font-black uppercase tracking-widest text-primary text-[10px]">BPS endpoints (share with Kuickpay)</p>
+                <p className="font-mono text-[10px] break-all">{`${window.location.origin}/api/v1/BillInquiry`}</p>
+                <p className="font-mono text-[10px] break-all">{`${window.location.origin}/api/v1/BillPayment`}</p>
+                <p className="text-[10px] text-slate-400">Auth: username + password HTTP headers</p>
+              </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Merchant ID</label>
-                <input 
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BPS Username</label>
+                <input
                   className="vibrant-input"
-                  value={config?.merchantId || ''}
-                  onChange={(e) => setConfig(prev => ({ ...prev!, merchantId: e.target.value }))}
+                  value={config?.bpsUsername || config?.merchantId || ''}
+                  onChange={(e) => setConfig((prev) => ({ ...prev!, bpsUsername: e.target.value, merchantId: e.target.value }))}
                   required
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">API Key</label>
-                <input 
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BPS Password</label>
+                <input
                   type="password"
                   className="vibrant-input"
-                  value={config?.apiKey || ''}
-                  onChange={(e) => setConfig(prev => ({ ...prev!, apiKey: e.target.value }))}
-                  placeholder={config?.apiKeySet ? 'Key configured — enter a new value to replace' : 'Enter API key'}
-                  required={!config?.apiKeySet}
+                  value={config?.bpsPassword || ''}
+                  onChange={(e) => setConfig((prev) => ({ ...prev!, bpsPassword: e.target.value, apiKey: e.target.value }))}
+                  placeholder={config?.bpsPasswordSet || config?.apiKeySet ? 'Configured — enter new value to replace' : 'Enter BPS password'}
+                  required={!config?.bpsPasswordSet && !config?.apiKeySet}
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Callback URL</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Consumer Prefix (5 digits)</label>
+                <input
+                  className="vibrant-input font-mono"
+                  value={config?.consumerPrefix || '01520'}
+                  onChange={(e) => setConfig((prev) => ({ ...prev!, consumerPrefix: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                  maxLength={5}
+                  placeholder="01520"
+                  required
+                />
+                <p className="text-[9px] text-slate-400">Assigned by Kuickpay to your institution. Consumer # = prefix + 13-digit serial.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Legacy Callback URL (optional)</label>
                 <input 
                   className="vibrant-input"
                   value={config?.callbackUrl || ''}
@@ -217,6 +239,20 @@ export default function QuickPaySetup() {
                   <Save className="w-5 h-5" />
                   {loading ? 'Saving...' : 'Save Configuration'}
                 </motion.button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const result = await dataService.assignKuickpayConsumerNumbers(1000);
+                      toast.success(`Assigned ${result.assigned} Kuickpay ID(s) to vouchers`);
+                    } catch {
+                      toast.error('Failed to assign Kuickpay IDs');
+                    }
+                  }}
+                  className="w-full py-3 rounded-2xl border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/5"
+                >
+                  Assign Kuickpay IDs to existing vouchers
+                </button>
               </PermissionGate>
             </form>
           </div>

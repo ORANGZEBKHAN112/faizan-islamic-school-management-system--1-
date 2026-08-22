@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
-import { canPickCampus, getStoredUser, getUserCampusScope, resolveCampusFilter } from '../utils/campusScope';
+import { canPickCampus, getStoredUser, getUserCampusScope, campusesForUser, resolveCampusFilter } from '../utils/campusScope';
 import { deriveAcademicSession, normalizeSessionLabel } from '../utils/academicSession';
 import { useCollection } from '../hooks/useCollection';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
@@ -973,7 +973,7 @@ export default function FeeManagement() {
                       searchPlaceholder="Search campuses…"
                       options={[
                         { value: 'all', label: 'All Campuses' },
-                        ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+                        ...(scopeUser ? campusesForUser(scopeUser, campuses) : campuses).map((c) => ({ value: c.id, label: c.campusName })),
                       ]}
                     />
                   ) : (
@@ -1253,7 +1253,7 @@ export default function FeeManagement() {
                 searchPlaceholder="Search campuses…"
                 options={[
                   { value: 'all', label: 'All Campuses' },
-                  ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+                  ...(scopeUser ? campusesForUser(scopeUser, campuses) : campuses).map((c) => ({ value: c.id, label: c.campusName })),
                 ]}
               />
             ) : (

@@ -8,7 +8,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { CHART_PALETTE, CHART_PRIMARY, CHART_SECONDARY } from '../utils/chartTheme';
 import { useNavigate } from 'react-router-dom';
-import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
+import { canPickCampus, campusesForUser, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { useCollection } from '../hooks/useCollection';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -193,7 +193,7 @@ export default function Reports() {
                   searchPlaceholder="Search campuses…"
                   options={[
                     { value: 'all', label: 'All campuses' },
-                    ...campuses.map((c) => ({ value: c.id, label: c.campusName })),
+                    ...(user ? campusesForUser(user, campuses) : campuses).map((c) => ({ value: c.id, label: c.campusName })),
                   ]}
                 />
               </div>
