@@ -26,7 +26,11 @@ Next steps on the VPS (in order):
   1. bash deploy/sql-connect-test.sh YOUR_SQL_HOST
   2. bash deploy/setup-vps.sh
   3. Upload/clone app to /var/www/fiss-erp, copy deploy/env.production.example → .env
+     (do not set NODE_ENV in .env — PM2 sets production)
   4. bash deploy/deploy-app.sh
+     If build fails with EACCES on dist/:
+       sudo chown -R "$USER:$USER" /var/www/fiss-erp/dist
+       # or: sudo rm -rf /var/www/fiss-erp/dist && npm run build
   5. bash deploy/install-pm2.sh
   6. bash deploy/install-nginx.sh erp.yourdomain.com
   7. bash deploy/go-live-checklist.sh https://erp.yourdomain.com

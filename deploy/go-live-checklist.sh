@@ -39,7 +39,10 @@ Manual steps (complete in the admin UI):
   [ ] Test Principal login, student portal, admissions workflow
 
 Update app later:
-  cd /var/www/fiss-erp && git pull && npm ci && npm run build && pm2 restart fiss-erp
+  cd /var/www/fiss-erp && git pull && npm ci
+  # If EACCES on dist/: sudo chown -R \"\$USER:\$USER\" dist   OR   sudo rm -rf dist
+  npm run build && pm2 restart fiss-erp
+  # Keep NODE_ENV out of .env (PM2 sets production)
 EOF
 
 if [[ "$FAIL" -ne 0 ]]; then

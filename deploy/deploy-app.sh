@@ -18,7 +18,20 @@ fi
 echo "==> Installing dependencies..."
 npm ci
 
+# Vite empties dist/ before build. Fix ownership if a previous run created root-owned files.
+if [[ -d dist ]]; then
+  echo "==> Ensuring dist/ is writable by $(whoami)..."
+  if [[ ! -w dist ]] || ! touch dist/.write-test 2>/dev/null; then
+    echo "dist/ is not writable. Fix with:"
+    echo "  sudo chown -R \"$(whoami):$(whoami)\" \"$APP_DIR/dist\""
+    echo "  # or: sudo rm -rf \"$APP_DIR/dist\""
+    exit 1
+  fi
+  rm -f dist/.write-test
+fi
+
 echo "==> Building frontend..."
+# Keep NODE_ENV out of .env for Vite; production mode is the default for `vite build`.
 npm run build
 
 echo "==> Type-check..."
