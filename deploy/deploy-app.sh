@@ -16,6 +16,7 @@ if ! grep -q '^JWT_SECRET=.' .env || grep -q 'change-me-to-a-long-random-string'
 fi
 
 echo "==> Installing dependencies..."
+# msnodesqlv8 is optionalDependencies (Windows LocalDB). On Linux it may warn/fail to build — that is OK.
 npm ci
 
 # Vite empties dist/ before build. Fix ownership if a previous run created root-owned files.

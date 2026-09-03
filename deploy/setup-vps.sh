@@ -17,10 +17,12 @@ fi
 node -v
 npm -v
 
-echo "==> Installing Nginx, Git, Certbot, build tools..."
+echo "==> Installing Nginx, Git, Certbot..."
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   nginx git certbot python3-certbot-nginx netcat-openbsd ufw
 
+# msnodesqlv8 is optional (Windows LocalDB only). Linux uses tedious via mssql.
+# Do not install build-essential just for that native addon on the VPS.
 echo "==> Installing PM2 globally..."
 sudo npm install -g pm2
 
