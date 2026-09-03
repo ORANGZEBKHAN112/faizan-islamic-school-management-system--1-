@@ -9,7 +9,6 @@ import bcrypt from "bcryptjs";
 import tediousSql from "mssql";
 import multer from "multer";
 import readXlsxFile from "read-excel-file/node";
-import * as XLSX from "xlsx";
 import { parse, format, isValid } from "date-fns";
 import crypto from "crypto";
 import {
@@ -750,7 +749,15 @@ function feeStatusFromPaidBalance(paid: number, balance: number): string {
 }
 
 /** Prefer SheetJS for Crystal Reports exports that break read-excel-file. */
-function readFeeMasterExcelRows(buffer: Buffer): Record<string, unknown>[] {
+async function readFeeMasterExcelRows(buffer: Buffer): Promise<Record<string, unknown>[]> {
+  let XLSX: typeof import("xlsx");
+  try {
+    XLSX = await import("xlsx");
+  } catch {
+    throw new Error(
+      "Missing dependency 'xlsx'. On the server run: npm ci  (or npm install xlsx)"
+    );
+  }
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const sheetName =
     workbook.SheetNames.find((name) => /fee|master|rpt/i.test(name)) || workbook.SheetNames[0];
@@ -6439,7 +6446,7 @@ async function startServer() {
     }
 
     try {
-      const rows = readFeeMasterExcelRows(req.file.buffer);
+      const rows = await readFeeMasterExcelRows(req.file.buffer);
       if (rows.length === 0) {
         return res.status(400).json({ message: "The Excel file has no data rows." });
       }
