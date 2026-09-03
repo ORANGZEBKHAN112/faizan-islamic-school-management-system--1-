@@ -9243,10 +9243,23 @@ async function startServer() {
 
   if (pool) startScalingWorkers(pool);
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
+  });
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `Port ${PORT} is already in use. Stop the other process (pm2 stop/delete fiss-erp, or: sudo fuser -k ${PORT}/tcp) then restart.`
+      );
+      process.exit(1);
+    }
+    console.error("HTTP server error:", err);
+    process.exit(1);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
 
