@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import tediousSql from "mssql";
 import multer from "multer";
 import readXlsxFile from "read-excel-file/node";
+import * as XLSX from "xlsx";
 import { parse, format, isValid } from "date-fns";
 import crypto from "crypto";
 import {
@@ -682,13 +683,18 @@ const parseExcelDate = (dateVal: any): string | null => {
     return format(dateVal, "yyyy-MM-dd");
   }
 
-  const dateStr = String(dateVal).trim();
+  let dateStr = String(dateVal).trim();
+  // Strip trailing time ("8/4/26 14:25")
+  if (/\d{1,2}:\d{2}/.test(dateStr)) {
+    dateStr = dateStr.replace(/\s+\d{1,2}:\d{2}(:\d{2})?.*$/, "").trim();
+  }
   const formats = [
     "dd-MM-yyyy", "MM-dd-yyyy", "yyyy-MM-dd",
     "MM-dd-yy", "dd-MM-yy",
     "dd MMM yyyy", "d MMM yyyy",
     "dd MMMM yyyy", "d MMMM yyyy",
     "MM/dd/yyyy", "dd/MM/yyyy", "M/d/yyyy",
+    "M/d/yy", "MM/dd/yy", "d/M/yy",
   ];
   
   for (const f of formats) {
@@ -700,6 +706,61 @@ const parseExcelDate = (dateVal: any): string | null => {
   
   return null;
 };
+
+function parseExcelMoney(raw: unknown): number {
+  const n = parseFloat(String(raw ?? "0").replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Parse legacy MonthTitle values like "Aug-2026", "August 2026", "08-2026". */
+function parseFeeMonthTitle(raw: unknown): { month: number; year: number; label: string } | null {
+  const label = String(raw ?? "").trim();
+  if (!label) return null;
+
+  const monthYear = label.match(/^([A-Za-z]{3,9})[-\/\s]+(\d{2,4})$/);
+  if (monthYear) {
+    let year = Number(monthYear[2]);
+    if (year < 100) year += 2000;
+    const tryParse = (fmt: string) => parse(`${monthYear[1]} 1 ${year}`, fmt, new Date());
+    const parsed = tryParse("MMM d yyyy");
+    const parsedLong = isValid(parsed) ? parsed : tryParse("MMMM d yyyy");
+    if (isValid(parsedLong)) {
+      return { month: parsedLong.getMonth() + 1, year: parsedLong.getFullYear(), label };
+    }
+  }
+
+  const numeric = label.match(/^(\d{1,2})[-\/](\d{4})$/) || label.match(/^(\d{4})[-\/](\d{1,2})$/);
+  if (numeric) {
+    const a = Number(numeric[1]);
+    const b = Number(numeric[2]);
+    const month = a > 12 ? b : a;
+    const year = a > 12 ? a : b;
+    if (month >= 1 && month <= 12 && year >= 2000) {
+      return { month, year, label };
+    }
+  }
+
+  return null;
+}
+
+function feeStatusFromPaidBalance(paid: number, balance: number): string {
+  if (balance <= 0) return "Paid";
+  if (paid > 0) return "Partially Paid";
+  return "Unpaid";
+}
+
+/** Prefer SheetJS for Crystal Reports exports that break read-excel-file. */
+function readFeeMasterExcelRows(buffer: Buffer): Record<string, unknown>[] {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const sheetName =
+    workbook.SheetNames.find((name) => /fee|master|rpt/i.test(name)) || workbook.SheetNames[0];
+  if (!sheetName) return [];
+  const sheet = workbook.Sheets[sheetName];
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+    raw: false,
+  });
+}
 
 function normalizeExcelCell(value: unknown): unknown {
   if (value === null || value === undefined) return "";
@@ -4035,6 +4096,120 @@ async function startServer() {
     }
   });
 
+  /** Full voucher reverse / void (#53) — unpaid → Cancelled; paid/partial → unpaid with audit */
+  app.post("/api/fees/:id/reverse-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const { id } = req.params;
+      const reason = String(req.body?.reason || "").trim();
+      if (!reason) return res.status(400).json({ message: "reason is required" });
+
+      const currentResult = await pool.request().input("id", id).query("SELECT * FROM Fees WHERE id = @id");
+      const currentFee = currentResult.recordset[0];
+      if (!currentFee) return res.status(404).json({ message: "Fee record not found" });
+      if (String(currentFee.status) === "Cancelled") {
+        return res.status(409).json({ message: "Voucher already cancelled" });
+      }
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const studentCampusResult = await pool.request()
+        .input("studentId", currentFee.student_id)
+        .query("SELECT campus_id FROM Students WHERE id = @studentId");
+      const studentCampus = studentCampusResult.recordset[0];
+      if (!studentCampus) return res.status(404).json({ message: "Student not found" });
+      const campusErr = await assertCampusWrite(authUser, studentCampus.campus_id);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const actor = authUser.username || req.auth?.username || "unknown";
+      const prevPaid = Number(currentFee.paid_amount || 0);
+      const prevBalance = Number(currentFee.balance_amount || 0);
+      const prevStatus = String(currentFee.status || "");
+      const baseAmount = Number(currentFee.amount || 0) + Number(currentFee.arrears || 0);
+      const discountAmount = Number(currentFee.discount_amount || 0);
+      const fineAmount = Number(currentFee.fine_amount || 0);
+      const netPayable = Math.max(0, baseAmount + fineAmount - discountAmount);
+
+      let history: Array<Record<string, unknown>> = [];
+      try {
+        history = JSON.parse(currentFee.payment_history || "[]");
+        if (!Array.isArray(history)) history = [];
+      } catch {
+        history = [];
+      }
+
+      const reversedOn = new Date().toISOString();
+      history = history.map((entry) =>
+        entry && !entry.reversed && String(entry.type || "payment") !== "reversal"
+          ? { ...entry, reversed: true, reversedOn, reversedBy: actor, reverseReason: reason, reverseKind: "voucher" }
+          : entry
+      );
+      history.push({
+        type: "reversal",
+        date: reversedOn,
+        amount: -prevPaid,
+        method: "Voucher Reverse",
+        ref: "VOUCHER-REV",
+        reason,
+        reversedBy: actor,
+      });
+
+      const newStatus = prevPaid > 0 || prevStatus === "Paid" || prevStatus === "Partially Paid"
+        ? "Unpaid"
+        : "Cancelled";
+      const newPaid = 0;
+      const newBalance = newStatus === "Cancelled" ? 0 : netPayable;
+
+      await pool.request()
+        .input("id", id)
+        .input("status", newStatus)
+        .input("paid_amount", newPaid)
+        .input("balance_amount", newBalance)
+        .input("payment_history", JSON.stringify(history))
+        .query(`
+          UPDATE Fees SET
+            status = @status,
+            paid_amount = @paid_amount,
+            balance_amount = @balance_amount,
+            payment_method = NULL,
+            payment_date = NULL,
+            transaction_ref = CASE WHEN @status = 'Cancelled' THEN transaction_ref ELSE NULL END,
+            payment_history = @payment_history
+          WHERE id = @id
+        `);
+
+      await insertFeeAuditLog({
+        feeId: id,
+        studentId: currentFee.student_id,
+        campusId: studentCampus.campus_id,
+        actionType: "collection_reversal",
+        amount: prevPaid,
+        previousPaid: prevPaid,
+        newPaid,
+        previousBalance: prevBalance,
+        newBalance,
+        previousStatus: prevStatus,
+        newStatus,
+        reason,
+        performedBy: actor,
+        notes: "Full voucher reverse",
+      });
+
+      await recomputeStudentOutstanding(currentFee.student_id);
+      res.json({
+        message: newStatus === "Cancelled" ? "Voucher cancelled" : "Voucher reversed to unpaid",
+        id,
+        status: newStatus,
+        paidAmount: newPaid,
+        balanceAmount: newBalance,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error reversing voucher");
+    }
+  });
+
   app.post("/api/fees/:id/adjust", requireRoles(FEE_ROLES), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
@@ -4603,7 +4778,7 @@ async function startServer() {
       const reserved = String(body.Reserved || body.reserved || "");
       const amount = parseKuickpayAmount(body.transaction_amount ?? body.transactionAmount ?? body.amount);
 
-      if (!consumerNumber || !tranAuthId || !tranDate || !bankMnemonic) {
+      if (!consumerNumber || !tranAuthId || !tranDate) {
         return res.status(400).json(paymentError("04", "Missing required payment fields"));
       }
       if (tranAuthId.length !== 6) {
@@ -4673,23 +4848,29 @@ async function startServer() {
     }
   });
 
-  // QuickPay Callback Route (legacy webhook — kept for backward compatibility)
+  // Kuickpay / QuickPay Callback Route (legacy webhook — payment + reverse)
   app.post("/api/payments/quickpay-callback", async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
 
-      const { transaction_id, fee_id, amount, signature } = req.body;
+      const body = req.body || {};
+      const transaction_id = body.transaction_id || body.tran_auth_id || body.tranAuthId;
+      const fee_id = body.fee_id || body.feeId;
+      const amount = body.amount ?? body.transaction_amount ?? body.transactionAmount;
+      const signature = body.signature;
+      const action = String(body.action || body.status || body.event || "paid").toLowerCase();
+      const isReverse =
+        action === "reverse" ||
+        action === "reversed" ||
+        action === "refund" ||
+        action === "void" ||
+        body.reversed === true ||
+        body.reversed === "true" ||
+        body.reversed === 1;
 
       if (!fee_id || !transaction_id) {
         return res.status(400).json({ message: "Missing fee_id or transaction_id" });
-      }
-
-      const dupResult = await pool.request()
-        .input("ref", String(transaction_id))
-        .query("SELECT TOP 1 id FROM Fees WHERE transaction_ref = @ref");
-      if (dupResult.recordset.length > 0) {
-        return res.json({ message: "Already processed", duplicate: true });
       }
 
       const configResult = await pool.request().query(
@@ -4700,7 +4881,7 @@ async function startServer() {
 
       if (quickPayConfig?.isEnabled) {
         if (!apiKey || !signature) {
-          return res.status(401).json({ message: "Signature required for QuickPay callback" });
+          return res.status(401).json({ message: "Signature required for Kuickpay callback" });
         }
         const payload = `${transaction_id}:${fee_id}:${amount ?? ""}`;
         const expected = crypto.createHmac("sha256", apiKey).update(payload).digest("hex");
@@ -4734,14 +4915,88 @@ async function startServer() {
         return res.status(403).json({ message: INACTIVE_CAMPUS_ACTION_MESSAGE });
       }
 
+      // #54 Reverse callback — undo Kuickpay collection for this voucher/ref
+      if (isReverse) {
+        const baseAmount = parseFloat(fee.amount || 0) + parseFloat(fee.arrears || 0);
+        const discountAmount = parseFloat(fee.discount_amount || 0);
+        const fineAmount = parseFloat(fee.fine_amount || 0);
+        const netPayable = Math.max(0, baseAmount + fineAmount - discountAmount);
+        const prevPaid = parseFloat(fee.paid_amount || 0);
+        let history: Array<Record<string, unknown>> = [];
+        try {
+          history = JSON.parse(fee.payment_history || "[]");
+          if (!Array.isArray(history)) history = [];
+        } catch {
+          history = [];
+        }
+        const already = history.some(
+          (h) => h?.type === "reversal" && String(h.ref || "") === `KP-REV-${transaction_id}`
+        );
+        if (already) {
+          return res.json({ message: "Already reversed", duplicate: true, status: fee.status });
+        }
+        const reversedOn = new Date().toISOString();
+        history.push({
+          type: "reversal",
+          date: reversedOn,
+          amount: -prevPaid,
+          method: "Kuickpay Reverse",
+          ref: `KP-REV-${transaction_id}`,
+          reason: "Kuickpay reverse callback",
+        });
+        await pool.request()
+          .input("id", fee_id)
+          .input("balance_amount", netPayable)
+          .input("payment_history", JSON.stringify(history))
+          .query(`
+            UPDATE Fees SET
+              status = 'Unpaid',
+              paid_amount = 0,
+              balance_amount = @balance_amount,
+              payment_method = NULL,
+              payment_date = NULL,
+              transaction_ref = NULL,
+              payment_history = @payment_history
+            WHERE id = @id
+          `);
+        await recomputeStudentOutstanding(fee.student_id);
+        try {
+          await pool.request()
+            .input("id", crypto.randomUUID())
+            .input("student_id", fee.student_id)
+            .input("voucher_id", fee_id)
+            .input("amount", prevPaid)
+            .input("status", "Reversed")
+            .input("transaction_ref", String(transaction_id))
+            .input("payment_method", "Kuickpay")
+            .query(`
+              INSERT INTO Transactions (id, student_id, voucher_id, amount, status, transaction_ref, payment_method, transaction_date)
+              VALUES (@id, @student_id, @voucher_id, @amount, @status, @transaction_ref, @payment_method, GETDATE())
+            `);
+        } catch {
+          // optional
+        }
+        return res.json({ message: "Payment reversed successfully", status: "Unpaid", balanceAmount: netPayable });
+      }
+
+      const dupResult = await pool.request()
+        .input("ref", String(transaction_id))
+        .query("SELECT TOP 1 id FROM Fees WHERE transaction_ref = @ref");
+      if (dupResult.recordset.length > 0) {
+        return res.json({ message: "Already processed", duplicate: true });
+      }
+
       const paymentAmount =
         parseFloat(amount) ||
         parseFloat(fee.balance_amount) ||
         parseFloat(fee.amount) ||
         0;
       const baseAmount = parseFloat(fee.amount || 0) + parseFloat(fee.arrears || 0);
+      const discountAmount = parseFloat(fee.discount_amount || 0);
+      const fineAmount = parseFloat(fee.fine_amount || 0);
+      const netPayable = Math.max(0, baseAmount + fineAmount - discountAmount);
       const totalPaid = (parseFloat(fee.paid_amount) || 0) + paymentAmount;
-      const balanceAmount = Math.max(0, baseAmount - totalPaid);
+      const balanceAmount = Math.max(0, netPayable - totalPaid);
       const status =
         balanceAmount <= 0 ? "Paid" : totalPaid > 0 ? "Partially Paid" : fee.status;
 
@@ -4755,7 +5010,7 @@ async function startServer() {
           UPDATE Fees SET 
             status = @status,
             transaction_ref = @transaction_ref,
-            payment_method = 'QuickPay',
+            payment_method = 'Kuickpay',
             payment_date = GETDATE(),
             paid_amount = @paid_amount,
             balance_amount = @balance_amount
@@ -4774,18 +5029,18 @@ async function startServer() {
           .input("amount", paymentAmount)
           .input("status", "Success")
           .input("transaction_ref", transaction_id)
-          .input("payment_method", "QuickPay")
+          .input("payment_method", "Kuickpay")
           .query(`
             INSERT INTO Transactions (id, student_id, voucher_id, amount, status, transaction_ref, payment_method, transaction_date)
             VALUES (@id, @student_id, @voucher_id, @amount, @status, @transaction_ref, @payment_method, GETDATE())
           `);
       } catch (txErr) {
-        console.warn("QuickPay transaction log skipped:", txErr);
+        console.warn("Kuickpay transaction log skipped:", txErr);
       }
 
       res.json({ message: "Payment status updated successfully", status, balanceAmount });
     } catch (err) {
-      console.error("QuickPay callback error:", err);
+      console.error("Kuickpay callback error:", err);
       res.status(500).json({ message: "Error processing callback", error: err instanceof Error ? err.message : String(err) });
     }
   });
@@ -6162,6 +6417,353 @@ async function startServer() {
     } catch (err) {
       console.error("Excel import failed:", err);
       sendServerError(res, err, "Excel import failed");
+    }
+  });
+
+  // Legacy ERP fee master import (rptFeeMaster — monthly vouchers + outstanding)
+  app.post("/api/import-fees", requireRoles(FEE_ROLES), upload.single("file"), async (req: Request, res: Response) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded. Please select a valid .xlsx file." });
+    }
+    if (!/\.xlsx$/i.test(req.file.originalname)) {
+      return res.status(400).json({ message: "Only .xlsx Excel workbooks are supported." });
+    }
+
+    if (!pool || !pool.connected) {
+      try {
+        await connectToDb();
+        if (!pool || !pool.connected) throw new Error("Database connection not available");
+      } catch (dbErr) {
+        return res.status(500).json({ message: dbErr instanceof Error ? dbErr.message : "Database connection failed" });
+      }
+    }
+
+    try {
+      const rows = readFeeMasterExcelRows(req.file.buffer);
+      if (rows.length === 0) {
+        return res.status(400).json({ message: "The Excel file has no data rows." });
+      }
+
+      const admissionCache = new Map<string, string>();
+      const existingStudents = await pool.request().query(
+        "SELECT id, admission_no FROM Students"
+      );
+      for (const s of existingStudents.recordset) {
+        admissionCache.set(String(s.admission_no).trim(), s.id);
+      }
+
+      const slipCache = new Map<string, string>();
+      const existingSlips = await pool.request().query(`
+        SELECT id, transaction_ref FROM Fees
+        WHERE transaction_ref LIKE 'LEGACY-SLIP:%'
+      `);
+      for (const f of existingSlips.recordset) {
+        slipCache.set(String(f.transaction_ref), f.id);
+      }
+
+      const closingArrearsCache = new Map<string, string>();
+      const existingClosing = await pool.request().query(`
+        SELECT id, student_id FROM Fees
+        WHERE fee_type = 'Arrears' AND month = 0 AND year = 0
+        ORDER BY created_at ASC
+      `);
+      for (const f of existingClosing.recordset) {
+        const sid = String(f.student_id);
+        if (!closingArrearsCache.has(sid)) closingArrearsCache.set(sid, f.id);
+      }
+
+      let importedCount = 0;
+      let updatedCount = 0;
+      let skippedCount = 0;
+      let missingStudents = 0;
+      let errorCount = 0;
+      let closingArrearsCount = 0;
+      const errorDetails: string[] = [];
+      const touchedStudents = new Set<string>();
+      const closingByStudent = new Map<string, number>();
+      const BATCH_SIZE = 200;
+
+      for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
+        const batch = rows.slice(offset, offset + BATCH_SIZE);
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+          for (const row of batch) {
+            try {
+              const admissionNo = String(
+                getVal(row, "Admission_No", "admission_no", "Admission No", "AdmissionNo") || ""
+              ).trim();
+              if (!admissionNo) {
+                skippedCount++;
+                continue;
+              }
+
+              const studentId = admissionCache.get(admissionNo);
+              if (!studentId) {
+                missingStudents++;
+                if (errorDetails.length < 12) {
+                  errorDetails.push(`Student not found for Admission_No ${admissionNo}`);
+                }
+                continue;
+              }
+
+              const monthInfo = parseFeeMonthTitle(
+                getVal(row, "MonthTitle", "Month Title", "month_title", "Month", "Billing Month")
+              );
+              if (!monthInfo) {
+                skippedCount++;
+                if (errorDetails.length < 12) {
+                  errorDetails.push(`Invalid MonthTitle for Admission_No ${admissionNo}`);
+                }
+                continue;
+              }
+
+              const slipId = String(getVal(row, "slip_id", "Slip_Id", "Slip Id", "SlipId", "voucher_no") || "").trim();
+              const slipRef = slipId ? `LEGACY-SLIP:${slipId}` : "";
+
+              const tuitionFee = parseExcelMoney(getVal(row, "Monthly_Fees", "Monthly Fees", "monthly_fees"));
+              const admissionFee = parseExcelMoney(getVal(row, "Admission_Fees", "Admission Fees", "admission_fees"));
+              const discountAmount = parseExcelMoney(getVal(row, "Discount", "discount"));
+              const adjustment = parseExcelMoney(getVal(row, "Adjustment", "adjustment"));
+              const advanceFee = parseExcelMoney(getVal(row, "advance_fee", "Advance Fee", "Advance"));
+              const netAmount = parseExcelMoney(getVal(row, "NetAmount", "Net Amount", "net_amount"));
+              const arrears = parseExcelMoney(getVal(row, "Arrears", "arrears"));
+              const amountToBePaid = parseExcelMoney(
+                getVal(row, "Amount_to_be_Paid", "Amount to be Paid", "amount_to_be_paid")
+              );
+              const collection = parseExcelMoney(getVal(row, "Collection", "collection", "Paid", "Paid Amount"));
+              const defaulter = parseExcelMoney(getVal(row, "Defaulter", "defaulter"));
+              const closingOutstanding = parseExcelMoney(
+                getVal(row, "Closing Outstandig", "Closing Outstanding", "closing_outstanding", "ClosingOutstanding")
+              );
+              const campusName = String(
+                getVal(row, "campusTitle", "Campus Title", "Campus Name", "campus_name") || ""
+              ).trim();
+              const dueDate =
+                parseExcelDate(getVal(row, "Voucher Issue Date", "voucher_issue_date", "Issue Date", "Due Date")) ||
+                new Date(monthInfo.year, monthInfo.month - 1, 10).toISOString().split("T")[0];
+
+              const amount =
+                netAmount > 0
+                  ? netAmount
+                  : Math.max(0, tuitionFee + admissionFee - discountAmount + adjustment);
+              const expectedDue = amountToBePaid > 0 ? amountToBePaid : amount + arrears;
+              const paidAmount = Math.max(0, collection);
+              const balanceAmount =
+                defaulter > 0 || String(getVal(row, "Defaulter", "defaulter") || "").trim() !== ""
+                  ? Math.max(0, defaulter)
+                  : Math.max(0, expectedDue - paidAmount);
+              const status = feeStatusFromPaidBalance(paidAmount, balanceAmount);
+              const feeType = admissionFee > 0 ? "Admission" : "Monthly";
+              const monthsLabel = monthInfo.label || `${feeType} — ${monthInfo.month}/${monthInfo.year}`;
+              const paymentDate = paidAmount > 0 ? dueDate : null;
+              const paymentMethod = paidAmount > 0 ? "Legacy Import" : null;
+
+              let feeId = slipRef ? slipCache.get(slipRef) : undefined;
+              if (!feeId && !slipRef) {
+                const existingMonth = await new sql.Request(transaction)
+                  .input("studentId", studentId)
+                  .input("month", monthInfo.month)
+                  .input("year", monthInfo.year)
+                  .query(`
+                    SELECT TOP 1 id FROM Fees
+                    WHERE student_id = @studentId AND month = @month AND year = @year
+                      AND fee_type IN ('Monthly', 'Admission')
+                    ORDER BY created_at DESC
+                  `);
+                feeId = existingMonth.recordset[0]?.id;
+              }
+
+              if (feeId) {
+                await new sql.Request(transaction)
+                  .input("id", feeId)
+                  .input("amount", amount)
+                  .input("month", monthInfo.month)
+                  .input("year", monthInfo.year)
+                  .input("status", status)
+                  .input("fee_type", feeType)
+                  .input("tuition_fee", tuitionFee)
+                  .input("admission_fee", admissionFee)
+                  .input("discount_amount", discountAmount)
+                  .input("misc_fee", adjustment)
+                  .input("arrears", arrears)
+                  .input("paid_amount", paidAmount)
+                  .input("balance_amount", balanceAmount)
+                  .input("due_date", dueDate)
+                  .input("campus_name_snapshot", campusName || null)
+                  .input("months_label", monthsLabel)
+                  .input("transaction_ref", slipRef || null)
+                  .input("payment_method", paymentMethod)
+                  .input("payment_date", paymentDate)
+                  .query(`
+                    UPDATE Fees SET
+                      amount = @amount, month = @month, year = @year, status = @status, fee_type = @fee_type,
+                      tuition_fee = @tuition_fee, admission_fee = @admission_fee,
+                      discount_amount = @discount_amount, misc_fee = @misc_fee, arrears = @arrears,
+                      paid_amount = @paid_amount, balance_amount = @balance_amount, due_date = @due_date,
+                      campus_name_snapshot = @campus_name_snapshot, months_label = @months_label,
+                      transaction_ref = COALESCE(@transaction_ref, transaction_ref),
+                      payment_method = @payment_method, payment_date = @payment_date
+                    WHERE id = @id
+                  `);
+                updatedCount++;
+              } else {
+                feeId = crypto.randomUUID();
+                await new sql.Request(transaction)
+                  .input("id", feeId)
+                  .input("student_id", studentId)
+                  .input("amount", amount)
+                  .input("month", monthInfo.month)
+                  .input("year", monthInfo.year)
+                  .input("status", status)
+                  .input("fee_type", feeType)
+                  .input("tuition_fee", tuitionFee)
+                  .input("admission_fee", admissionFee)
+                  .input("discount_amount", discountAmount)
+                  .input("misc_fee", adjustment)
+                  .input("arrears", arrears)
+                  .input("paid_amount", paidAmount)
+                  .input("balance_amount", balanceAmount)
+                  .input("due_date", dueDate)
+                  .input("campus_name_snapshot", campusName || null)
+                  .input("months_label", monthsLabel)
+                  .input("transaction_ref", slipRef || null)
+                  .input("payment_method", paymentMethod)
+                  .input("payment_date", paymentDate)
+                  .query(`
+                    INSERT INTO Fees (
+                      id, student_id, amount, month, year, status, fee_type,
+                      tuition_fee, admission_fee, discount_amount, misc_fee, arrears,
+                      paid_amount, balance_amount, due_date, campus_name_snapshot, months_label,
+                      transaction_ref, payment_method, payment_date
+                    ) VALUES (
+                      @id, @student_id, @amount, @month, @year, @status, @fee_type,
+                      @tuition_fee, @admission_fee, @discount_amount, @misc_fee, @arrears,
+                      @paid_amount, @balance_amount, @due_date, @campus_name_snapshot, @months_label,
+                      @transaction_ref, @payment_method, @payment_date
+                    )
+                  `);
+                if (slipRef) slipCache.set(slipRef, feeId);
+                importedCount++;
+              }
+
+              // Advance fee reduces outstanding gap when present on the slip
+              const closing = Math.max(0, closingOutstanding - advanceFee);
+              closingByStudent.set(studentId, closing);
+              touchedStudents.add(studentId);
+
+              const gap = Math.max(0, closing - balanceAmount);
+              let closingId = closingArrearsCache.get(studentId);
+              if (gap > 0) {
+                if (closingId) {
+                  await new sql.Request(transaction)
+                    .input("id", closingId)
+                    .input("amount", gap)
+                    .input("arrears", gap)
+                    .input("balance_amount", gap)
+                    .input("campus_name_snapshot", campusName || null)
+                    .query(`
+                      UPDATE Fees SET
+                        amount = @amount, arrears = @arrears, balance_amount = @balance_amount,
+                        paid_amount = 0, status = 'Unpaid',
+                        campus_name_snapshot = COALESCE(@campus_name_snapshot, campus_name_snapshot),
+                        months_label = N'Legacy closing outstanding'
+                      WHERE id = @id
+                    `);
+                } else {
+                  closingId = crypto.randomUUID();
+                  await new sql.Request(transaction)
+                    .input("id", closingId)
+                    .input("student_id", studentId)
+                    .input("amount", gap)
+                    .input("arrears", gap)
+                    .input("balance_amount", gap)
+                    .input("campus_name_snapshot", campusName || null)
+                    .query(`
+                      INSERT INTO Fees (
+                        id, student_id, amount, month, year, status, fee_type, arrears,
+                        balance_amount, paid_amount, due_date, campus_name_snapshot, months_label
+                      ) VALUES (
+                        @id, @student_id, @amount, 0, 0, 'Unpaid', 'Arrears', @arrears,
+                        @balance_amount, 0, GETDATE(), @campus_name_snapshot, N'Legacy closing outstanding'
+                      )
+                    `);
+                  closingArrearsCache.set(studentId, closingId);
+                  closingArrearsCount++;
+                }
+                // Zero duplicate legacy arrears rows so outstanding is not double-counted
+                await new sql.Request(transaction)
+                  .input("studentId", studentId)
+                  .input("keepId", closingId)
+                  .query(`
+                    UPDATE Fees SET amount = 0, arrears = 0, balance_amount = 0, paid_amount = 0, status = 'Paid'
+                    WHERE student_id = @studentId AND fee_type = 'Arrears' AND month = 0 AND year = 0
+                      AND id <> @keepId
+                  `);
+              } else if (closingId) {
+                await new sql.Request(transaction)
+                  .input("studentId", studentId)
+                  .query(`
+                    UPDATE Fees SET amount = 0, arrears = 0, balance_amount = 0, paid_amount = 0, status = 'Paid',
+                      months_label = N'Legacy closing outstanding'
+                    WHERE student_id = @studentId AND fee_type = 'Arrears' AND month = 0 AND year = 0
+                  `);
+              }
+            } catch (rowErr) {
+              errorCount++;
+              const msg = rowErr instanceof Error ? rowErr.message : String(rowErr);
+              if (errorDetails.length < 12) errorDetails.push(msg);
+            }
+          }
+          await transaction.commit();
+          console.log(
+            `Fee import batch ${Math.floor(offset / BATCH_SIZE) + 1}/${Math.ceil(rows.length / BATCH_SIZE)} committed`
+          );
+        } catch (batchErr) {
+          await transaction.rollback();
+          errorCount += batch.length;
+          const msg = batchErr instanceof Error ? batchErr.message : String(batchErr);
+          if (errorDetails.length < 12) errorDetails.push(`Batch failed: ${msg}`);
+        }
+      }
+
+      for (const studentId of touchedStudents) {
+        try {
+          const closing = closingByStudent.get(studentId);
+          if (closing !== undefined) {
+            await pool.request()
+              .input("id", studentId)
+              .input("outstanding", closing)
+              .query(`UPDATE Students SET outstanding_fees = @outstanding WHERE id = @id`);
+          } else {
+            await recomputeStudentOutstanding(studentId);
+          }
+        } catch (outErr) {
+          errorCount++;
+          const msg = outErr instanceof Error ? outErr.message : String(outErr);
+          if (errorDetails.length < 12) errorDetails.push(`Outstanding update failed: ${msg}`);
+        }
+      }
+
+      console.log(
+        `Fee import finished: ${importedCount} new, ${updatedCount} updated, ${missingStudents} missing students, ${errorCount} failed`
+      );
+
+      res.json({
+        message: "Fee import finished",
+        totalRows: rows.length,
+        imported: importedCount,
+        updated: updatedCount,
+        skipped: skippedCount,
+        missingStudents,
+        failed: errorCount,
+        closingArrears: closingArrearsCount,
+        studentsUpdated: touchedStudents.size,
+        errorDetails,
+      });
+    } catch (err) {
+      console.error("Fee Excel import failed:", err);
+      sendServerError(res, err, "Fee Excel import failed");
     }
   });
 
@@ -7570,6 +8172,9 @@ async function startServer() {
         });
       }
 
+      const cap = await assertClassCapacity(app.class_id, app.student_id);
+      if (!cap.ok) return res.status(400).json({ message: cap.message });
+
       const studentRow = await pool.request()
         .input("id", app.student_id)
         .query(`SELECT id, admission_no AS rollNumber FROM Students WHERE id = @id`);
@@ -7585,6 +8190,18 @@ async function startServer() {
           UPDATE AdmissionApplications SET status = 'Enrolled', student_id = @student_id,
             reviewed_by = @reviewed_by, reviewed_on = GETDATE() WHERE id = @id
         `);
+
+      // Activate student + portal login only after paid enrollment (#32)
+      await pool.request()
+        .input("studentId", app.student_id)
+        .query(`UPDATE Students SET status = 'Active' WHERE id = @studentId`);
+      try {
+        await pool.request()
+          .input("username", studentRow.recordset[0].rollNumber)
+          .query(`UPDATE Users SET isActive = 1 WHERE username = @username AND role = 'Student'`);
+      } catch {
+        // optional
+      }
 
       try {
         await refreshDashboardCampusStats(pool, app.campus_id || null);
@@ -7734,7 +8351,7 @@ async function startServer() {
             father_name = @father_name, father_cnic = @father_cnic, father_mobile = @father_mobile,
             registration_no = COALESCE(@registration_no, registration_no),
             dob = @dob, admission_date = @admission_date, gender = @gender, address = @address,
-            status = 'Active'
+            status = 'Pending'
           WHERE id = @id
         `);
     } else {
@@ -7760,7 +8377,7 @@ async function startServer() {
         .input("admission_date", admissionDate)
         .input("gender", app.gender)
         .input("address", app.address)
-        .input("status", "Active")
+        .input("status", "Pending")
         .query(`
           INSERT INTO Students (id, campus_id, class_id, admission_no, registration_no, student_name, father_name,
             father_cnic, father_mobile, dob, admission_date, gender, address, status, outstanding_fees)
@@ -7779,7 +8396,7 @@ async function startServer() {
           .input("campusId", app.campus_id || app.campusId)
           .query(`
             INSERT INTO Users (id, fullName, username, email, passwordHash, role, campusId, isActive, createdOn)
-            VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 1, GETDATE())
+            VALUES (@id, @fullName, @username, NULL, @passwordHash, @role, @campusId, 0, GETDATE())
           `);
       } catch {
         // optional login
@@ -7911,6 +8528,44 @@ async function startServer() {
   });
 
   // Network / campus report summary (uses materialized stats + bounded fee aggregates)
+  app.get("/api/reports/account-roll", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      if (denied) return res.json([]);
+
+      const status = String(req.query.status || "Active").trim();
+      const request = pool.request();
+      const campusSql = campusMatchOrAll(request, campusFilter, "s.campus_id", "campusId");
+      if (status && status !== "all") request.input("status", status);
+
+      const result = await request.query(`
+        SELECT
+          s.admission_no AS admissionNo,
+          s.student_name AS studentName,
+          s.father_name AS fatherName,
+          c.campus_name AS campusName,
+          cl.class_name AS className,
+          cl.section_name AS sectionName,
+          s.status,
+          ISNULL(s.outstanding_fees, 0) AS outstandingFees
+        FROM Students s
+        LEFT JOIN Campuses c ON c.id = s.campus_id
+        LEFT JOIN Classes cl ON cl.id = s.class_id
+        WHERE ${campusSql}
+          ${status && status !== "all" ? "AND s.status = @status" : ""}
+        ORDER BY c.campus_name, cl.class_name, s.student_name
+      `);
+      res.json(result.recordset);
+    } catch (err) {
+      sendServerError(res, err, "Error loading account roll");
+    }
+  });
+
   app.get("/api/reports/summary", async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();

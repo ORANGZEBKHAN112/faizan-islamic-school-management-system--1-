@@ -15,20 +15,29 @@ export interface KuickpayConfigRow {
   mode?: string;
 }
 
-/** Format PKR amount as Kuickpay AN14: sign + 13 digits (last 2 = minor). */
+/** Inquiry payable amount — AN14: sign + 13 digits (last 2 = paisa). */
 export function formatAmountWithinDueDate(amountPkr: number): string {
   const cents = Math.round(Math.max(0, amountPkr) * 100);
   const body = String(cents).padStart(13, "0").slice(-13);
   return `+${body}`;
 }
 
-/** Format paid amount as 12-digit minor units (no sign). */
+/**
+ * Payment API transaction_amount — 13 numeric digits, NO "+" sign.
+ * Example: "0000000120000" = PKR 1,200.00
+ */
+export function formatTransactionAmount(amountPkr: number): string {
+  const cents = Math.round(Math.max(0, amountPkr) * 100);
+  return String(cents).padStart(13, "0").slice(-13);
+}
+
+/** Inquiry Amount_Paid — 12 numeric digits (last 2 = paisa), no sign. */
 export function formatAmountPaid(amountPkr: number): string {
   const cents = Math.round(Math.max(0, amountPkr) * 100);
   return String(cents).padStart(12, "0").slice(-12);
 }
 
-/** Parse Kuickpay amount string (+0000000012000 or 120) to PKR number. */
+/** Parse Kuickpay amount (+0000000012000, 0000000120000, or plain number) to PKR. */
 export function parseKuickpayAmount(raw: unknown): number {
   const s = String(raw ?? "").trim();
   if (!s) return 0;
@@ -65,8 +74,25 @@ export function formatBillingMonth(month: number, year: number): string {
   return `${String(year).slice(-2)}${String(month).padStart(2, "0")}`;
 }
 
-export function billStatusFromFee(status: string, balance: number): KuickpayBillStatus {
-  const s = String(status || "");
+export function todayYmd(): string {
+  return formatDueDateYmd(new Date());
+}
+
+/** Blocked / cancelled statuses, or expired past validity_date. */
+export function isVoucherBlockedOrExpired(fee: Record<string, unknown>): boolean {
+  const status = String(fee.status || "").trim().toLowerCase();
+  if (status === "blocked" || status === "cancelled" || status === "canceled" || status === "void") {
+    return true;
+  }
+  const validityRaw = fee.validity_date ?? fee.validityDate;
+  if (!validityRaw) return false;
+  const validity = formatDueDateYmd(validityRaw as string);
+  return Boolean(validity) && validity < todayYmd();
+}
+
+export function billStatusFromFee(fee: Record<string, unknown>, balance: number): KuickpayBillStatus {
+  if (isVoucherBlockedOrExpired(fee)) return "B";
+  const s = String(fee.status || "");
   if (s === "Paid" || balance <= 0) return "P";
   return "U";
 }
@@ -198,9 +224,9 @@ export function outstandingPayable(fee: Record<string, unknown>): number {
   return Math.max(0, amount - paid);
 }
 
-export function buildInquirySuccess(fee: Record<string, unknown>, consumerNumber: string) {
+function inquiryCommonFields(fee: Record<string, unknown>, consumerNumber: string) {
   const balance = outstandingPayable(fee);
-  const status = billStatusFromFee(String(fee.status || ""), balance);
+  const status = billStatusFromFee(fee, balance);
   const paid = Number(fee.paid_amount || 0);
   const due = formatDueDateYmd(fee.due_date as string | null);
   const billingMonth = formatBillingMonth(Number(fee.month || 0), Number(fee.year || 0));
@@ -208,16 +234,14 @@ export function buildInquirySuccess(fee: Record<string, unknown>, consumerNumber
   const email = String(fee.studentEmail || "noreply@school.local").slice(0, 30);
   const contact =
     String(fee.studentContact || "00000000000").replace(/\D/g, "").slice(0, 15) || "00000000000";
-
-  const payableShown = status === "P" ? 0 : balance;
+  const payableShown = status === "P" || status === "B" ? (status === "B" ? balance : 0) : balance;
 
   return {
-    response_Code: "00",
     Consumer_Detail: name,
     Bill_Status: status,
     Due_Date: due,
-    Amount_Within_DueDate: formatAmountWithinDueDate(payableShown),
-    Amount_After_DueDate: formatAmountWithinDueDate(payableShown),
+    Amount_Within_DueDate: formatAmountWithinDueDate(status === "P" ? 0 : payableShown),
+    Amount_After_DueDate: formatAmountWithinDueDate(status === "P" ? 0 : payableShown),
     email_address: email,
     contact_number: contact,
     Billing_Month: billingMonth,
@@ -232,6 +256,26 @@ export function buildInquirySuccess(fee: Record<string, unknown>, consumerNumber
   };
 }
 
+/**
+ * Build Inquiry response.
+ * - Unpaid / Paid → response_Code 00
+ * - Blocked / expired → response_Code 02 + Bill_Status B (payment must not proceed)
+ */
+export function buildInquirySuccess(fee: Record<string, unknown>, consumerNumber: string) {
+  const fields = inquiryCommonFields(fee, consumerNumber);
+  if (fields.Bill_Status === "B") {
+    return {
+      response_Code: "02",
+      ...fields,
+      message: "Voucher is blocked or expired",
+    };
+  }
+  return {
+    response_Code: "00",
+    ...fields,
+  };
+}
+
 export function inquiryError(code: string, message?: string) {
   return { response_Code: code, message: message || undefined };
 }
@@ -240,6 +284,39 @@ export function paymentError(code: string, message?: string) {
   return { response_Code: code, message: message || undefined };
 }
 
+export type DuplicateClass = "exact" | "mismatch" | "none";
+
+/**
+ * 03 only when Consumer Number + Tran_Auth_ID + Amount Paid + Date Paid all match.
+ * Same auth with any field mismatch → 04.
+ */
+export async function classifyKuickpayDuplicate(
+  pool: ConnectionPool,
+  consumerNumber: string,
+  tranAuthId: string,
+  amount: number,
+  tranDate: string
+): Promise<DuplicateClass> {
+  const byAuth = await pool.request()
+    .input("cn", consumerNumber)
+    .input("auth", tranAuthId)
+    .query(`
+      SELECT TOP 5 amount, tran_date AS tranDate
+      FROM KuickpayPaymentLog
+      WHERE consumer_number = @cn AND tran_auth_id = @auth
+      ORDER BY created_at DESC
+    `);
+
+  if (byAuth.recordset.length === 0) return "none";
+
+  const exact = byAuth.recordset.some(
+    (row: { amount: number; tranDate: string }) =>
+      Math.abs(Number(row.amount) - amount) < 0.01 && String(row.tranDate) === String(tranDate)
+  );
+  return exact ? "exact" : "mismatch";
+}
+
+/** @deprecated use classifyKuickpayDuplicate */
 export async function isDuplicateKuickpayPayment(
   pool: ConnectionPool,
   consumerNumber: string,
@@ -247,19 +324,7 @@ export async function isDuplicateKuickpayPayment(
   amount: number,
   tranDate: string
 ): Promise<boolean> {
-  const result = await pool.request()
-    .input("cn", consumerNumber)
-    .input("auth", tranAuthId)
-    .input("amount", amount)
-    .input("tranDate", tranDate)
-    .query(`
-      SELECT TOP 1 id FROM KuickpayPaymentLog
-      WHERE consumer_number = @cn
-        AND tran_auth_id = @auth
-        AND ABS(amount - @amount) < 0.01
-        AND tran_date = @tranDate
-    `);
-  return result.recordset.length > 0;
+  return (await classifyKuickpayDuplicate(pool, consumerNumber, tranAuthId, amount, tranDate)) === "exact";
 }
 
 export async function applyKuickpayPayment(
@@ -287,21 +352,32 @@ export async function applyKuickpayPayment(
   const feeId = String(fee.id);
   const studentId = String(fee.student_id);
   const balance = outstandingPayable(fee);
-  const statusNow = billStatusFromFee(String(fee.status || ""), balance);
+  const statusNow = billStatusFromFee(fee, balance);
 
-  if (statusNow === "B") return paymentError("02", "Voucher is blocked");
-  if (statusNow === "P" || balance <= 0) return paymentError("03", "Voucher already paid");
+  const dup = await classifyKuickpayDuplicate(pool, consumerNumber, tranAuthId, amount, tranDate);
+  if (dup === "exact") return paymentError("03", "Duplicate transaction");
+  if (dup === "mismatch") {
+    return paymentError("04", "Transaction auth already used with different amount or date");
+  }
+
+  if (statusNow === "B") return paymentError("02", "Voucher is blocked or expired");
+  if (statusNow === "P" || balance <= 0) {
+    return paymentError("04", "Voucher already paid");
+  }
   if (!(amount > 0)) return paymentError("04", "Invalid transaction amount");
-  if (amount > balance + 0.009) return paymentError("04", "Amount exceeds outstanding balance");
 
-  if (await isDuplicateKuickpayPayment(pool, consumerNumber, tranAuthId, amount, tranDate)) {
-    return paymentError("03", "Duplicate transaction");
+  // KuickPay does not support partial payments — full outstanding only
+  if (Math.abs(amount - balance) > 0.009) {
+    return paymentError(
+      "04",
+      `Partial payment not supported; full outstanding required (${balance.toFixed(2)})`
+    );
   }
 
   const prevPaid = Number(fee.paid_amount || 0);
   const totalPaid = prevPaid + amount;
-  const newBalance = Math.max(0, balance - amount);
-  const newStatus = newBalance <= 0 ? "Paid" : "Partially Paid";
+  const newBalance = 0;
+  const newStatus = "Paid";
 
   let history: unknown[] = [];
   try {
@@ -317,7 +393,7 @@ export async function applyKuickpayPayment(
     fine: 0,
     method: "Kuickpay",
     ref: tranAuthId,
-    bankMnemonic,
+    bankMnemonic: bankMnemonic || null,
     tranDate,
     tranTime,
   });

@@ -647,12 +647,14 @@ export async function createEnrollmentFeeVoucher(
   const year = now.getFullYear();
   const dueDate = new Date(year, month - 1, 10).toISOString().split("T")[0];
   const feeId = crypto.randomUUID();
-  const amountAfterDiscount = preview.subtotal - preview.totalDiscount;
+  // Store GROSS amount; discount_amount is applied separately (UI: amount + arrears - discount).
+  // Previously amount was net-of-discount, so a Rs. 500 discount was subtracted twice (#48).
+  const amountGross = preview.subtotal;
 
   await pool.request()
     .input("id", feeId)
     .input("student_id", studentId)
-    .input("amount", amountAfterDiscount)
+    .input("amount", amountGross)
     .input("month", month)
     .input("year", year)
     .input("due_date", dueDate)

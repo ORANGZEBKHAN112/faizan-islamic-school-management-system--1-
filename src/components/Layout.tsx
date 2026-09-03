@@ -19,6 +19,8 @@ import { ThemeMode, getStoredTheme, applyTheme, cycleTheme } from '../utils/them
 import { dataService } from '../services/dataService';
 import { usePermissions } from '../context/PermissionContext';
 import { useI18n } from '../context/I18nContext';
+import { toast } from 'sonner';
+import { isSchoolWideUser } from '../utils/campusScope';
 
 interface LayoutProps {
   user: User;
@@ -60,6 +62,90 @@ export default function Layout({ user }: LayoutProps) {
       console.error('Reference data prefetch failed:', err);
     });
   }, []);
+
+  // #42 Campus-wise new inquiry reminders (Head Office sees all)
+  useEffect(() => {
+    if (!canView('admissions')) return;
+    let cancelled = false;
+    const seenKey = `inquiry-toast-seen:${user.id || user.username}`;
+    const loadSeen = (): Set<string> => {
+      try {
+        return new Set(JSON.parse(localStorage.getItem(seenKey) || '[]') as string[]);
+      } catch {
+        return new Set();
+      }
+    };
+    const saveSeen = (ids: Set<string>) => {
+      localStorage.setItem(seenKey, JSON.stringify([...ids].slice(-200)));
+    };
+
+    const poll = async () => {
+      try {
+        const params: Record<string, string> = { status: 'Pending', limit: '30' };
+        if (!isSchoolWideUser(user) && user.campusId) params.campusId = user.campusId;
+        const raw = await dataService.fetchAdmissions(params);
+        const list = Array.isArray(raw) ? raw : [];
+        const rows = list.filter((r) => {
+          const st = String(r?.status || '');
+          return st === 'Pending' || st === 'Under Review';
+        }) as Array<{
+          id: string;
+          applicantName?: string;
+          campusName?: string;
+          appliedOn?: string;
+          status?: string;
+        }>;
+        if (cancelled || rows.length === 0) return;
+        const seen = loadSeen();
+        const fresh = rows.filter((r) => r?.id && !seen.has(r.id));
+        if (fresh.length > 0) {
+          const sample = fresh.slice(0, 3);
+          toast.info(
+            fresh.length === 1
+              ? `New inquiry: ${sample[0].applicantName || 'Applicant'}${sample[0].campusName ? ` (${sample[0].campusName})` : ''}`
+              : `${fresh.length} new admission inquiries`,
+            {
+              description: sample.map((r) => r.applicantName || r.id).join(', '),
+              duration: 8000,
+              action: {
+                label: 'Open',
+                onClick: () => { window.location.href = '/admissions'; },
+              },
+            }
+          );
+          fresh.forEach((r) => seen.add(r.id));
+          saveSeen(seen);
+        }
+
+        // One reminder per session for inquiries pending 1+ days
+        const remindKey = `inquiry-stale-reminded:${user.id || user.username}`;
+        if (!sessionStorage.getItem(remindKey)) {
+          const now = Date.now();
+          const stale = rows.filter((r) => {
+            if (!r.appliedOn) return false;
+            const ageDays = (now - new Date(r.appliedOn).getTime()) / 86400000;
+            return ageDays >= 1;
+          });
+          if (stale.length > 0) {
+            sessionStorage.setItem(remindKey, '1');
+            toast.warning(`${stale.length} inquiry reminder(s) pending 1+ day`, {
+              description: 'Follow up on pending admission inquiries.',
+              duration: 6000,
+            });
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 120000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user, canView]);
 
   useEffect(() => {
     const ids = user.campusIds?.length ? user.campusIds : (user.campusId ? [user.campusId] : []);

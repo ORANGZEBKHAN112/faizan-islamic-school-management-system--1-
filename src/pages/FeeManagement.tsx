@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, FileText, Download, CheckCircle, AlertCircle, Filter, XCircle, CreditCard, Clock, Edit2, RotateCcw } from 'lucide-react';
+import { Plus, Search, FileText, Download, CheckCircle, AlertCircle, Filter, XCircle, CreditCard, Clock, Edit2, RotateCcw, Upload } from 'lucide-react';
 import { Fee, Campus, Class, FeeStructure, FeeSetting, FeeGenerationRun, FeeStats } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -160,6 +160,8 @@ export default function FeeManagement() {
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isImportingFees, setIsImportingFees] = useState(false);
+  const feeImportInputRef = useRef<HTMLInputElement>(null);
   const now = new Date();
   const [generationParams, setGenerationParams] = useState({
     campusId: scopeUser && getUserCampusScope(scopeUser) ? getUserCampusScope(scopeUser)! : 'all',
@@ -506,6 +508,29 @@ export default function FeeManagement() {
     }
   };
 
+  const handleReverseVoucher = async (voucher: Fee) => {
+    const ok = await confirm({
+      title: voucher.status === 'Paid' || (voucher.paidAmount || 0) > 0 ? 'Reverse voucher?' : 'Cancel voucher?',
+      message:
+        voucher.status === 'Paid' || (voucher.paidAmount || 0) > 0
+          ? `Reverse all collections on this voucher for ${voucher.studentName || 'student'} and set it back to Unpaid?`
+          : `Cancel unpaid voucher for ${voucher.studentName || 'student'}?`,
+      confirmLabel: 'Reverse',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    const reason = window.prompt('Reason for voucher reverse?');
+    if (!reason?.trim()) return;
+    try {
+      const result = await dataService.reverseVoucher(voucher.id, { reason: reason.trim() }) as { message?: string };
+      toast.success(result.message || 'Voucher reversed');
+      await refreshVouchers();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Failed to reverse voucher');
+    }
+  };
+
   const handleAdjustFee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedVoucher) return;
@@ -756,12 +781,84 @@ export default function FeeManagement() {
     }
   };
 
+  const handleImportFeesExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) {
+      toast.error('Please upload an .xlsx Excel file (Fee Master report).');
+      return;
+    }
+
+    setIsImportingFees(true);
+    const toastId = toast.loading(
+      `Importing ${file.name}… Large fee files (~7,000+ rows) may take several minutes. Keep this tab open.`
+    );
+    try {
+      const response = await dataService.importFees(file);
+      const {
+        imported = 0,
+        updated = 0,
+        failed = 0,
+        missingStudents = 0,
+        totalRows = 0,
+        closingArrears = 0,
+        studentsUpdated = 0,
+        errorDetails,
+      } = response;
+      await refreshVouchers();
+      if (failed > 0 || missingStudents > 0) {
+        toast.warning(
+          `Fee import done: ${imported} new, ${updated} updated, ${missingStudents} missing students, ${failed} failed (${totalRows} rows).`,
+          {
+            id: toastId,
+            description: errorDetails?.slice(0, 3).join(' · ') || undefined,
+            duration: 12000,
+          }
+        );
+      } else {
+        toast.success(
+          `Imported ${imported} vouchers (${updated} updated). Students outstanding updated: ${studentsUpdated}. Closing arrears rows: ${closingArrears}.`,
+          { id: toastId, duration: 8000 }
+        );
+      }
+    } catch (error) {
+      console.error('Fee import failed:', error);
+      const err = error as { response?: { data?: { message?: string } }; code?: string; message?: string };
+      toast.error(err.response?.data?.message || err.message || 'Fee import failed', {
+        id: toastId,
+        description: err.code === 'ECONNABORTED' ? 'Import timed out — try again or split the file.' : undefined,
+      });
+    } finally {
+      setIsImportingFees(false);
+    }
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <TranslatedPageHeader
         module="fees"
         actions={
           <>
+            <input
+              type="file"
+              ref={feeImportInputRef}
+              onChange={handleImportFeesExcel}
+              accept=".xlsx"
+              className="hidden"
+            />
+            <PermissionGate module="fees" action="create">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={isImportingFees}
+                onClick={() => feeImportInputRef.current?.click()}
+                className="vibrant-btn-secondary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                {isImportingFees ? 'Importing…' : 'Import fees Excel'}
+              </motion.button>
+            </PermissionGate>
             <PermissionGate module="fees" action="create">
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -1372,6 +1469,20 @@ export default function FeeManagement() {
                               Adjust
                             </motion.button>
                           </PermissionGate>
+                          {voucher.status !== 'Cancelled' && (
+                            <PermissionGate module="fees" action="update">
+                              <motion.button
+                                whileHover={{ scale: 1.05, y: -2 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleReverseVoucher(voucher)}
+                                className="flex items-center gap-2 px-3 py-2 bg-danger/10 text-danger rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-danger hover:text-white transition-all"
+                                title="Reverse / cancel voucher"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Reverse
+                              </motion.button>
+                            </PermissionGate>
+                          )}
                           <PermissionGate module="fees" action="view">
                             <motion.button
                               whileHover={{ scale: 1.05, y: -2 }}

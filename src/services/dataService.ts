@@ -633,10 +633,30 @@ export const dataService = {
     return response.data;
   },
 
+  async reverseVoucher(id: string, data: { reason: string }) {
+    const response = await api.post(`/fees/${id}/reverse-voucher`, data);
+    this.invalidateCollection('fees');
+    return response.data;
+  },
+
   async adjustFee(id: string, data: { amount: number; adjustmentType: 'increase' | 'decrease'; reason: string; date?: string }) {
     const response = await api.post(`/fees/${id}/adjust`, data);
     this.invalidateCollection('fees');
     return response.data;
+  },
+
+  async fetchAccountRoll(params?: { campusId?: string; status?: string }) {
+    const response = await api.get('/reports/account-roll', { params });
+    return response.data as Array<{
+      admissionNo: string;
+      studentName: string;
+      fatherName?: string;
+      campusName?: string;
+      className?: string;
+      sectionName?: string;
+      status: string;
+      outstandingFees: number;
+    }>;
   },
 
   async fetchFeeAuditSummary(params?: { campusId?: string }) {
@@ -763,6 +783,32 @@ export const dataService = {
       newCampuses?: number;
       newClasses?: number;
       arrearsVouchers?: number;
+      errorDetails?: string[];
+    };
+  },
+
+  async importFees(file: File) {
+    const token = getStoredToken();
+    if (!token) throw new Error('Please log in again.');
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/import-fees', formData, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 1200000,
+    });
+    this.invalidateCollection('fees');
+    this.invalidateCollection('feevouchers');
+    this.invalidateCollection('students');
+    return response.data as {
+      message: string;
+      totalRows: number;
+      imported: number;
+      updated?: number;
+      skipped?: number;
+      missingStudents?: number;
+      failed: number;
+      closingArrears?: number;
+      studentsUpdated?: number;
       errorDetails?: string[];
     };
   },

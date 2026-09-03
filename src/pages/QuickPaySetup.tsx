@@ -41,7 +41,7 @@ export default function QuickPaySetup() {
         amount: testAmount,
         status: 'Success',
         transactionDate: new Date().toISOString(),
-        paymentMethod: 'QuickPay_Test'
+        paymentMethod: 'Kuickpay_Test'
       });
       toast.success('Test transaction successful!');
     } catch (err) {

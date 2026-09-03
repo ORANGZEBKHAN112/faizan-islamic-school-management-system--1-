@@ -90,7 +90,7 @@ export interface Student {
   className?: string;
   sectionName?: string;
   session?: string;
-  status: 'Active' | 'Left' | 'Graduated';
+  status: 'Active' | 'Pending' | 'Left' | 'Graduated';
   outstandingFees: number;
   campusType?: string;
   profileImage?: string;
@@ -123,7 +123,7 @@ export interface Fee {
   month: number;
   year: number;
   amount: number;
-  status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending' | 'Overdue';
+  status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending' | 'Overdue' | 'Cancelled';
   feeType: 'Monthly' | 'Admission' | 'Arrears' | 'Fine' | 'Security Deposit' | 'Summer Camp' | 'ID Card' | 'Educational Trip';
   monthsLabel?: string;
   campusName?: string;

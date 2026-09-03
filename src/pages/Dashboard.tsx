@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Users, School, Building, CreditCard, AlertCircle, TrendingUp, BarChart3,
   Calendar, ArrowRight, Clock, History as HistoryIcon, TrendingDown,
@@ -65,7 +65,12 @@ export default function Dashboard({ user }: DashboardProps) {
   const [reversalRows, setReversalRows] = useState<FeeAuditLogEntry[]>([]);
   const [changeRows, setChangeRows] = useState<FeeAuditLogEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
-  const campusParams = campusQueryParam(user, selectedCampus);
+  // Stabilize campus filter identity — new `{ campusId }` each render caused refetch loops (#46)
+  const campusIdParam = useMemo(() => campusQueryParam(user, selectedCampus)?.campusId, [user, selectedCampus]);
+  const campusParams = useMemo(
+    () => (campusIdParam ? { campusId: campusIdParam } : undefined),
+    [campusIdParam]
+  );
   const feesPath = pathWithCampus('/fees', user, selectedCampus);
   const canSeeAudit = ['Super Admin', 'Admin', 'Accountant'].includes(user.role);
 
@@ -102,7 +107,7 @@ export default function Dashboard({ user }: DashboardProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, selectedCampus, campusParams, statsTick]);
+  }, [campusIdParam, statsTick]);
 
   useEffect(() => {
     if (!canSeeAudit || activeTab === 'overview') return;

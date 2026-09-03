@@ -107,6 +107,45 @@ export default function Reports() {
     }
   };
 
+  const exportAccountRoll = async () => {
+    try {
+      const rows = await dataService.fetchAccountRoll({
+        campusId: filterCampus !== 'all' ? filterCampus : undefined,
+        status: 'Active',
+      });
+      if (!rows.length) {
+        toast.error('No students found for Account Roll');
+        return;
+      }
+      const headers = ['Admission No', 'Student Name', 'Father Name', 'Campus', 'Class', 'Section', 'Status', 'Outstanding'];
+      const csvRows = rows.map((r) =>
+        [
+          r.admissionNo,
+          r.studentName,
+          r.fatherName || '',
+          r.campusName || '',
+          r.className || '',
+          r.sectionName || '',
+          r.status,
+          r.outstandingFees,
+        ]
+          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .join(',')
+      );
+      const blob = new Blob([[headers.join(','), ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `account-roll-${filterCampus === 'all' ? 'all-campuses' : filterCampus}-${filterYear}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Account Roll exported (${rows.length} students)`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to export Account Roll');
+    }
+  };
+
   const stats = summary || {
     totalExpected: 0, totalCollected: 0, totalPending: 0, totalExpenses: 0, defaulters: 0, netProfit: 0,
   };
@@ -221,6 +260,13 @@ export default function Reports() {
               title="Export CSV"
             >
               <Download className="w-5 h-5" />
+            </button>
+            <button
+              onClick={exportAccountRoll}
+              className="px-3 py-2.5 bg-accent/10 text-accent rounded-xl hover:bg-accent hover:text-white transition-all text-[10px] font-black uppercase tracking-widest"
+              title="Account Roll — All Campuses (or selected campus)"
+            >
+              Account Roll
             </button>
           </div>
         }

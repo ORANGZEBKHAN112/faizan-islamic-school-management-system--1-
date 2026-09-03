@@ -629,6 +629,7 @@ export default function StudentManagement() {
             options={[
               { value: 'all', label: 'All Status' },
               { value: 'Active', label: 'Active Only' },
+              { value: 'Pending', label: 'Pending Admission' },
               { value: 'unpaid', label: 'Has Dues' },
               { value: 'Left', label: 'Left' },
               { value: 'Graduated', label: 'Graduated' },
@@ -706,7 +707,8 @@ export default function StudentManagement() {
                   <td className="px-8 py-5 text-sm font-black text-danger">Rs. {getStudentOutstanding(student)}</td>
                   <td className="px-8 py-5">
                     <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                      student.status === 'Active' ? 'bg-success/10 text-success' : 
+                      student.status === 'Active' ? 'bg-success/10 text-success' :
+                      student.status === 'Pending' ? 'bg-accent/10 text-accent' :
                       student.status === 'Left' ? 'bg-danger/10 text-danger' : 'bg-primary/10 text-primary'
                     }`}>
                       {student.status}
