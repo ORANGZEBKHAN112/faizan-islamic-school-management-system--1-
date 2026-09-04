@@ -10,6 +10,7 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
+import { toTitleCase } from '../utils/titleCase';
 
 const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant'];
 
@@ -312,7 +313,13 @@ export default function UserManagement() {
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Full Name</label>
-                  <input className="vibrant-input" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} required />
+                  <input
+                    className="vibrant-input"
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                    onBlur={(e) => setFormData((prev) => ({ ...prev, fullName: toTitleCase(e.target.value) }))}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">

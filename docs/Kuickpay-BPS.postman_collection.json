@@ -1,0 +1,87 @@
+{
+  "info": {
+    "_postman_id": "fiss-kuickpay-bps-001",
+    "name": "Faizan Islamic School — Kuickpay BPS",
+    "description": "Kuickpay BPS merchant APIs only.\n\nBase URL: http://31.97.105.2:3000\n\nAuth: HTTP headers `username` + `password` on every request.\nPartial payments are not supported — Payment amount must equal Inquiry outstanding (13 digits, no +).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://31.97.105.2:3000" },
+    { "key": "bpsUsername", "value": "YOUR_BPS_USERNAME" },
+    { "key": "bpsPassword", "value": "YOUR_BPS_PASSWORD" },
+    { "key": "consumerNumber", "value": "015200000000000001" },
+    { "key": "transactionAmount", "value": "0000000120000" },
+    { "key": "tranAuthId", "value": "123456" },
+    { "key": "tranDate", "value": "20260904" },
+    { "key": "tranTime", "value": "143055" },
+    { "key": "bankMnemonic", "value": "HBL" }
+  ],
+  "item": [
+    {
+      "name": "Bill Inquiry",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j.response_Code === '00' && j.Amount_Within_DueDate) {",
+              "  const amt = String(j.Amount_Within_DueDate).replace(/[^0-9]/g, '');",
+              "  pm.collectionVariables.set('transactionAmount', amt);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{bpsUsername}}" },
+          { "key": "password", "value": "{{bpsPassword}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"consumer_number\": \"{{consumerNumber}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/BillInquiry",
+        "description": "POST /api/v1/BillInquiry\n\nRequest: consumer_number (18 digits)\nSuccess unpaid: response_Code 00, Bill_Status U"
+      }
+    },
+    {
+      "name": "Bill Payment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{bpsUsername}}" },
+          { "key": "password", "value": "{{bpsPassword}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"consumer_number\": \"{{consumerNumber}}\",\n  \"tran_auth_id\": \"{{tranAuthId}}\",\n  \"transaction_amount\": \"{{transactionAmount}}\",\n  \"tran_date\": \"{{tranDate}}\",\n  \"tran_time\": \"{{tranTime}}\",\n  \"bank_mnemonic\": \"{{bankMnemonic}}\",\n  \"Reserved\": \"\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/BillPayment",
+        "description": "POST /api/v1/BillPayment\n\ntransaction_amount: 13 digits, no + sign. Must equal full outstanding from Inquiry."
+      }
+    },
+    {
+      "name": "Bill Payment (alias)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{bpsUsername}}" },
+          { "key": "password", "value": "{{bpsPassword}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"consumer_number\": \"{{consumerNumber}}\",\n  \"tran_auth_id\": \"{{tranAuthId}}\",\n  \"transaction_amount\": \"{{transactionAmount}}\",\n  \"tran_date\": \"{{tranDate}}\",\n  \"tran_time\": \"{{tranTime}}\",\n  \"bank_mnemonic\": \"{{bankMnemonic}}\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/payment",
+        "description": "POST /api/v1/payment — same as Bill Payment"
+      }
+    }
+  ]
+}

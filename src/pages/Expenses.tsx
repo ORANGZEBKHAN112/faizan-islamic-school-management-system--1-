@@ -8,6 +8,7 @@ import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
+import { toTitleCase } from '../utils/titleCase';
 
 interface Expense {
   id: string;
@@ -211,6 +212,7 @@ export default function Expenses() {
                       className="vibrant-input"
                       value={formData.title}
                       onChange={e => setFormData({...formData, title: e.target.value})}
+                      onBlur={e => setFormData(prev => ({ ...prev, title: toTitleCase(e.target.value) }))}
                       placeholder="e.g. Electricity Bill"
                     />
                   </div>
@@ -252,6 +254,7 @@ export default function Expenses() {
                     className="vibrant-input min-h-[100px]"
                     value={formData.description}
                     onChange={e => setFormData({...formData, description: e.target.value})}
+                    onBlur={e => setFormData(prev => ({ ...prev, description: toTitleCase(e.target.value) }))}
                     placeholder="Optional notes..."
                   />
                 </div>

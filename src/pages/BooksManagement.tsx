@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { BookOpen, Download, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { BookOpen, Download, Plus, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
@@ -7,8 +7,10 @@ import { Campus } from '../types';
 import { dataService } from '../services/dataService';
 import { useConfirm } from '../context/ConfirmContext';
 import { CAMPUS_REGIONS } from '../utils/campusRegions';
+import { toTitleCase } from '../utils/titleCase';
 
-const STORAGE_KEY = 'fiss_books_stock_v1';
+const STOCK_KEY = 'fiss_books_stock_v1';
+const MASTER_KEY = 'fiss_books_master_v1';
 
 const DEFAULT_BOOK_TITLES = [
   'English Textbook',
@@ -20,6 +22,17 @@ const DEFAULT_BOOK_TITLES = [
   'Workbook Pack',
   'Notebook Set',
 ];
+
+type BookMaster = {
+  id: string;
+  state?: string;
+  region: string;
+  campusId?: string;
+  campusName: string;
+  className: string;
+  title: string;
+  rate: number;
+};
 
 type BookRow = {
   id: string;
@@ -34,25 +47,45 @@ type BookRow = {
   unitPrice: number;
 };
 
-function loadRows(): BookRow[] {
+function loadJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) || (parsed && typeof parsed === 'object') ? parsed : fallback;
   } catch {
-    return [];
+    return fallback;
   }
 }
 
-function saveRows(rows: BookRow[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+function normHeader(v: unknown): string {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, ' ');
+}
+
+function pickCol(row: Record<string, unknown>, aliases: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const alias of aliases) {
+    const hit = keys.find((k) => normHeader(k) === alias || normHeader(k).includes(alias));
+    if (hit != null && row[hit] !== '' && row[hit] != null) return row[hit];
+  }
+  return undefined;
+}
+
+function num(v: unknown): number {
+  const n = Number(String(v ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : 0;
 }
 
 export default function BooksManagement() {
   const confirm = useConfirm();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [rows, setRows] = useState<BookRow[]>(() => loadRows());
+  const [rows, setRows] = useState<BookRow[]>(() => loadJson(STOCK_KEY, []));
+  const [master, setMaster] = useState<BookMaster[]>(() => loadJson(MASTER_KEY, []));
+  const [importing, setImporting] = useState(false);
   const [form, setForm] = useState({
     region: '',
     campusId: '',
@@ -69,8 +102,12 @@ export default function BooksManagement() {
   }, []);
 
   useEffect(() => {
-    saveRows(rows);
+    localStorage.setItem(STOCK_KEY, JSON.stringify(rows));
   }, [rows]);
+
+  useEffect(() => {
+    localStorage.setItem(MASTER_KEY, JSON.stringify(master));
+  }, [master]);
 
   const regionCampuses = useMemo(
     () => campuses.filter((c) => !form.region || (c.region || '').trim() === form.region.trim()),
@@ -78,6 +115,14 @@ export default function BooksManagement() {
   );
 
   const bookTitleOptions = useMemo(() => {
+    const fromMaster = master
+      .filter((m) => {
+        if (form.region && (m.region || '').trim() !== form.region.trim()) return false;
+        if (form.className && m.className && m.className !== form.className) return false;
+        if (form.campusId && m.campusId && m.campusId !== form.campusId) return false;
+        return true;
+      })
+      .map((m) => m.title);
     const fromRows = rows
       .filter((r) => {
         if (form.region) {
@@ -88,13 +133,14 @@ export default function BooksManagement() {
         return true;
       })
       .map((r) => r.title);
-    return Array.from(new Set([...DEFAULT_BOOK_TITLES, ...fromRows])).sort();
-  }, [rows, campuses, form.region, form.className]);
+    return Array.from(new Set([...DEFAULT_BOOK_TITLES, ...fromMaster, ...fromRows])).sort();
+  }, [rows, master, campuses, form.region, form.className, form.campusId]);
 
   const classOptions = useMemo(() => {
+    const fromMaster = master.map((m) => m.className).filter(Boolean);
     const fromRows = rows.map((r) => r.className).filter(Boolean);
-    return Array.from(new Set(['Nursery', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', ...fromRows])).sort();
-  }, [rows]);
+    return Array.from(new Set(['Nursery', 'KG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', ...fromMaster, ...fromRows])).sort();
+  }, [rows, master]);
 
   const enriched = useMemo(
     () =>
@@ -106,6 +152,30 @@ export default function BooksManagement() {
       }),
     [rows]
   );
+
+  const resolveCampus = (campusName: string, region: string) => {
+    const name = campusName.trim().toLowerCase();
+    return campuses.find((c) => {
+      if ((c.campusName || '').trim().toLowerCase() !== name) return false;
+      if (region && (c.region || '').trim().toLowerCase() !== region.trim().toLowerCase()) return false;
+      return true;
+    });
+  };
+
+  const selectTitle = (title: string) => {
+    const match = master.find((m) => {
+      if (m.title !== title) return false;
+      if (form.region && m.region && m.region !== form.region) return false;
+      if (form.className && m.className && m.className !== form.className) return false;
+      if (form.campusId && m.campusId && m.campusId !== form.campusId) return false;
+      return true;
+    });
+    setForm((prev) => ({
+      ...prev,
+      title,
+      unitPrice: match ? Number(match.rate) || prev.unitPrice : prev.unitPrice,
+    }));
+  };
 
   const addRow = (e: FormEvent) => {
     e.preventDefault();
@@ -121,7 +191,7 @@ export default function BooksManagement() {
       campusName: campus?.campusName || '',
       region: form.region || campus?.region || '',
       className: form.className.trim(),
-      title: form.title.trim(),
+      title: toTitleCase(form.title.trim()),
       previousStock: Number(form.previousStock) || 0,
       newStock: Number(form.newStock) || 0,
       sold: Number(form.sold) || 0,
@@ -147,20 +217,22 @@ export default function BooksManagement() {
   };
 
   const exportCsv = () => {
-    const header = 'Region,Campus,Class,Book Title,Previous Stock,New Stock,Total Stock,Sold,Balance,Unit Price,Sales Amount\n';
+    const header = 'State,Region,Campus,Class,Book Title,Book Rate,Previous Stock,New Stock,Total Stock,Sold,Balance,Sales Amount\n';
     const body = enriched.map((r) => {
       const campus = campuses.find((c) => c.id === r.campusId);
+      const m = master.find((x) => x.title === r.title && (!x.className || x.className === r.className));
       return [
+        m?.state || '',
         r.region || campus?.region || '',
         r.campusName,
         r.className,
         r.title,
+        r.unitPrice,
         r.previousStock,
         r.newStock,
         r.total,
         r.sold,
         r.balance,
-        r.unitPrice,
         r.salesAmount,
       ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
     }).join('\n');
@@ -174,17 +246,129 @@ export default function BooksManagement() {
     toast.success('Books summary exported');
   };
 
+  const downloadTemplate = () => {
+    const header = 'State,Region,Campus,Class,Book Title,Book Rate\n';
+    const sample = '"Punjab","Punjab - Lahore","Sample Campus","1","English Textbook","450"\n';
+    const blob = new Blob([header + sample], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Books_Master_Import_Template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBookList = async (file: File) => {
+    setImporting(true);
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      if (!rawRows.length) {
+        toast.error('Excel sheet is empty');
+        return;
+      }
+
+      const nextMaster: BookMaster[] = [...master];
+      let imported = 0;
+      let skipped = 0;
+
+      for (const row of rawRows) {
+        const region = String(pickCol(row, ['region']) || '').trim();
+        const state = String(pickCol(row, ['state']) || '').trim();
+        const campusName = String(pickCol(row, ['campus', 'campus name', 'campusname']) || '').trim();
+        const className = String(pickCol(row, ['class', 'class name', 'classname']) || '').trim();
+        const title = toTitleCase(String(pickCol(row, ['book title', 'title', 'book', 'book name']) || '').trim());
+        const rate = num(pickCol(row, ['book rate', 'rate', 'unit price', 'price', 'amount']));
+
+        if (!title) {
+          skipped += 1;
+          continue;
+        }
+        if (!region && !campusName) {
+          skipped += 1;
+          continue;
+        }
+
+        const campus = campusName ? resolveCampus(campusName, region) : undefined;
+        const resolvedRegion = region || campus?.region || '';
+        const keyMatch = (m: BookMaster) =>
+          m.title.toLowerCase() === title.toLowerCase()
+          && (m.className || '') === (className || '')
+          && (m.region || '') === (resolvedRegion || '')
+          && (m.campusName || '').toLowerCase() === (campus?.campusName || campusName || '').toLowerCase();
+
+        const existingIdx = nextMaster.findIndex(keyMatch);
+        const entry: BookMaster = {
+          id: existingIdx >= 0 ? nextMaster[existingIdx].id : crypto.randomUUID(),
+          state: state || undefined,
+          region: resolvedRegion,
+          campusId: campus?.id,
+          campusName: campus?.campusName || campusName,
+          className,
+          title,
+          rate,
+        };
+        if (existingIdx >= 0) nextMaster[existingIdx] = entry;
+        else nextMaster.push(entry);
+        imported += 1;
+      }
+
+      setMaster(nextMaster);
+      toast.success(`Book master import: ${imported} row(s)${skipped ? `, ${skipped} skipped` : ''}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to import book list Excel');
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <TranslatedPageHeader
         module="books"
         actions={
-          <button type="button" onClick={exportCsv} className="vibrant-btn-secondary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
-            <Download className="w-4 h-4" />
-            Excel summary
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={downloadTemplate} className="vibrant-btn-secondary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+              <Download className="w-4 h-4" />
+              Import template
+            </button>
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              className="vibrant-btn-secondary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold"
+            >
+              <Upload className="w-4 h-4" />
+              {importing ? 'Importing…' : 'Import book list'}
+            </button>
+            <button type="button" onClick={exportCsv} className="vibrant-btn-secondary flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold">
+              <Download className="w-4 h-4" />
+              Excel summary
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void importBookList(f);
+              }}
+            />
+          </div>
         }
       />
+
+      {master.length > 0 && (
+        <div className="vibrant-card p-4 text-sm text-slate-600 dark:text-slate-300">
+          Book master loaded: <span className="font-black text-primary">{master.length}</span> title(s). Selecting a title auto-fills Book Rate when available.
+        </div>
+      )}
 
       <div className="vibrant-card p-8">
         <div className="flex items-center gap-3 mb-6">
@@ -196,7 +380,7 @@ export default function BooksManagement() {
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Region</label>
             <SearchableSelect
               value={form.region}
-              onChange={(region) => setForm({ ...form, region, campusId: '' })}
+              onChange={(region) => setForm({ ...form, region, campusId: '', title: '' })}
               placeholder="Select region"
               options={CAMPUS_REGIONS.map((r) => ({ value: r, label: r }))}
             />
@@ -205,7 +389,7 @@ export default function BooksManagement() {
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Campus</label>
             <SearchableSelect
               value={form.campusId}
-              onChange={(campusId) => setForm({ ...form, campusId })}
+              onChange={(campusId) => setForm({ ...form, campusId, title: '' })}
               placeholder={form.region ? 'Select campus' : 'Select region first'}
               options={regionCampuses.map((c) => ({ value: c.id, label: c.campusName }))}
             />
@@ -223,7 +407,7 @@ export default function BooksManagement() {
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Book title</label>
             <SearchableSelect
               value={form.title}
-              onChange={(title) => setForm({ ...form, title })}
+              onChange={selectTitle}
               placeholder="Select book title"
               options={bookTitleOptions.map((t) => ({ value: t, label: t }))}
             />
@@ -241,12 +425,12 @@ export default function BooksManagement() {
             <input type="number" min={0} className="vibrant-input" value={form.sold} onChange={(e) => setForm({ ...form, sold: Number(e.target.value) || 0 })} />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Unit price (Rs.)</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Book rate / unit price (Rs.)</label>
             <input type="number" min={0} className="vibrant-input" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) || 0 })} />
           </div>
           <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-2">
             <p className="text-xs text-slate-500">
-              Total stock = Previous + New · Balance = Total − Sold
+              Total stock = Previous + New · Balance = Total − Sold · Rate auto-fills from imported Book Master when possible
               {form.previousStock || form.newStock
                 ? ` · Preview total: ${Number(form.previousStock || 0) + Number(form.newStock || 0)}`
                 : ''}

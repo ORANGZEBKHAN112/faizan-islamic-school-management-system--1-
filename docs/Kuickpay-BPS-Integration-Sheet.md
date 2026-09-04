@@ -28,12 +28,12 @@ Flow:
 
 Please configure Kuickpay routing to this public HTTPS base URL:
 
-| Environment | Base URL (fill before share) |
+| Environment | Base URL |
 |-------------|------------------------------|
-| Production  | `https://YOUR-PUBLIC-DOMAIN` |
-| Staging / UAT | `https://YOUR-STAGING-DOMAIN` |
+| UAT / current host | `http://31.97.105.2:3000` |
+| Production (HTTPS when ready) | `https://YOUR-PUBLIC-DOMAIN` |
 
-> Replace with the live ERP host. Endpoints must be reachable from Kuickpay over **HTTPS (443)**.
+> Current UAT host is HTTP on port 3000. Prefer HTTPS (443) for production go-live.
 
 ### Kuickpay source IPs (whitelist on merchant firewall if required)
 
@@ -310,12 +310,17 @@ AN14: `+` + 13 digits, last 2 = paisa.
 
 ---
 
-## 11. Sample cURL (for connectivity test)
+## 11. Postman collection
+
+Import: `docs/Kuickpay-BPS.postman_collection.json`  
+UAT reply checklist: `docs/Kuickpay-UAT-Reply-Pack.md`
+
+## 12. Sample cURL (for connectivity test)
 
 ### Inquiry
 
 ```bash
-curl -X POST "https://YOUR-PUBLIC-DOMAIN/api/v1/BillInquiry" \
+curl -X POST "http://31.97.105.2:3000/api/v1/BillInquiry" \
   -H "Content-Type: application/json" \
   -H "username: YOUR_BPS_USERNAME" \
   -H "password: YOUR_BPS_PASSWORD" \
@@ -325,7 +330,7 @@ curl -X POST "https://YOUR-PUBLIC-DOMAIN/api/v1/BillInquiry" \
 ### Payment
 
 ```bash
-curl -X POST "https://YOUR-PUBLIC-DOMAIN/api/v1/BillPayment" \
+curl -X POST "http://31.97.105.2:3000/api/v1/BillPayment" \
   -H "Content-Type: application/json" \
   -H "username: YOUR_BPS_USERNAME" \
   -H "password: YOUR_BPS_PASSWORD" \
@@ -341,7 +346,7 @@ curl -X POST "https://YOUR-PUBLIC-DOMAIN/api/v1/BillPayment" \
 
 ---
 
-## 12. Technical contact
+## 13. Technical contact
 
 | Role | Name | Email / Phone |
 |------|------|---------------|
@@ -351,7 +356,7 @@ curl -X POST "https://YOUR-PUBLIC-DOMAIN/api/v1/BillPayment" \
 
 ---
 
-## 13. Notes
+## 14. Notes
 
 - Kuickpay must be **enabled** in ERP admin (Kuickpay Setup) before Inquiry/Payment accept traffic.  
 - Amounts on Inquiry are the **full outstanding** balance of the voucher.  

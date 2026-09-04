@@ -13,6 +13,7 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import { toTitleCase } from '../utils/titleCase';
 
 export default function ClassManagement() {
   const confirm = useConfirm();
@@ -294,6 +295,7 @@ export default function ClassManagement() {
                       className="vibrant-input"
                       value={formData.className}
                       onChange={(e) => setFormData({ ...formData, className: e.target.value })}
+                      onBlur={(e) => setFormData((prev) => ({ ...prev, className: toTitleCase(e.target.value) }))}
                       placeholder="e.g. Grade 10"
                     />
                   </div>
@@ -303,6 +305,7 @@ export default function ClassManagement() {
                       className="vibrant-input"
                       value={formData.sectionName}
                       onChange={(e) => setFormData({ ...formData, sectionName: e.target.value })}
+                      onBlur={(e) => setFormData((prev) => ({ ...prev, sectionName: toTitleCase(e.target.value) }))}
                       placeholder="e.g. Section A"
                     />
                   </div>
