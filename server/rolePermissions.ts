@@ -338,7 +338,10 @@ export async function fetchPermissionsForRole(
 
   const roleResult = await pool.request()
     .input("name", normalizedRole)
-    .query("SELECT id FROM AppRoles WHERE name = @name AND isActive = 1");
+    .query(`
+      SELECT TOP 1 id FROM AppRoles
+      WHERE isActive = 1 AND LOWER(LTRIM(RTRIM(name))) = LOWER(LTRIM(RTRIM(@name)))
+    `);
 
   const roleId = roleResult.recordset[0]?.id as string | undefined;
   if (!roleId) {

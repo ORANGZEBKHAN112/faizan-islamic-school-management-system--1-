@@ -148,24 +148,44 @@ function requireRoles(allowed: Set<string>) {
 }
 
 /**
- * Fee module access: built-in FEE_ROLES OR any custom role with the matching
- * permission in Role Management (e.g. "Kuickpay Access" with fees.update).
+ * Fee module access: built-in FEE_ROLES, Kuickpay-named roles, OR Role Management
+ * permissions on fees (or quickpay for collection desks).
  */
+function roleLooksLikeFeeCollector(role: string): boolean {
+  const r = String(role || "").trim().toLowerCase();
+  if (!r) return false;
+  return (
+    r.includes("kuickpay")
+    || r.includes("quickpay")
+    || r.includes("cashier")
+    || r.includes("fee collect")
+    || r.includes("collection")
+  );
+}
+
 function requireFeeAction(action: PermissionAction) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.auth) {
       res.status(401).json({ message: "Unauthorized" });
       return;
     }
-    if (isSuperAdminRole(req.auth.role) || FEE_ROLES.has(req.auth.role)) {
+    const role = String(req.auth.role || "");
+    if (isSuperAdminRole(role) || FEE_ROLES.has(role) || roleLooksLikeFeeCollector(role)) {
       next();
       return;
     }
-    getRolePermissions(req.auth.role)
+    getRolePermissions(role)
       .then((perms) => {
-        if (!hasPermission(perms, "fees", action, req.auth!.role)) {
+        const feesOk = hasPermission(perms, "fees", action, role);
+        // Collection desks often get Quick Pay module only — still allow fee payments.
+        const quickpayOk =
+          action === "view"
+            ? hasPermission(perms, "quickpay", "view", role)
+            : hasPermission(perms, "quickpay", "update", role) || hasPermission(perms, "quickpay", "create", role);
+        if (!feesOk && !quickpayOk) {
           res.status(403).json({
-            message: "Forbidden — this role cannot manage fees. Enable Fees permissions in Role Management.",
+            message:
+              "Forbidden — enable Fees (Update) or Quick Pay permissions for this role in Role Management.",
           });
           return;
         }
@@ -3993,6 +4013,8 @@ async function startServer() {
 
   app.put("/api/fees/:id", requireFeeAction("update"), handleFeeUpdate);
   app.put("/api/feevouchers/:id", requireFeeAction("update"), handleFeeUpdate);
+  // Dedicated payment route (avoids generic CRUD role gates on older deploys / proxies)
+  app.post("/api/fees/:id/record-payment", requireFeeAction("update"), handleFeeUpdate);
 
   const feeStatusFromBalance = (paidAmount: number, balanceAmount: number) => {
     if (balanceAmount <= 0) return "Paid";
@@ -8880,7 +8902,7 @@ async function startServer() {
   });
 
   // QuickPay config — never expose api_key in responses
-  app.get("/api/quickpay-config", requireRoles(QUICKPAY_ROLES), async (_req, res) => {
+  app.get("/api/quickpay-config", requireFeeAction("view"), async (_req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });

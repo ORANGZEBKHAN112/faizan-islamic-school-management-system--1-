@@ -627,6 +627,19 @@ export const dataService = {
     return response.data;
   },
 
+  async recordFeePayment(id: string, data: {
+    receivedAmount: number;
+    discountAmount?: number;
+    fineAmount?: number;
+    paymentMethod?: string;
+    transactionRef?: string;
+  }) {
+    const response = await api.post(`/fees/${id}/record-payment`, data);
+    this.invalidateCollection('fees');
+    this.invalidateCollection('feevouchers');
+    return response.data;
+  },
+
   async reverseFeePayment(id: string, data: { historyIndex: number; reason: string; asIncomeReversal?: boolean }) {
     const response = await api.post(`/fees/${id}/reverse-payment`, data);
     this.invalidateCollection('fees');

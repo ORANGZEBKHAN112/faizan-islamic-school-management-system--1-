@@ -437,7 +437,7 @@ export default function FeeManagement() {
     if (!selectedVoucher) return;
 
     try {
-      await dataService.update('fees', selectedVoucher.id, paymentForm);
+      await dataService.recordFeePayment(selectedVoucher.id, paymentForm);
       await refreshVouchers();
       dataService.invalidateCollection('fees');
 
