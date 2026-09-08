@@ -445,7 +445,11 @@ export default function FeeManagement() {
       setIsPaymentModalOpen(false);
     } catch (error) {
       console.error('Error recording payment:', error);
-      toast.error('Failed to record payment');
+      const msg =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || (error as Error)?.message
+        || 'Failed to record payment';
+      toast.error(String(msg));
     }
   };
 

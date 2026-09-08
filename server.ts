@@ -135,12 +135,43 @@ const SUPER_ADMIN_ROLES = new Set(["Super Admin"]);
 const INACTIVE_CAMPUS_ACTION_MESSAGE =
   "This campus is inactive. You cannot perform this action. Please activate the campus first.";
 
+/** Roles that must be campus-scoped (no empty campus = deny). Others may act school-wide. */
+const CAMPUS_BOUND_ROLES = new Set(["Teacher", "Principal", "Student"]);
+
 function requireRoles(allowed: Set<string>) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.auth || !allowed.has(req.auth.role)) {
       return res.status(403).json({ message: "Forbidden — insufficient role" });
     }
     next();
+  };
+}
+
+/**
+ * Fee module access: built-in FEE_ROLES OR any custom role with the matching
+ * permission in Role Management (e.g. "Kuickpay Access" with fees.update).
+ */
+function requireFeeAction(action: PermissionAction) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    if (isSuperAdminRole(req.auth.role) || FEE_ROLES.has(req.auth.role)) {
+      next();
+      return;
+    }
+    getRolePermissions(req.auth.role)
+      .then((perms) => {
+        if (!hasPermission(perms, "fees", action, req.auth!.role)) {
+          res.status(403).json({
+            message: "Forbidden — this role cannot manage fees. Enable Fees permissions in Role Management.",
+          });
+          return;
+        }
+        next();
+      })
+      .catch((err) => next(err));
   };
 }
 
@@ -459,7 +490,12 @@ function resolveCampusScope(user: AuthUserRow): string[] | null | undefined {
     ? user.campusIds
     : (user.campusId ? [user.campusId] : []);
   if (isSchoolWideRole(user.role, user.campusId, ids)) return null;
-  if (ids.length === 0) return undefined;
+  if (ids.length === 0) {
+    // Teacher / Principal / Student must have a campus. Custom roles (e.g. Kuickpay Access)
+    // and Accountant / Admin with no campus act as head-office (all campuses).
+    if (CAMPUS_BOUND_ROLES.has(user.role)) return undefined;
+    return null;
+  }
   return ids;
 }
 
@@ -3955,8 +3991,8 @@ async function startServer() {
     }
   };
 
-  app.put("/api/fees/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
-  app.put("/api/feevouchers/:id", requireRoles(FEE_ROLES), handleFeeUpdate);
+  app.put("/api/fees/:id", requireFeeAction("update"), handleFeeUpdate);
+  app.put("/api/feevouchers/:id", requireFeeAction("update"), handleFeeUpdate);
 
   const feeStatusFromBalance = (paidAmount: number, balanceAmount: number) => {
     if (balanceAmount <= 0) return "Paid";
@@ -3964,7 +4000,7 @@ async function startServer() {
     return "Unpaid";
   };
 
-  app.post("/api/fees/:id/reverse-payment", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/:id/reverse-payment", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4104,7 +4140,7 @@ async function startServer() {
   });
 
   /** Full voucher reverse / void (#53) — unpaid → Cancelled; paid/partial → unpaid with audit */
-  app.post("/api/fees/:id/reverse-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/:id/reverse-voucher", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4217,7 +4253,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/:id/adjust", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/:id/adjust", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4334,7 +4370,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/audit-summary", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/audit-summary", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4375,7 +4411,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/audit-log", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/audit-log", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4452,7 +4488,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/recent-collections", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/recent-collections", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4518,7 +4554,7 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/fees/:id/voucher", requireRoles(FEE_ROLES), async (req, res) => {
+  app.patch("/api/fees/:id/voucher", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4597,7 +4633,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/:id/regenerate", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/:id/regenerate", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -4849,7 +4885,7 @@ async function startServer() {
   app.post("/api/v1/BillPayment", handleKuickpayBillPayment);
   app.post("/api/v1/payment", handleKuickpayBillPayment);
 
-  app.post("/api/fees/assign-kuickpay-ids", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/assign-kuickpay-ids", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5065,7 +5101,7 @@ async function startServer() {
   });
 
   // Generate Monthly Fees Route — enqueues async background job
-  app.post("/api/generate-monthly-fees", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/generate-monthly-fees", requireFeeAction("create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5126,7 +5162,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fee-generation-jobs/:id", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fee-generation-jobs/:id", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5162,7 +5198,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/export", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/export", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5200,7 +5236,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/export/:id", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/export/:id", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5224,7 +5260,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/export/:id/download", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/export/:id/download", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5270,7 +5306,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fee-generation-runs", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fee-generation-runs", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5325,7 +5361,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/single-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/single-voucher", requireFeeAction("create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5451,7 +5487,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/pending-summary/:studentId", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/pending-summary/:studentId", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5511,7 +5547,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/custom-voucher", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/custom-voucher", requireFeeAction("create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5629,7 +5665,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/fees/student-ledger/:studentId", requireRoles(FEE_ROLES), async (req, res) => {
+  app.get("/api/fees/student-ledger/:studentId", requireFeeAction("view"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5692,7 +5728,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/extra-charge", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/extra-charge", requireFeeAction("create"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -5762,7 +5798,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/fees/advance-year-payment", requireRoles(FEE_ROLES), async (req, res) => {
+  app.post("/api/fees/advance-year-payment", requireFeeAction("update"), async (req, res) => {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
@@ -6440,7 +6476,7 @@ async function startServer() {
   });
 
   // Legacy ERP fee master import (rptFeeMaster — monthly vouchers + outstanding)
-  app.post("/api/import-fees", requireRoles(FEE_ROLES), upload.single("file"), async (req: Request, res: Response) => {
+  app.post("/api/import-fees", requireFeeAction("create"), upload.single("file"), async (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded. Please select a valid .xlsx file." });
     }
