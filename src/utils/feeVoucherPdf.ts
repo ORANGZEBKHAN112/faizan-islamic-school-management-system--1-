@@ -204,7 +204,9 @@ function drawCopy(
   blurb.forEach((line, i) => doc.text(line, x, y + i * 3.6));
   y += 13;
 
-  const kuickId = voucher.kuickpayConsumerNumber || voucher.transactionRef || voucher.id;
+  // Only print a valid 18-digit Kuickpay consumer number (banks reject shorter IDs).
+  const kuickDigits = String(voucher.kuickpayConsumerNumber || '').replace(/\D/g, '');
+  const kuickId = kuickDigits.length === 18 ? kuickDigits : 'NOT ASSIGNED — open Kuickpay Setup';
   const payable = voucherRemaining(voucher);
 
   // KuickPay ID box
@@ -219,8 +221,8 @@ function drawCopy(
   doc.text('KuickPay ID', x + 14, y + 5.2, { align: 'center' });
   doc.setTextColor(...TEAL_DARK);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.text(String(kuickId).slice(0, 28), x + 30, y + 5.3);
+  doc.setFontSize(kuickDigits.length === 18 ? 8 : 6.5);
+  doc.text(String(kuickId).slice(0, 36), x + 30, y + 5.3);
   y += 10;
 
   // Kuick Pay Amount (split box)

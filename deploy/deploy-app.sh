@@ -19,16 +19,25 @@ echo "==> Installing dependencies..."
 # msnodesqlv8 is optionalDependencies (Windows LocalDB). On Linux it may warn/fail to build — that is OK.
 npm ci
 
-# Vite empties dist/ before build. Fix ownership if a previous run created root-owned files.
-if [[ -d dist ]]; then
-  echo "==> Ensuring dist/ is writable by $(whoami)..."
-  if [[ ! -w dist ]] || ! touch dist/.write-test 2>/dev/null; then
-    echo "dist/ is not writable. Fix with:"
-    echo "  sudo chown -R \"$(whoami):$(whoami)\" \"$APP_DIR/dist\""
-    echo "  # or: sudo rm -rf \"$APP_DIR/dist\""
+# Vite needs write access under node_modules/.vite-temp and empties dist/ before build.
+# Root-owned files from a prior sudo npm/build cause EACCES for erp_dev.
+ensure_writable_dir() {
+  local dir="$1"
+  mkdir -p "$dir" 2>/dev/null || true
+  if [[ ! -w "$dir" ]] || ! touch "$dir/.write-test" 2>/dev/null; then
+    echo "$dir is not writable by $(whoami). Fix with:"
+    echo "  sudo chown -R \"$(whoami):$(whoami)\" \"$APP_DIR\""
+    echo "  # or narrowly: sudo chown -R \"$(whoami):$(whoami)\" \"$dir\""
     exit 1
   fi
-  rm -f dist/.write-test
+  rm -f "$dir/.write-test"
+}
+
+echo "==> Ensuring Vite temp + dist are writable by $(whoami)..."
+ensure_writable_dir "$APP_DIR/node_modules"
+ensure_writable_dir "$APP_DIR/node_modules/.vite-temp"
+if [[ -d dist ]]; then
+  ensure_writable_dir "$APP_DIR/dist"
 fi
 
 echo "==> Building frontend..."

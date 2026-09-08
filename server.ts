@@ -4746,6 +4746,9 @@ async function startServer() {
       if (!consumerNumber) {
         return res.status(400).json(inquiryError("04", "consumerNumber is required"));
       }
+      if (consumerNumber.length !== 18) {
+        return res.json(inquiryError("01", "Consumer number must be 18 digits"));
+      }
 
       const fee = await findFeeByConsumerNumber(pool, consumerNumber);
       if (!fee) {
@@ -4787,6 +4790,9 @@ async function startServer() {
 
       if (!consumerNumber || !tranAuthId || !tranDate) {
         return res.status(400).json(paymentError("04", "Missing required payment fields"));
+      }
+      if (consumerNumber.length !== 18) {
+        return res.json(paymentError("01", "Voucher number does not exist"));
       }
       if (tranAuthId.length !== 6) {
         return res.status(400).json(paymentError("04", "tran_auth_id must be 6 digits"));

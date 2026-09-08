@@ -140,6 +140,12 @@ function normalizePrefix(raw: string | null | undefined): string {
   return digits.padStart(5, "0");
 }
 
+/** Kuickpay BPS consumer numbers are exactly 18 digits (5-digit prefix + 13-digit serial). */
+export function isValidKuickpayConsumerNumber(raw: unknown): boolean {
+  const cn = String(raw || "").replace(/\D/g, "");
+  return cn.length === 18;
+}
+
 /** Allocate a unique 18-digit Kuickpay consumer number for a fee voucher. */
 export async function ensureKuickpayConsumerNumber(
   pool: ConnectionPool,
@@ -149,7 +155,7 @@ export async function ensureKuickpayConsumerNumber(
     .input("id", feeId)
     .query(`SELECT kuickpay_consumer_number AS cn FROM Fees WHERE id = @id`);
   const current = existing.recordset[0]?.cn;
-  if (current && String(current).length === 18) return String(current);
+  if (isValidKuickpayConsumerNumber(current)) return String(current).replace(/\D/g, "");
 
   const cfg = await loadKuickpayConfig(pool);
   const prefix = normalizePrefix(cfg?.consumer_prefix);
@@ -170,19 +176,27 @@ export async function ensureKuickpayConsumerNumber(
     const consumer = `${prefix}${String(seq).padStart(13, "0")}`;
 
     try {
+      // Overwrite empty OR invalid (non-18-digit) values — short IDs break bank/Kuickpay pay.
       await pool.request()
         .input("id", feeId)
         .input("cn", consumer)
         .query(`
           UPDATE Fees
           SET kuickpay_consumer_number = @cn
-          WHERE id = @id AND (kuickpay_consumer_number IS NULL OR LTRIM(RTRIM(kuickpay_consumer_number)) = '')
+          WHERE id = @id
+            AND (
+              kuickpay_consumer_number IS NULL
+              OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
+              OR LEN(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    kuickpay_consumer_number, '-', ''), ' ', ''), '+', ''), '.', ''), ',', '')))) <> 18
+            )
         `);
       const check = await pool.request()
         .input("id", feeId)
         .query(`SELECT kuickpay_consumer_number AS cn FROM Fees WHERE id = @id`);
       const saved = check.recordset[0]?.cn;
-      if (saved) return String(saved);
+      if (isValidKuickpayConsumerNumber(saved)) return String(saved).replace(/\D/g, "");
+      if (saved && String(saved).replace(/\D/g, "") === consumer) return consumer;
     } catch {
       // unique collision — retry
     }
@@ -473,13 +487,16 @@ export async function backfillKuickpayConsumerNumbers(
 ): Promise<number> {
   const result = await pool.request().input("limit", limit).query(`
     SELECT TOP (@limit) id FROM Fees
-    WHERE kuickpay_consumer_number IS NULL OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
+    WHERE kuickpay_consumer_number IS NULL
+       OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
+       OR LEN(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            kuickpay_consumer_number, '-', ''), ' ', ''), '+', ''), '.', ''), ',', '')))) <> 18
     ORDER BY created_at DESC
   `);
   let n = 0;
   for (const row of result.recordset) {
     const cn = await ensureKuickpayConsumerNumber(pool, String(row.id));
-    if (cn) n++;
+    if (cn && cn.length === 18) n++;
   }
   return n;
 }

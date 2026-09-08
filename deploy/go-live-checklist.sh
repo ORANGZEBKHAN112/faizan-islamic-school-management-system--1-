@@ -40,7 +40,9 @@ Manual steps (complete in the admin UI):
 
 Update app later:
   cd /var/www/fiss-erp && git pull && npm ci
-  # If EACCES on dist/: sudo chown -R \"\$USER:\$USER\" dist   OR   sudo rm -rf dist
+  # If EACCES on dist/ or node_modules/.vite-temp:
+  #   sudo chown -R \"\$USER:\$USER\" /var/www/fiss-erp
+  #   # or: sudo rm -rf node_modules/.vite-temp dist && npm run build
   npm run build && pm2 restart fiss-erp
   # Keep NODE_ENV out of .env (PM2 sets production)
 EOF

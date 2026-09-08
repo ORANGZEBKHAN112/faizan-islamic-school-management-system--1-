@@ -251,7 +251,7 @@ export default function QuickPaySetup() {
                   }}
                   className="w-full py-3 rounded-2xl border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/5"
                 >
-                  Assign Kuickpay IDs to existing vouchers
+                  Assign / fix Kuickpay IDs (18 digits)
                 </button>
               </PermissionGate>
             </form>
