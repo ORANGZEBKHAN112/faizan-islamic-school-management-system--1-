@@ -634,10 +634,20 @@ export const dataService = {
     paymentMethod?: string;
     transactionRef?: string;
   }) {
-    const response = await api.post(`/fees/${id}/record-payment`, data);
-    this.invalidateCollection('fees');
-    this.invalidateCollection('feevouchers');
-    return response.data;
+    // Prefer dedicated route; fall back to PUT for servers that have not pulled the latest API yet.
+    try {
+      const response = await api.post(`/fees/${id}/record-payment`, data);
+      this.invalidateCollection('fees');
+      this.invalidateCollection('feevouchers');
+      return response.data;
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status !== 404) throw err;
+      const response = await api.put(`/fees/${id}`, data);
+      this.invalidateCollection('fees');
+      this.invalidateCollection('feevouchers');
+      return response.data;
+    }
   },
 
   async reverseFeePayment(id: string, data: { historyIndex: number; reason: string; asIncomeReversal?: boolean }) {
