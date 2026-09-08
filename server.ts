@@ -30,6 +30,7 @@ import {
   isSuperAdminRole,
   fullPermissionMap,
   migrateRoleNameTypo,
+  resetKuickpayRoles,
   type PermissionAction,
   type PermissionMap,
 } from "./server/rolePermissions.js";
@@ -138,9 +139,18 @@ const INACTIVE_CAMPUS_ACTION_MESSAGE =
 /** Roles that must be campus-scoped (no empty campus = deny). Others may act school-wide. */
 const CAMPUS_BOUND_ROLES = new Set(["Teacher", "Principal", "Student"]);
 
+function roleInSet(role: string, allowed: Set<string>): boolean {
+  const r = String(role || "").trim().toLowerCase();
+  if (!r) return false;
+  for (const name of allowed) {
+    if (String(name).trim().toLowerCase() === r) return true;
+  }
+  return false;
+}
+
 function requireRoles(allowed: Set<string>) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.auth || !allowed.has(req.auth.role)) {
+    if (!req.auth || !roleInSet(req.auth.role, allowed)) {
       return res.status(403).json({ message: "Forbidden — insufficient role" });
     }
     next();
@@ -148,8 +158,8 @@ function requireRoles(allowed: Set<string>) {
 }
 
 /**
- * Fee module access: built-in FEE_ROLES, Kuickpay-named roles, OR Role Management
- * permissions on fees (or quickpay for collection desks).
+ * Fee module access: built-in FEE_ROLES (case-insensitive), Kuickpay-named roles,
+ * OR Role Management permissions on fees / quickpay.
  */
 function roleLooksLikeFeeCollector(role: string): boolean {
   const r = String(role || "").trim().toLowerCase();
@@ -170,14 +180,13 @@ function requireFeeAction(action: PermissionAction) {
       return;
     }
     const role = String(req.auth.role || "");
-    if (isSuperAdminRole(role) || FEE_ROLES.has(role) || roleLooksLikeFeeCollector(role)) {
+    if (isSuperAdminRole(role) || roleInSet(role, FEE_ROLES) || roleLooksLikeFeeCollector(role)) {
       next();
       return;
     }
     getRolePermissions(role)
       .then((perms) => {
         const feesOk = hasPermission(perms, "fees", action, role);
-        // Collection desks often get Quick Pay module only — still allow fee payments.
         const quickpayOk =
           action === "view"
             ? hasPermission(perms, "quickpay", "view", role)
@@ -495,10 +504,13 @@ const GENERIC_WRITE_ROLES: Record<string, Set<string>> = {
 };
 
 function isSchoolWideRole(role: string, campusId: string | null | undefined, campusIds: string[] = []): boolean {
-  if (role === "Super Admin") return true;
-  if (role === "Admin" && !campusId && campusIds.length === 0) return true;
-  // Fee desk roles without campus = head office (all campuses), same as Admin
-  if ((role === "Accountant" || role === "Kuickpay Admin" || roleLooksLikeFeeCollector(role)) && !campusId && campusIds.length === 0) {
+  if (isSuperAdminRole(role)) return true;
+  if (String(role || "").trim().toLowerCase() === "admin" && !campusId && campusIds.length === 0) return true;
+  if (
+    (roleInSet(role, new Set(["Accountant", "Kuickpay Admin"])) || roleLooksLikeFeeCollector(role))
+    && !campusId
+    && campusIds.length === 0
+  ) {
     return true;
   }
   return false;
@@ -2049,6 +2061,11 @@ async function connectToDb() {
     } catch (roleTypoErr) {
       console.error("Error migrating Principle → Principal role name:", roleTypoErr);
     }
+    try {
+      await resetAndSeedKuickpayAdminUser();
+    } catch (kuickErr) {
+      console.error("Error seeding Kuickpay Admin:", kuickErr);
+    }
   } catch (err) {
     console.error("Database connection failed:", err);
   }
@@ -2119,16 +2136,99 @@ async function migrateFeeStructuresSession(pool: tediousSql.ConnectionPool): Pro
   `);
 }
 
+async function resetAndSeedKuickpayAdminUser() {
+  try {
+    const force = String(process.env.FORCE_RESET_KUICKPAY || "").trim() === "1";
+
+    const cleanUser = await pool.request()
+      .input("username", "kuickpay")
+      .query(`
+        SELECT id, role FROM Users
+        WHERE username = @username AND LTRIM(RTRIM(role)) = N'Kuickpay Admin' AND isActive = 1
+      `);
+
+    const messyRoles = await pool.request().query(`
+      SELECT id, name FROM AppRoles
+      WHERE (
+          LOWER(LTRIM(RTRIM(name))) LIKE '%kuickpay%'
+          OR LOWER(LTRIM(RTRIM(name))) LIKE '%quickpay%'
+        )
+        AND LTRIM(RTRIM(name)) <> N'Kuickpay Admin'
+    `);
+
+    const messyUsers = await pool.request().query(`
+      SELECT id, username, role FROM Users
+      WHERE (
+          LOWER(username) LIKE '%kuickpay%'
+          OR LOWER(username) LIKE '%quickpay%'
+          OR LOWER(ISNULL(role, '')) LIKE '%kuickpay%'
+          OR LOWER(ISNULL(role, '')) LIKE '%quickpay%'
+        )
+        AND NOT (
+          username = N'kuickpay' AND LTRIM(RTRIM(role)) = N'Kuickpay Admin'
+        )
+    `);
+
+    const needsReset =
+      force
+      || cleanUser.recordset.length === 0
+      || messyRoles.recordset.length > 0
+      || messyUsers.recordset.length > 0;
+
+    if (!needsReset) {
+      console.log("Kuickpay Admin user/role already clean — skip reset");
+      return;
+    }
+
+    const oldUsers = await pool.request().query(`
+      SELECT id, username, role FROM Users
+      WHERE LOWER(username) LIKE '%kuickpay%'
+         OR LOWER(username) LIKE '%quickpay%'
+         OR LOWER(ISNULL(role, '')) LIKE '%kuickpay%'
+         OR LOWER(ISNULL(role, '')) LIKE '%quickpay%'
+    `);
+    for (const u of oldUsers.recordset) {
+      await pool.request().input("id", u.id).query(`
+        IF OBJECT_ID('UserCampuses', 'U') IS NOT NULL
+          DELETE FROM UserCampuses WHERE userId = @id;
+        DELETE FROM Users WHERE id = @id;
+      `);
+      console.log(`Removed Kuickpay/QuickPay user: ${u.username} (${u.role})`);
+    }
+
+    const { deletedRoles } = await resetKuickpayRoles(pool);
+    console.log(`Kuickpay roles reset (removed ${deletedRoles}); recreated Kuickpay Admin`);
+
+    const username = "kuickpay";
+    const password = "Kuickpay@123";
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await pool.request()
+      .input("id", "usr-kuickpay-admin")
+      .input("fullName", "Kuickpay Fee Desk")
+      .input("username", username)
+      .input("email", "kuickpay@faizan.local")
+      .input("passwordHash", hashedPassword)
+      .input("role", "Kuickpay Admin")
+      .query(`
+        INSERT INTO Users (id, fullName, username, email, passwordHash, role, isActive, createdOn)
+        VALUES (@id, @fullName, @username, @email, @passwordHash, @role, 1, GETDATE())
+      `);
+    console.log("Seeded Kuickpay Admin user → username: kuickpay  password: Kuickpay@123");
+  } catch (err) {
+    console.error("Error resetting Kuickpay Admin user/role:", err);
+  }
+}
+
 async function seedAdmin() {
   try {
     const username = "admin";
     const password = "admin123";
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     const result = await pool.request()
       .input("username", username)
       .query("SELECT id FROM Users WHERE username = @username");
-      
+
     if (result.recordset.length === 0) {
       console.log("Seeding admin user...");
       await pool.request()

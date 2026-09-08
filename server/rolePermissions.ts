@@ -307,67 +307,59 @@ export async function seedAppRoles(pool: ConnectionPool): Promise<void> {
   }
 
   // Existing custom "Kuickpay Access" (or similar) — give same fee desk rights as Kuickpay Admin
-  await syncKuickpayNamedRolesToFeeDesk(pool);
+  // (skipped when resetKuickpayRoles already rebuilt a clean Kuickpay Admin)
 }
 
-/** Grant Admin-equivalent fee generate/pay + Kuickpay rights to any Kuickpay* role. */
-export async function syncKuickpayNamedRolesToFeeDesk(pool: ConnectionPool): Promise<void> {
-  const desk = DEFAULT_ROLE_PERMISSIONS["Kuickpay Admin"];
-  if (!desk) return;
-
+/** Delete broken/custom Kuickpay|QuickPay roles (permissions + role rows). Recreate clean Kuickpay Admin. */
+export async function resetKuickpayRoles(pool: ConnectionPool): Promise<{ deletedRoles: number }> {
   const roles = await pool.request().query(`
     SELECT id, name FROM AppRoles
-    WHERE isActive = 1
-      AND (
-        LOWER(name) LIKE '%kuickpay%'
-        OR LOWER(name) LIKE '%quickpay%'
-      )
+    WHERE LOWER(LTRIM(RTRIM(name))) LIKE '%kuickpay%'
+       OR LOWER(LTRIM(RTRIM(name))) LIKE '%quickpay%'
   `);
 
+  let deletedRoles = 0;
   for (const role of roles.recordset) {
-    const roleId = String(role.id);
-    const roleName = String(role.name);
+    await pool.request().input("roleId", role.id).query(`
+      DELETE FROM AppRolePermissions WHERE roleId = @roleId;
+      DELETE FROM AppRoles WHERE id = @roleId;
+    `);
+    invalidatePermissionCache(String(role.name));
+    deletedRoles += 1;
+  }
+
+  // Fresh system role with fee desk defaults
+  const desk = DEFAULT_ROLE_PERMISSIONS["Kuickpay Admin"];
+  const roleId = crypto.randomUUID();
+  await pool.request()
+    .input("id", roleId)
+    .input("name", "Kuickpay Admin")
+    .input("description", "Fee desk: generate vouchers, record payments, Kuickpay setup")
+    .input("isSystem", 1)
+    .query(`
+      INSERT INTO AppRoles (id, name, description, isSystem, isActive, createdOn)
+      VALUES (@id, @name, @description, @isSystem, 1, GETDATE())
+    `);
+
+  if (desk) {
     for (const mod of APP_MODULES) {
       const perm = desk[mod.key] ?? none();
-      // Only lift fee-desk modules; don't wipe unrelated custom grants
-      if (!["dashboard", "students", "fees", "reports", "quickpay"].includes(mod.key)) continue;
-      if (!perm.view && !perm.create && !perm.update && !perm.delete) continue;
-
-      const row = await pool.request()
+      await pool.request()
+        .input("id", crypto.randomUUID())
         .input("roleId", roleId)
         .input("moduleKey", mod.key)
-        .query("SELECT id FROM AppRolePermissions WHERE roleId = @roleId AND moduleKey = @moduleKey");
-
-      if (row.recordset.length === 0) {
-        await pool.request()
-          .input("id", crypto.randomUUID())
-          .input("roleId", roleId)
-          .input("moduleKey", mod.key)
-          .input("canView", perm.view ? 1 : 0)
-          .input("canCreate", perm.create ? 1 : 0)
-          .input("canUpdate", perm.update ? 1 : 0)
-          .input("canDelete", perm.delete ? 1 : 0)
-          .query(`
-            INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
-            VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
-          `);
-      } else {
-        await pool.request()
-          .input("roleId", roleId)
-          .input("moduleKey", mod.key)
-          .input("canView", perm.view ? 1 : 0)
-          .input("canCreate", perm.create ? 1 : 0)
-          .input("canUpdate", perm.update ? 1 : 0)
-          .input("canDelete", perm.delete ? 1 : 0)
-          .query(`
-            UPDATE AppRolePermissions
-            SET canView = @canView, canCreate = @canCreate, canUpdate = @canUpdate, canDelete = @canDelete
-            WHERE roleId = @roleId AND moduleKey = @moduleKey
-          `);
-      }
+        .input("canView", perm.view ? 1 : 0)
+        .input("canCreate", perm.create ? 1 : 0)
+        .input("canUpdate", perm.update ? 1 : 0)
+        .input("canDelete", perm.delete ? 1 : 0)
+        .query(`
+          INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
+          VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
+        `);
     }
-    invalidatePermissionCache(roleName);
   }
+  invalidatePermissionCache("Kuickpay Admin");
+  return { deletedRoles };
 }
 
 export function invalidatePermissionCache(roleName?: string) {
