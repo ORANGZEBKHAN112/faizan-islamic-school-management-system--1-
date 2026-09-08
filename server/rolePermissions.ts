@@ -133,6 +133,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionMap> = {
     ["expenses", full()],
     ["reports", viewOnly()],
   ]),
+  /** Fee desk: same fee generate/pay rights as Admin finance, plus Kuickpay setup. */
+  "Kuickpay Admin": buildMap([
+    ["dashboard", viewOnly()],
+    ["students", viewOnly()],
+    ["fees", full()],
+    ["expenses", none()],
+    ["reports", viewOnly()],
+    ["quickpay", full()],
+  ]),
   Student: buildMap([["dashboard", viewOnly()]]),
 };
 
@@ -257,6 +266,8 @@ export async function seedAppRoles(pool: ConnectionPool): Promise<void> {
       continue;
     }
 
+    const forceUpsert = roleName === "Kuickpay Admin";
+
     for (const mod of APP_MODULES) {
       const perm = permissions[mod.key] ?? none();
       const row = await pool.request()
@@ -277,8 +288,85 @@ export async function seedAppRoles(pool: ConnectionPool): Promise<void> {
             INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
             VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
           `);
+      } else if (forceUpsert) {
+        await pool.request()
+          .input("roleId", roleId)
+          .input("moduleKey", mod.key)
+          .input("canView", perm.view ? 1 : 0)
+          .input("canCreate", perm.create ? 1 : 0)
+          .input("canUpdate", perm.update ? 1 : 0)
+          .input("canDelete", perm.delete ? 1 : 0)
+          .query(`
+            UPDATE AppRolePermissions
+            SET canView = @canView, canCreate = @canCreate, canUpdate = @canUpdate, canDelete = @canDelete
+            WHERE roleId = @roleId AND moduleKey = @moduleKey
+          `);
       }
     }
+    if (forceUpsert) invalidatePermissionCache(roleName);
+  }
+
+  // Existing custom "Kuickpay Access" (or similar) — give same fee desk rights as Kuickpay Admin
+  await syncKuickpayNamedRolesToFeeDesk(pool);
+}
+
+/** Grant Admin-equivalent fee generate/pay + Kuickpay rights to any Kuickpay* role. */
+export async function syncKuickpayNamedRolesToFeeDesk(pool: ConnectionPool): Promise<void> {
+  const desk = DEFAULT_ROLE_PERMISSIONS["Kuickpay Admin"];
+  if (!desk) return;
+
+  const roles = await pool.request().query(`
+    SELECT id, name FROM AppRoles
+    WHERE isActive = 1
+      AND (
+        LOWER(name) LIKE '%kuickpay%'
+        OR LOWER(name) LIKE '%quickpay%'
+      )
+  `);
+
+  for (const role of roles.recordset) {
+    const roleId = String(role.id);
+    const roleName = String(role.name);
+    for (const mod of APP_MODULES) {
+      const perm = desk[mod.key] ?? none();
+      // Only lift fee-desk modules; don't wipe unrelated custom grants
+      if (!["dashboard", "students", "fees", "reports", "quickpay"].includes(mod.key)) continue;
+      if (!perm.view && !perm.create && !perm.update && !perm.delete) continue;
+
+      const row = await pool.request()
+        .input("roleId", roleId)
+        .input("moduleKey", mod.key)
+        .query("SELECT id FROM AppRolePermissions WHERE roleId = @roleId AND moduleKey = @moduleKey");
+
+      if (row.recordset.length === 0) {
+        await pool.request()
+          .input("id", crypto.randomUUID())
+          .input("roleId", roleId)
+          .input("moduleKey", mod.key)
+          .input("canView", perm.view ? 1 : 0)
+          .input("canCreate", perm.create ? 1 : 0)
+          .input("canUpdate", perm.update ? 1 : 0)
+          .input("canDelete", perm.delete ? 1 : 0)
+          .query(`
+            INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
+            VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
+          `);
+      } else {
+        await pool.request()
+          .input("roleId", roleId)
+          .input("moduleKey", mod.key)
+          .input("canView", perm.view ? 1 : 0)
+          .input("canCreate", perm.create ? 1 : 0)
+          .input("canUpdate", perm.update ? 1 : 0)
+          .input("canDelete", perm.delete ? 1 : 0)
+          .query(`
+            UPDATE AppRolePermissions
+            SET canView = @canView, canCreate = @canCreate, canUpdate = @canUpdate, canDelete = @canDelete
+            WHERE roleId = @roleId AND moduleKey = @moduleKey
+          `);
+      }
+    }
+    invalidatePermissionCache(roleName);
   }
 }
 

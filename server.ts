@@ -129,8 +129,8 @@ function authenticate(req: Request, res: Response, next: NextFunction) {
 }
 
 const ADMIN_ROLES = new Set(["Super Admin", "Admin"]);
-const FEE_ROLES = new Set(["Super Admin", "Admin", "Accountant"]);
-const QUICKPAY_ROLES = new Set(["Super Admin", "Admin"]);
+const FEE_ROLES = new Set(["Super Admin", "Admin", "Accountant", "Kuickpay Admin"]);
+const QUICKPAY_ROLES = new Set(["Super Admin", "Admin", "Kuickpay Admin"]);
 const SUPER_ADMIN_ROLES = new Set(["Super Admin"]);
 const INACTIVE_CAMPUS_ACTION_MESSAGE =
   "This campus is inactive. You cannot perform this action. Please activate the campus first.";
@@ -497,6 +497,10 @@ const GENERIC_WRITE_ROLES: Record<string, Set<string>> = {
 function isSchoolWideRole(role: string, campusId: string | null | undefined, campusIds: string[] = []): boolean {
   if (role === "Super Admin") return true;
   if (role === "Admin" && !campusId && campusIds.length === 0) return true;
+  // Fee desk roles without campus = head office (all campuses), same as Admin
+  if ((role === "Accountant" || role === "Kuickpay Admin" || roleLooksLikeFeeCollector(role)) && !campusId && campusIds.length === 0) {
+    return true;
+  }
   return false;
 }
 

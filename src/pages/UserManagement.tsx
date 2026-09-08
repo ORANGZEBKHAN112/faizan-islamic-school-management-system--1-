@@ -12,7 +12,7 @@ import { PermissionGate } from '../context/PermissionContext';
 import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
 import { toTitleCase } from '../utils/titleCase';
 
-const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant'];
+const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant', 'Kuickpay Admin'];
 
 export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
