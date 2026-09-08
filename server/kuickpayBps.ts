@@ -160,7 +160,7 @@ export async function ensureKuickpayConsumerNumber(
   const cfg = await loadKuickpayConfig(pool);
   const prefix = normalizePrefix(cfg?.consumer_prefix);
 
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const seqResult = await pool.request().query(`
       IF NOT EXISTS (SELECT 1 FROM QuickPayConfig)
       BEGIN
@@ -176,7 +176,7 @@ export async function ensureKuickpayConsumerNumber(
     const consumer = `${prefix}${String(seq).padStart(13, "0")}`;
 
     try {
-      // Overwrite empty OR invalid (non-18-digit) values — short IDs break bank/Kuickpay pay.
+      // Force-replace empty or invalid (non-18-digit) consumer numbers.
       await pool.request()
         .input("id", feeId)
         .input("cn", consumer)
@@ -184,21 +184,15 @@ export async function ensureKuickpayConsumerNumber(
           UPDATE Fees
           SET kuickpay_consumer_number = @cn
           WHERE id = @id
-            AND (
-              kuickpay_consumer_number IS NULL
-              OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
-              OR LEN(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    kuickpay_consumer_number, '-', ''), ' ', ''), '+', ''), '.', ''), ',', '')))) <> 18
-            )
         `);
       const check = await pool.request()
         .input("id", feeId)
         .query(`SELECT kuickpay_consumer_number AS cn FROM Fees WHERE id = @id`);
       const saved = check.recordset[0]?.cn;
       if (isValidKuickpayConsumerNumber(saved)) return String(saved).replace(/\D/g, "");
-      if (saved && String(saved).replace(/\D/g, "") === consumer) return consumer;
-    } catch {
-      // unique collision — retry
+    } catch (err) {
+      // Unique index collision — try next sequence
+      console.warn("Kuickpay consumer assign retry:", err instanceof Error ? err.message : String(err));
     }
   }
   return null;
@@ -484,19 +478,33 @@ export async function applyKuickpayPayment(
 export async function backfillKuickpayConsumerNumbers(
   pool: ConnectionPool,
   limit = 500
-): Promise<number> {
-  const result = await pool.request().input("limit", limit).query(`
-    SELECT TOP (@limit) id FROM Fees
+): Promise<{ assigned: number; failed: number; scanned: number }> {
+  // Keep SQL simple — complex REPLACE/LEN filters were failing on some DBs.
+  const result = await pool.request().input("limit", Math.min(5000, Math.max(1, limit))).query(`
+    SELECT TOP (@limit) id, kuickpay_consumer_number AS cn
+    FROM Fees
     WHERE kuickpay_consumer_number IS NULL
        OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
-       OR LEN(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            kuickpay_consumer_number, '-', ''), ' ', ''), '+', ''), '.', ''), ',', '')))) <> 18
-    ORDER BY created_at DESC
+       OR LEN(LTRIM(RTRIM(kuickpay_consumer_number))) <> 18
+    ORDER BY id DESC
   `);
-  let n = 0;
+
+  let assigned = 0;
+  let failed = 0;
+  let scanned = 0;
+
   for (const row of result.recordset) {
-    const cn = await ensureKuickpayConsumerNumber(pool, String(row.id));
-    if (cn && cn.length === 18) n++;
+    if (isValidKuickpayConsumerNumber(row.cn)) continue;
+    scanned += 1;
+    try {
+      const cn = await ensureKuickpayConsumerNumber(pool, String(row.id));
+      if (cn && cn.length === 18) assigned += 1;
+      else failed += 1;
+    } catch (err) {
+      failed += 1;
+      console.error("Kuickpay assign failed for fee", row.id, err instanceof Error ? err.message : err);
+    }
   }
-  return n;
+
+  return { assigned, failed, scanned };
 }

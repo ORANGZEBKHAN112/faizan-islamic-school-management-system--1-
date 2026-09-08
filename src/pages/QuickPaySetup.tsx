@@ -244,9 +244,18 @@ export default function QuickPaySetup() {
                   onClick={async () => {
                     try {
                       const result = await dataService.assignKuickpayConsumerNumbers(1000);
-                      toast.success(`Assigned ${result.assigned} Kuickpay ID(s) to vouchers`);
-                    } catch {
-                      toast.error('Failed to assign Kuickpay IDs');
+                      const failed = Number((result as { failed?: number }).failed || 0);
+                      if (failed > 0) {
+                        toast.warning(`Assigned ${result.assigned} ID(s); ${failed} failed — check server logs`);
+                      } else {
+                        toast.success(`Assigned ${result.assigned} Kuickpay ID(s) to vouchers`);
+                      }
+                    } catch (err: unknown) {
+                      const msg =
+                        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+                        || (err as Error)?.message
+                        || 'Failed to assign Kuickpay IDs';
+                      toast.error(String(msg));
                     }
                   }}
                   className="w-full py-3 rounded-2xl border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/5"

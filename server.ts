@@ -4854,9 +4854,15 @@ async function startServer() {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const limit = Math.min(2000, Math.max(1, Number(req.body?.limit) || 500));
-      const assigned = await backfillKuickpayConsumerNumbers(pool, limit);
-      res.json({ message: "Kuickpay consumer numbers assigned", assigned });
+      const result = await backfillKuickpayConsumerNumbers(pool, limit);
+      res.json({
+        message: "Kuickpay consumer numbers assigned",
+        assigned: result.assigned,
+        failed: result.failed,
+        scanned: result.scanned,
+      });
     } catch (err) {
+      console.error("Error assigning Kuickpay IDs:", err);
       sendServerError(res, err, "Error assigning Kuickpay IDs");
     }
   });
