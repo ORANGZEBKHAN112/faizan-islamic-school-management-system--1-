@@ -68,6 +68,7 @@ import {
   loadKuickpayConfig,
   parseKuickpayAmount,
   paymentError,
+  quickPayConfigSelectSql,
   resolveBpsCredentials,
 } from "./server/kuickpayBps.js";
 
@@ -4909,6 +4910,9 @@ async function startServer() {
       const expected = resolveBpsCredentials(cfg);
       const provided = authFromHeaders(req as unknown as { headers: Record<string, unknown> });
       if (!credentialsMatch(provided, expected)) {
+        if (!expected.password) {
+          return res.status(401).json(inquiryError("04", "BPS password not configured in Kuickpay Setup"));
+        }
         return res.status(401).json(inquiryError("04", "Invalid credentials"));
       }
 
@@ -4947,6 +4951,9 @@ async function startServer() {
       const expected = resolveBpsCredentials(cfg);
       const provided = authFromHeaders(req as unknown as { headers: Record<string, unknown> });
       if (!credentialsMatch(provided, expected)) {
+        if (!expected.password) {
+          return res.status(401).json(paymentError("04", "BPS password not configured in Kuickpay Setup"));
+        }
         return res.status(401).json(paymentError("04", "Invalid credentials"));
       }
 
@@ -9021,7 +9028,7 @@ async function startServer() {
     try {
       if (!pool || !pool.connected) await connectToDb();
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
-      const result = await pool.request().query("SELECT * FROM QuickPayConfig");
+      const result = await pool.request().query(quickPayConfigSelectSql(false));
       res.json(result.recordset.map((row) => redactQuickPayConfig(row)));
     } catch (err) {
       sendServerError(res, err, "Error fetching QuickPay config");
@@ -9069,6 +9076,8 @@ async function startServer() {
               : `SELECT * FROM Attendance`
           );
         }
+      } else if (collection === "quickpay-config") {
+        result = await pool.request().query(quickPayConfigSelectSql(false));
       } else {
         result = await pool.request().query(`SELECT * FROM ${tableName}`);
       }

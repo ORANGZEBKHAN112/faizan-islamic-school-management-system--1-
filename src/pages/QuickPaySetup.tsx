@@ -30,7 +30,8 @@ export default function QuickPaySetup() {
 
   useEffect(() => {
     const unsubConfig = dataService.subscribe('quickpay-config', (data: QuickPayConfig[]) => {
-      if (data.length > 0) setConfig(data[0]);
+      const row = data[0];
+      if (row) setConfig(row);
       else setConfig(defaultQuickPayConfig());
     });
     const unsubTransactions = dataService.subscribe('transactions', setTransactions);

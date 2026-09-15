@@ -104,12 +104,21 @@ export function isKuickpayEnabled(cfg: KuickpayConfigRow | null | undefined): bo
   return false;
 }
 
-export async function loadKuickpayConfig(pool: ConnectionPool): Promise<KuickpayConfigRow | null> {
-  const result = await pool.request().query(`
-    SELECT TOP 1 *
+/** Pick the row Bill Inquiry / UI should use (enabled + has stored password first). */
+export function quickPayConfigSelectSql(limitOne = true): string {
+  const top = limitOne ? "TOP 1 " : "";
+  return `
+    SELECT ${top}*
     FROM QuickPayConfig
-    ORDER BY CASE WHEN ISNULL(isEnabled, 0) = 1 THEN 0 ELSE 1 END
-  `);
+    ORDER BY
+      CASE WHEN ISNULL(isEnabled, 0) = 1 THEN 0 ELSE 1 END,
+      CASE WHEN LEN(ISNULL(bps_password, N'')) + LEN(ISNULL(api_key, N'')) > 0 THEN 0 ELSE 1 END,
+      id DESC
+  `;
+}
+
+export async function loadKuickpayConfig(pool: ConnectionPool): Promise<KuickpayConfigRow | null> {
+  const result = await pool.request().query(quickPayConfigSelectSql(true));
   return (result.recordset[0] as KuickpayConfigRow) || null;
 }
 
