@@ -59,7 +59,7 @@ export const NAV_MODULES: NavModuleDef[] = [
         nameKey: 'nav.dashboard',
         path: '/',
         icon: LayoutDashboard,
-        roles: ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant', 'Student'],
+        roles: ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant', 'Student', 'Kuickpay Admin'],
         moduleKey: 'dashboard',
         roleLabelKeys: { Student: 'nav.myPortal' },
       },
@@ -83,7 +83,7 @@ export const NAV_MODULES: NavModuleDef[] = [
     labelKey: 'nav.modules.students',
     items: [
       { nameKey: 'nav.admissions', path: '/admissions', icon: UserPlus, roles: ['Super Admin', 'Admin', 'Principal'], moduleKey: 'admissions' },
-      { nameKey: 'nav.students', path: '/students', icon: Users, roles: ['Super Admin', 'Admin', 'Principal', 'Teacher'], moduleKey: 'students' },
+      { nameKey: 'nav.students', path: '/students', icon: Users, roles: ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Kuickpay Admin'], moduleKey: 'students' },
       { nameKey: 'nav.documents', path: '/documents', icon: FileText, roles: ['Super Admin', 'Admin', 'Principal'], moduleKey: 'documents' },
       { nameKey: 'nav.attendance', path: '/attendance', icon: Calendar, roles: ['Super Admin', 'Admin', 'Principal'], moduleKey: 'attendance' },
     ],
@@ -102,16 +102,16 @@ export const NAV_MODULES: NavModuleDef[] = [
     labelKey: 'nav.modules.finance',
     items: [
       { nameKey: 'nav.feeSettings', path: '/fee-settings', icon: Banknote, roles: ['Super Admin'], moduleKey: 'fee-settings' },
-      { nameKey: 'nav.fees', path: '/fees', icon: CreditCard, roles: ['Super Admin', 'Admin', 'Principal', 'Accountant'], moduleKey: 'fees' },
+      { nameKey: 'nav.fees', path: '/fees', icon: CreditCard, roles: ['Super Admin', 'Admin', 'Principal', 'Accountant', 'Kuickpay Admin'], moduleKey: 'fees' },
       { nameKey: 'nav.expenses', path: '/expenses', icon: TrendingDown, roles: ['Super Admin', 'Admin', 'Principal', 'Accountant'], moduleKey: 'expenses' },
-      { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['Super Admin', 'Admin', 'Principal', 'Accountant'], moduleKey: 'reports' },
+      { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['Super Admin', 'Admin', 'Principal', 'Accountant', 'Kuickpay Admin'], moduleKey: 'reports' },
     ],
   },
   {
     id: 'system',
     labelKey: 'nav.modules.system',
     items: [
-      { nameKey: 'nav.quickpay', path: '/quickpay', icon: Settings, roles: ['Super Admin', 'Admin'], moduleKey: 'quickpay' },
+      { nameKey: 'nav.quickpay', path: '/quickpay', icon: Settings, roles: ['Super Admin', 'Admin', 'Kuickpay Admin'], moduleKey: 'quickpay' },
     ],
   },
 ];
