@@ -8,6 +8,21 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
 
+const defaultQuickPayConfig = (): QuickPayConfig => ({
+  id: '',
+  merchantId: '',
+  apiKey: '',
+  callbackUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/api/payments/quickpay-callback`,
+  mode: 'Sandbox',
+  isEnabled: false,
+  consumerPrefix: '01520',
+});
+
+function payloadForQuickPaySave(config: QuickPayConfig): QuickPayConfig {
+  const { apiKeySet: _a, bpsPasswordSet: _b, ...rest } = config;
+  return rest;
+}
+
 export default function QuickPaySetup() {
   const [config, setConfig] = useState<QuickPayConfig | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -16,6 +31,7 @@ export default function QuickPaySetup() {
   useEffect(() => {
     const unsubConfig = dataService.subscribe('quickpay-config', (data: QuickPayConfig[]) => {
       if (data.length > 0) setConfig(data[0]);
+      else setConfig(defaultQuickPayConfig());
     });
     const unsubTransactions = dataService.subscribe('transactions', setTransactions);
     return () => {
@@ -72,15 +88,20 @@ export default function QuickPaySetup() {
 
     setLoading(true);
     try {
+      const payload = payloadForQuickPaySave(config);
       if (config.id) {
-        await dataService.update('quickpay-config', config.id, config);
+        await dataService.update('quickpay-config', config.id, payload);
       } else {
-        await dataService.add('quickpay-config', config);
+        await dataService.add('quickpay-config', payload);
       }
       toast.success('Configuration saved successfully!');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error saving config:', err);
-      toast.error('Error saving configuration.');
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || (err as Error)?.message
+        || 'Error saving configuration.';
+      toast.error(String(msg));
     } finally {
       setLoading(false);
     }

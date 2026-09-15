@@ -2350,8 +2350,19 @@ async function startServer() {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
-  const isAllowedOrigin = (origin?: string) => {
+
+  const isAllowedOrigin = (origin: string | undefined, req: Request): boolean => {
     if (!origin || corsOrigins.includes(origin)) return true;
+    const hostHeader = String(req.headers["x-forwarded-host"] || req.headers.host || "")
+      .split(",")[0]
+      .trim();
+    if (hostHeader && origin) {
+      try {
+        if (new URL(origin).host === hostHeader) return true;
+      } catch {
+        /* ignore malformed Origin */
+      }
+    }
     if (process.env.NODE_ENV === "production") return false;
     try {
       const hostname = new URL(origin).hostname;
@@ -2361,18 +2372,18 @@ async function startServer() {
     }
   };
 
-  app.use(
+  app.use((req, res, next) => {
     cors({
       origin(origin, callback) {
-        if (isAllowedOrigin(origin)) {
+        if (isAllowedOrigin(origin, req)) {
           callback(null, true);
         } else {
           callback(new Error("Not allowed by CORS"));
         }
       },
       credentials: true,
-    })
-  );
+    })(req, res, next);
+  });
   app.use(express.json({ limit: "2mb" }));
   app.use(requireAuthForProtectedApi);
   app.use("/uploads", express.static(uploadsDir));
@@ -9088,9 +9099,15 @@ async function startServer() {
       if (!(await assertCollectionPermission(req, res, collection, "create"))) return;
     } else {
       const writeRoles = GENERIC_WRITE_ROLES[collection] || ADMIN_ROLES;
-      if (!req.auth || !writeRoles.has(req.auth.role)) {
+      if (!req.auth || !roleInSet(req.auth.role, writeRoles)) {
         return res.status(403).json({ message: "Forbidden — insufficient role" });
       }
+    }
+
+    const rawBody = { ...req.body };
+    if (collection === "quickpay-config") {
+      delete rawBody.apiKeySet;
+      delete rawBody.bpsPasswordSet;
     }
 
     if (collection === "expenses" && req.body.campusId) {
@@ -9101,8 +9118,8 @@ async function startServer() {
     }
 
     const whitelist = TABLE_INSERT_WHITELIST[tableName];
-    const id = req.body.id || crypto.randomUUID();
-    const raw = { ...req.body, id };
+    const id = rawBody.id || crypto.randomUUID();
+    const raw = { ...rawBody, id };
     const keys = Object.keys(raw).filter((k) => !whitelist || whitelist.has(k));
     if (keys.length === 0) {
       return res.status(400).json({ message: "No allowed fields to insert" });
@@ -9152,13 +9169,15 @@ async function startServer() {
       if (!(await assertCollectionPermission(req, res, col, "update"))) return;
     } else {
       const writeRoles = GENERIC_WRITE_ROLES[col] || ADMIN_ROLES;
-      if (!req.auth || !writeRoles.has(req.auth.role)) {
+      if (!req.auth || !roleInSet(req.auth.role, writeRoles)) {
         return res.status(403).json({ message: "Forbidden — insufficient role" });
       }
     }
 
     const body = { ...req.body };
     if (col === "quickpay-config") {
+      delete body.apiKeySet;
+      delete body.bpsPasswordSet;
       const apiKey = String(body.apiKey ?? "");
       if (!apiKey.trim() || apiKey.includes("•")) delete body.apiKey;
       const bpsPassword = String(body.bpsPassword ?? "");
