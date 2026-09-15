@@ -262,8 +262,8 @@ function isPublicApiRoute(req: Request): boolean {
   if (path === "/api/health") return true;
   if (path === "/api/auth/login" && req.method === "POST") return true;
   if (path === "/api/payments/quickpay-callback" && req.method === "POST") return true;
-  if (path === "/api/v1/BillInquiry" && req.method === "POST") return true;
-  if (path === "/api/v1/BillPayment" && req.method === "POST") return true;
+  if (path === "/api/v1/billinquiry" && req.method === "POST") return true;
+  if (path === "/api/v1/billpayment" && req.method === "POST") return true;
   if (path === "/api/v1/payment" && req.method === "POST") return true;
   if (path === "/api/public/campuses" && req.method === "GET") return true;
   if (path === "/api/public/classes" && req.method === "GET") return true;
