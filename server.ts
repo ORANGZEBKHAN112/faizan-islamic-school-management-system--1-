@@ -1612,21 +1612,26 @@ async function connectToDb() {
             ON Fees(student_id, month, year, fee_type)
             WHERE fee_type IN ('Monthly', 'Admission');
 
+        -- Kuickpay: same tran_auth_id may appear on different consumer numbers — drop global unique on transaction_ref
+        IF EXISTS (
+          SELECT 1 FROM sys.indexes
+          WHERE name = 'UX_Fees_transaction_ref' AND object_id = OBJECT_ID('Fees')
+        )
+          DROP INDEX UX_Fees_transaction_ref ON Fees;
+
         IF NOT EXISTS (
           SELECT 1 FROM sys.indexes
-          WHERE name = 'UX_Fees_transaction_ref'
+          WHERE name = 'UX_Fees_kuickpay_consumer_transaction_ref'
             AND object_id = OBJECT_ID('Fees')
         )
-          AND NOT EXISTS (
-            SELECT transaction_ref
-            FROM Fees
-            WHERE transaction_ref IS NOT NULL AND transaction_ref <> ''
-            GROUP BY transaction_ref
-            HAVING COUNT(*) > 1
+          AND EXISTS (
+            SELECT 1 FROM sys.columns
+            WHERE object_id = OBJECT_ID('Fees') AND name = 'kuickpay_consumer_number'
           )
-          CREATE UNIQUE INDEX UX_Fees_transaction_ref
-            ON Fees(transaction_ref)
-            WHERE transaction_ref IS NOT NULL AND transaction_ref <> '';
+          CREATE UNIQUE INDEX UX_Fees_kuickpay_consumer_transaction_ref
+            ON Fees(kuickpay_consumer_number, transaction_ref)
+            WHERE kuickpay_consumer_number IS NOT NULL
+              AND transaction_ref IS NOT NULL AND transaction_ref <> '';
 
         -- Campus code column (UI collects it; older schemas aliased campus_name as the code)
         IF OBJECT_ID('Campuses', 'U') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Campuses') AND name = 'campus_code')

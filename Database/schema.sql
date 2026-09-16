@@ -511,9 +511,11 @@ CREATE INDEX IX_Students_campus_class_status ON Students(campus_id, class_id, st
 CREATE UNIQUE INDEX UX_Fees_monthly_admission_student_month_year
 ON Fees(student_id, month, year, fee_type)
 WHERE fee_type IN ('Monthly', 'Admission');
-CREATE UNIQUE INDEX UX_Fees_transaction_ref
-ON Fees(transaction_ref)
-WHERE transaction_ref IS NOT NULL AND transaction_ref <> '';
+-- Same tran_auth_id allowed on different Kuickpay consumer numbers
+CREATE UNIQUE INDEX UX_Fees_kuickpay_consumer_transaction_ref
+ON Fees(kuickpay_consumer_number, transaction_ref)
+WHERE kuickpay_consumer_number IS NOT NULL
+  AND transaction_ref IS NOT NULL AND transaction_ref <> '';
 
 -- Note: default admin (username 'admin', password 'admin123') is also seeded on server startup.
 -- For a full role seed set, run Database/02_seed_users_roles.sql after schema.

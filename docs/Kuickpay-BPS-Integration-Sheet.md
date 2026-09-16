@@ -162,7 +162,7 @@ Used when the voucher is **blocked** or **expired** (past `validity_date`) so **
 | Field | Format / meaning |
 |-------|------------------|
 | `Bill_Status` | `U` = Unpaid, `P` = Paid, `B` = Blocked (expired / blocked) |
-| `Due_Date` | `YYYYMMDD` |
+| `Due_Date` | `YYYYMMDD` (8 digits, e.g. `20260804`) |
 | `Billing_Month` | `YYMM` |
 | `Amount_Within_DueDate` / `Amount_After_DueDate` | AN14: `+` + 13 digits, last 2 = paisa |
 | `Amount_Paid` (when paid) | **12 digits**, last 2 = paisa (no sign) |
@@ -236,6 +236,8 @@ On success, ERP:
 4. Date Paid (`tran_date`)
 
 If the same Consumer Number + Tran_Auth_ID exist but **Amount** or **Date** (or any of the four) **mismatch** → **`04`**.
+
+The same **Tran_Auth_ID** on **different** consumer numbers is allowed (different vouchers / banks).
 
 Already-paid voucher with a **new** (non-matching) attempt → **`04`** (not `03`).
 

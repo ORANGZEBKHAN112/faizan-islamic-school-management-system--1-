@@ -57,13 +57,36 @@ export function padConsumerDetail(name: string): string {
 }
 
 export function formatDueDateYmd(d: Date | string | null | undefined): string {
-  if (!d) {
+  if (d == null || d === "") {
     const n = new Date();
     return `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, "0")}${String(n.getDate()).padStart(2, "0")}`;
+  }
+  if (typeof d === "string") {
+    const digits = d.replace(/\D/g, "");
+    if (digits.length === 8) return digits;
+    if (digits.length === 6) {
+      // Legacy YYMMDD → full yyyyMMdd (Kuickpay BPS expects 8 digits)
+      return `20${digits.slice(0, 2)}${digits.slice(2, 4)}${digits.slice(4, 6)}`;
+    }
   }
   const dt = typeof d === "string" ? new Date(d) : d;
   if (Number.isNaN(dt.getTime())) return formatDueDateYmd(null);
   return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+/** Inquiry Due_Date: fee due_date, else 10th of voucher month/year, else today. Always yyyyMMdd. */
+export function inquiryDueDateFromFee(fee: Record<string, unknown>): string {
+  const raw = fee.due_date ?? fee.dueDate;
+  if (raw != null && String(raw).trim() !== "") {
+    const ymd = formatDueDateYmd(raw as string | Date);
+    if (ymd.length === 8) return ymd;
+  }
+  const month = Number(fee.month || 0);
+  const year = Number(fee.year || 0);
+  if (month >= 1 && month <= 12 && year >= 1900) {
+    return `${year}${String(month).padStart(2, "0")}10`;
+  }
+  return formatDueDateYmd(null);
 }
 
 export function formatBillingMonth(month: number, year: number): string {
@@ -245,7 +268,7 @@ function inquiryCommonFields(fee: Record<string, unknown>, consumerNumber: strin
   const balance = outstandingPayable(fee);
   const status = billStatusFromFee(fee, balance);
   const paid = Number(fee.paid_amount || 0);
-  const due = formatDueDateYmd(fee.due_date as string | null);
+  const due = inquiryDueDateFromFee(fee);
   const billingMonth = formatBillingMonth(Number(fee.month || 0), Number(fee.year || 0));
   const name = padConsumerDetail(String(fee.studentName || "STUDENT"));
   const email = String(fee.studentEmail || "noreply@school.local").slice(0, 30);
@@ -305,7 +328,8 @@ export type DuplicateClass = "exact" | "mismatch" | "none";
 
 /**
  * 03 only when Consumer Number + Tran_Auth_ID + Amount Paid + Date Paid all match.
- * Same auth with any field mismatch → 04.
+ * Same auth on a *different* consumer is allowed (BPS: banks may reuse auth across consumers).
+ * Same consumer + auth with amount/date mismatch → 04.
  */
 export async function classifyKuickpayDuplicate(
   pool: ConnectionPool,
