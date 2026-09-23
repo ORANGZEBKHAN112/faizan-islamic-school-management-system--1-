@@ -15,7 +15,8 @@ const defaultQuickPayConfig = (): QuickPayConfig => ({
   callbackUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/api/payments/quickpay-callback`,
   mode: 'Sandbox',
   isEnabled: false,
-  consumerPrefix: '01520',
+  consumerPrefix: '73130',
+  kuickpayCustomerCharge: 0,
 });
 
 function payloadForQuickPaySave(config: QuickPayConfig): QuickPayConfig {
@@ -209,13 +210,31 @@ export default function QuickPaySetup() {
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Consumer Prefix (5 digits)</label>
                 <input
                   className="vibrant-input font-mono"
-                  value={config?.consumerPrefix || '01520'}
+                  value={config?.consumerPrefix || '73130'}
                   onChange={(e) => setConfig((prev) => ({ ...prev!, consumerPrefix: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
                   maxLength={5}
-                  placeholder="01520"
+                  placeholder="73130"
                   required
                 />
-                <p className="text-[9px] text-slate-400">Assigned by Kuickpay to your institution. Consumer # = prefix + 13-digit serial.</p>
+                <p className="text-[9px] text-slate-400">UAT/Live prefix from Kuickpay (e.g. 73130). Full consumer # = prefix + 13-digit serial (18 digits total).</p>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Kuickpay charge (customer pays) PKR</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="vibrant-input"
+                  value={config?.kuickpayCustomerCharge ?? 0}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev!,
+                      kuickpayCustomerCharge: Math.max(0, Number(e.target.value) || 0),
+                    }))
+                  }
+                  placeholder="0"
+                />
+                <p className="text-[9px] text-slate-400">Added to Bill Inquiry Amount_Within/After due date and to the payment total.</p>
               </div>
               <div className="space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Legacy Callback URL (optional)</label>

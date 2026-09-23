@@ -174,6 +174,8 @@ export interface QuickPayConfig {
   bpsPasswordSet?: boolean;
   /** 5-digit Kuickpay institution prefix for consumer numbers. */
   consumerPrefix?: string;
+  /** Flat PKR added to Inquiry/Payment when customer bears Kuickpay charges. */
+  kuickpayCustomerCharge?: number;
   nextConsumerSeq?: number;
 }
 

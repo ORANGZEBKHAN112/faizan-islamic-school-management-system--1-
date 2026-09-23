@@ -11,8 +11,21 @@ export interface KuickpayConfigRow {
   bps_password?: string;
   consumer_prefix?: string;
   next_consumer_seq?: number;
+  kuickpay_customer_charge?: number;
   isEnabled?: boolean | number;
   mode?: string;
+}
+
+/** Flat PKR charge passed to customer on Kuickpay (included in Inquiry amounts). */
+export function kuickpayCustomerChargePkr(cfg: KuickpayConfigRow | null | undefined): number {
+  const n = Number(cfg?.kuickpay_customer_charge ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+}
+
+export function bpsPayableTotal(fee: Record<string, unknown>, customerChargePkr = 0): number {
+  const base = outstandingPayable(fee);
+  const charge = customerChargePkr > 0 ? customerChargePkr : 0;
+  return base + charge;
 }
 
 /** Inquiry payable amount — AN14: sign + 13 digits (last 2 = paisa). */
@@ -167,7 +180,7 @@ export function credentialsMatch(
 }
 
 function normalizePrefix(raw: string | null | undefined): string {
-  const digits = String(raw || "01520").replace(/\D/g, "");
+  const digits = String(raw || "73130").replace(/\D/g, "");
   if (digits.length >= 5) return digits.slice(0, 5);
   return digits.padStart(5, "0");
 }
@@ -197,7 +210,7 @@ export async function ensureKuickpayConsumerNumber(
       IF NOT EXISTS (SELECT 1 FROM QuickPayConfig)
       BEGIN
         INSERT INTO QuickPayConfig (id, merchant_id, api_key, callback_url, mode, isEnabled, consumer_prefix, next_consumer_seq)
-        VALUES (CONVERT(NVARCHAR(50), NEWID()), '', '', '', 'Sandbox', 0, '01520', 1);
+        VALUES (CONVERT(NVARCHAR(50), NEWID()), '', '', '', 'Sandbox', 0, '73130', 1);
       END
       UPDATE TOP (1) QuickPayConfig
       SET next_consumer_seq = ISNULL(next_consumer_seq, 1) + 1
@@ -264,9 +277,14 @@ export function outstandingPayable(fee: Record<string, unknown>): number {
   return Math.max(0, amount - paid);
 }
 
-function inquiryCommonFields(fee: Record<string, unknown>, consumerNumber: string) {
-  const balance = outstandingPayable(fee);
-  const status = billStatusFromFee(fee, balance);
+function inquiryCommonFields(
+  fee: Record<string, unknown>,
+  consumerNumber: string,
+  customerChargePkr = 0
+) {
+  const base = outstandingPayable(fee);
+  const status = billStatusFromFee(fee, base);
+  const balance = bpsPayableTotal(fee, customerChargePkr);
   const paid = Number(fee.paid_amount || 0);
   const due = inquiryDueDateFromFee(fee);
   const billingMonth = formatBillingMonth(Number(fee.month || 0), Number(fee.year || 0));
@@ -301,8 +319,12 @@ function inquiryCommonFields(fee: Record<string, unknown>, consumerNumber: strin
  * - Unpaid / Paid → response_Code 00
  * - Blocked / expired → response_Code 02 + Bill_Status B (payment must not proceed)
  */
-export function buildInquirySuccess(fee: Record<string, unknown>, consumerNumber: string) {
-  const fields = inquiryCommonFields(fee, consumerNumber);
+export function buildInquirySuccess(
+  fee: Record<string, unknown>,
+  consumerNumber: string,
+  customerChargePkr = 0
+) {
+  const fields = inquiryCommonFields(fee, consumerNumber, customerChargePkr);
   if (fields.Bill_Status === "B") {
     return {
       response_Code: "02",
@@ -392,8 +414,11 @@ export async function applyKuickpayPayment(
   const { fee, consumerNumber, amount, tranAuthId, tranDate, tranTime, bankMnemonic, reserved } = opts;
   const feeId = String(fee.id);
   const studentId = String(fee.student_id);
-  const balance = outstandingPayable(fee);
-  const statusNow = billStatusFromFee(fee, balance);
+  const cfg = await loadKuickpayConfig(pool);
+  const customerCharge = kuickpayCustomerChargePkr(cfg);
+  const baseOutstanding = outstandingPayable(fee);
+  const expectedTotal = bpsPayableTotal(fee, customerCharge);
+  const statusNow = billStatusFromFee(fee, baseOutstanding);
 
   const dup = await classifyKuickpayDuplicate(pool, consumerNumber, tranAuthId, amount, tranDate);
   if (dup === "exact") return paymentError("03", "Duplicate transaction");
@@ -402,21 +427,21 @@ export async function applyKuickpayPayment(
   }
 
   if (statusNow === "B") return paymentError("02", "Voucher is blocked or expired");
-  if (statusNow === "P" || balance <= 0) {
+  if (statusNow === "P" || baseOutstanding <= 0) {
     return paymentError("04", "Voucher already paid");
   }
   if (!(amount > 0)) return paymentError("04", "Invalid transaction amount");
 
-  // KuickPay does not support partial payments — full outstanding only
-  if (Math.abs(amount - balance) > 0.009) {
+  // KuickPay does not support partial payments — fee outstanding + customer Kuickpay charge
+  if (Math.abs(amount - expectedTotal) > 0.009) {
     return paymentError(
       "04",
-      `Partial payment not supported; full outstanding required (${balance.toFixed(2)})`
+      `Partial payment not supported; full amount required (${expectedTotal.toFixed(2)})`
     );
   }
 
   const prevPaid = Number(fee.paid_amount || 0);
-  const totalPaid = prevPaid + amount;
+  const totalPaid = prevPaid + baseOutstanding;
   const newBalance = 0;
   const newStatus = "Paid";
 

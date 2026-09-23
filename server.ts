@@ -65,6 +65,7 @@ import {
   findFeeByConsumerNumber,
   inquiryError,
   isKuickpayEnabled,
+  kuickpayCustomerChargePkr,
   loadKuickpayConfig,
   parseKuickpayAmount,
   paymentError,
@@ -1246,6 +1247,7 @@ const COLUMN_MAP: Record<string, string> = {
   bpsUsername: "bps_username",
   bpsPassword: "bps_password",
   consumerPrefix: "consumer_prefix",
+  kuickpayCustomerCharge: "kuickpay_customer_charge",
   nextConsumerSeq: "next_consumer_seq",
   kuickpayConsumerNumber: "kuickpay_consumer_number",
   // Attendance
@@ -1282,7 +1284,7 @@ const TABLE_INSERT_WHITELIST: Record<string, Set<string>> = {
   ]),
   QuickPayConfig: new Set([
     "id", "merchantId", "apiKey", "callbackUrl", "isEnabled", "mode",
-    "bpsUsername", "bpsPassword", "consumerPrefix", "nextConsumerSeq",
+    "bpsUsername", "bpsPassword", "consumerPrefix", "nextConsumerSeq", "kuickpayCustomerCharge",
   ]),
   FeeStructures: new Set([
     "id", "campusId", "classId", "tuitionFee", "admissionFee", "examFee", "transportFee", "miscFee",
@@ -1533,6 +1535,8 @@ async function connectToDb() {
             ALTER TABLE QuickPayConfig ADD consumer_prefix NVARCHAR(5) NULL;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'next_consumer_seq')
             ALTER TABLE QuickPayConfig ADD next_consumer_seq BIGINT DEFAULT 1;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('QuickPayConfig') AND name = 'kuickpay_customer_charge')
+            ALTER TABLE QuickPayConfig ADD kuickpay_customer_charge DECIMAL(18, 2) DEFAULT 0;
         END
 
         IF OBJECT_ID('KuickpayPaymentLog', 'U') IS NULL
@@ -4937,7 +4941,7 @@ async function startServer() {
         return res.json(inquiryError("01", "Consumer number not found"));
       }
 
-      res.json(buildInquirySuccess(fee, consumerNumber));
+      res.json(buildInquirySuccess(fee, consumerNumber, kuickpayCustomerChargePkr(cfg)));
     } catch (err) {
       console.error("Kuickpay BillInquiry error:", err);
       res.status(500).json(inquiryError("05", "Processing failed"));
