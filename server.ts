@@ -3928,6 +3928,17 @@ async function startServer() {
     }
   });
 
+  app.get("/api/fees/kuickpay-customer-charge", requireFeeAction("view"), async (_req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const cfg = await loadKuickpayConfig(pool);
+      res.json({ kuickpayCustomerCharge: kuickpayCustomerChargePkr(cfg) });
+    } catch (err) {
+      sendServerError(res, err, "Error fetching Kuickpay customer charge");
+    }
+  });
+
   // Specialized Fee Vouchers Route (Updated for QuickPay)
   app.get("/api/fees", async (req, res) => {
     try {
@@ -4003,7 +4014,14 @@ async function startServer() {
       `;
 
       const result = await request.query(query);
-      return res.json({ data: result.recordset, page, limit, total });
+      const cfg = await loadKuickpayConfig(pool);
+      return res.json({
+        data: result.recordset,
+        page,
+        limit,
+        total,
+        kuickpayCustomerCharge: kuickpayCustomerChargePkr(cfg),
+      });
     } catch (err) {
       console.error("Error fetching fees:", err);
       res.status(500).json({ message: "Error fetching fees", error: err instanceof Error ? err.message : String(err) });

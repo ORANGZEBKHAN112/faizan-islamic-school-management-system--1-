@@ -210,6 +210,8 @@ export const dataService = {
         total: Number(body.total ?? body.data.length ?? 0),
         page: Number(body.page ?? 1),
         limit: Number(body.limit ?? params?.limit ?? body.data.length ?? 0),
+        kuickpayCustomerCharge:
+          body.kuickpayCustomerCharge != null ? Number(body.kuickpayCustomerCharge) : undefined,
       };
     }
     const arr = Array.isArray(body) ? body : body?.data ?? [];
@@ -716,6 +718,16 @@ export const dataService = {
     const response = await api.post('/fees/assign-kuickpay-ids', { limit });
     this.invalidateCollection('fees');
     return response.data as { assigned: number; failed?: number; scanned?: number; message: string };
+  },
+
+  async fetchKuickpayCustomerCharge(): Promise<number> {
+    try {
+      const response = await api.get<{ kuickpayCustomerCharge?: number }>('/fees/kuickpay-customer-charge');
+      const n = Number(response.data?.kuickpayCustomerCharge ?? 0);
+      return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+    } catch {
+      return 0;
+    }
   },
 
   async regenerateVoucher(id: string) {

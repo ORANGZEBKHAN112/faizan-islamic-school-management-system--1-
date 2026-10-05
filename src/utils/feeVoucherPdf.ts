@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { Fee } from '../types';
 import { formatRollNumberForDisplay } from './rollNumber';
+import { kuickpayPayableTotal, normalizeKuickpayCustomerCharge, voucherOutstandingPayable } from './kuickpayPayable';
 
 const TEAL: [number, number, number] = [32, 175, 171];
 const TEAL_DARK: [number, number, number] = [15, 83, 127];
@@ -12,6 +13,8 @@ export type FeeVoucherPdfContext = {
   campusName?: string;
   sealDataUrl?: string;
   notesDataUrl?: string;
+  /** From QuickPay Setup — added to Kuick Pay Amount when paying online. */
+  kuickpayCustomerCharge?: number;
 };
 
 let cachedAssets: { sealDataUrl?: string; notesDataUrl?: string } | null = null;
@@ -113,14 +116,6 @@ function fieldRow(doc: jsPDF, x: number, y: number, w: number, label: string, va
   }
 }
 
-function voucherGrossPayable(voucher: Fee): number {
-  return (voucher.amount || 0) + (voucher.arrears || 0) + (voucher.fineAmount || 0) - (voucher.discountAmount || 0);
-}
-
-function voucherRemaining(voucher: Fee): number {
-  return voucher.balanceAmount ?? Math.max(0, voucherGrossPayable(voucher) - (voucher.paidAmount || 0));
-}
-
 function buildFeeHeads(voucher: Fee): Array<{ label: string; months: string; amount: number }> {
   const monthHint = voucher.month ? '1' : '—';
   const heads: Array<{ label: string; months: string; amount: number }> = [
@@ -207,7 +202,10 @@ function drawCopy(
   // Only print a valid 18-digit Kuickpay consumer number (banks reject shorter IDs).
   const kuickDigits = String(voucher.kuickpayConsumerNumber || '').replace(/\D/g, '');
   const kuickId = kuickDigits.length === 18 ? kuickDigits : 'NOT ASSIGNED — open Kuickpay Setup';
-  const payable = voucherRemaining(voucher);
+  const feeBalance = voucherOutstandingPayable(voucher);
+  const payable = feeBalance;
+  const kuickCharge = normalizeKuickpayCustomerCharge(assets.kuickpayCustomerCharge);
+  const kuickPayTotal = kuickpayPayableTotal(voucher, kuickCharge);
 
   // KuickPay ID box
   doc.setDrawColor(...TEAL);
@@ -225,21 +223,32 @@ function drawCopy(
   doc.text(String(kuickId).slice(0, 36), x + 30, y + 5.3);
   y += 10;
 
-  // Kuick Pay Amount (split box)
+  // Kuick Pay Amount (split box) — fee balance + admin-configured Kuickpay charge
+  const amountBoxH = kuickCharge > 0 && feeBalance > 0 ? 11 : 8;
   doc.setDrawColor(...TEAL);
-  doc.roundedRect(x, y, w, 8, 0.5, 0.5, 'S');
+  doc.roundedRect(x, y, w, amountBoxH, 0.5, 0.5, 'S');
   doc.setFillColor(...TEAL);
-  doc.rect(x, y, 38, 8, 'F');
-  doc.line(x + w * 0.55, y, x + w * 0.55, y + 8);
+  doc.rect(x, y, 38, amountBoxH, 'F');
+  doc.line(x + w * 0.55, y, x + w * 0.55, y + amountBoxH);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text('Kuick Pay Amount', x + 19, y + 5.2, { align: 'center' });
+  doc.text('Kuick Pay Amount', x + 19, y + (amountBoxH > 8 ? 4.2 : 5.2), { align: 'center' });
   doc.setTextColor(...TEAL_DARK);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text(String(Math.round(payable)), x + w * 0.55 + 2, y + 5.4);
-  y += 12;
+  doc.text(String(Math.round(kuickPayTotal)), x + w * 0.55 + 2, y + (amountBoxH > 8 ? 4.5 : 5.4));
+  if (kuickCharge > 0 && feeBalance > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(...GREY);
+    doc.text(
+      `Fee Rs. ${Math.round(feeBalance)} + Kuickpay Rs. ${Math.round(kuickCharge)}`,
+      x + w * 0.55 + 2,
+      y + 9,
+    );
+  }
+  y += amountBoxH + 4;
 
   // Campus / month
   doc.setFont('helvetica', 'bold');
@@ -444,6 +453,7 @@ export function drawFeeVoucherPage(
   const assets: FeeVoucherPdfContext = {
     sealDataUrl: options?.sealDataUrl,
     notesDataUrl: options?.notesDataUrl,
+    kuickpayCustomerCharge: options?.kuickpayCustomerCharge,
   };
 
   drawCopy(doc, leftX, copyW, 'Bank Copy', voucher, campusName, assets);
@@ -452,11 +462,20 @@ export function drawFeeVoucherPage(
 
 export async function downloadFeeVoucherPdf(
   voucher: Fee,
-  options?: { campusName?: string; fileName?: string; existingDoc?: jsPDF },
+  options?: {
+    campusName?: string;
+    fileName?: string;
+    existingDoc?: jsPDF;
+    kuickpayCustomerCharge?: number;
+  },
 ): Promise<jsPDF> {
   const assets = await loadFeeVoucherPdfAssets();
   const doc = options?.existingDoc || new jsPDF('p', 'mm', 'a4');
-  drawFeeVoucherPage(doc, voucher, { ...assets, campusName: options?.campusName });
+  drawFeeVoucherPage(doc, voucher, {
+    ...assets,
+    campusName: options?.campusName,
+    kuickpayCustomerCharge: options?.kuickpayCustomerCharge,
+  });
   if (!options?.existingDoc) {
     const month = MONTHS[voucher.month] || 'Fee';
     const name = options?.fileName

@@ -141,6 +141,7 @@ export default function FeeManagement() {
     data: vouchers,
     loading: vouchersLoading,
     total: vouchersTotal,
+    kuickpayCustomerCharge,
     refresh: refreshVouchers,
   } = useCollection<Fee>('fees', { params: voucherParams, paginated: true });
 
@@ -694,12 +695,13 @@ export default function FeeManagement() {
   const downloadPDF = async (voucher: Fee, existingDoc?: jsPDF) => {
     const campus = campuses.find((c) => c.id === voucher.campusId);
     const campusName = campus?.campusName || voucher.campusName;
+    const pdfOpts = { campusName, kuickpayCustomerCharge };
     if (existingDoc) {
       const assets = await loadFeeVoucherPdfAssets();
-      drawFeeVoucherPage(existingDoc, voucher, { ...assets, campusName });
+      drawFeeVoucherPage(existingDoc, voucher, { ...assets, ...pdfOpts });
       return;
     }
-    await downloadFeeVoucherPdf(voucher, { campusName });
+    await downloadFeeVoucherPdf(voucher, pdfOpts);
   };
 
   const downloadAllVouchers = async () => {
@@ -719,6 +721,7 @@ export default function FeeManagement() {
         drawFeeVoucherPage(doc, voucher, {
           ...assets,
           campusName: campus?.campusName || voucher.campusName,
+          kuickpayCustomerCharge,
         });
       }
       doc.save(`Bulk_Vouchers_${new Date().toISOString().split('T')[0]}.pdf`);

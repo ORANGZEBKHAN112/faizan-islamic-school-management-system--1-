@@ -16,6 +16,8 @@ interface UseCollectionResult<T> {
   total: number;
   page: number;
   limit: number;
+  /** Present on paginated `/api/fees` — Kuickpay surcharge from QuickPay Setup. */
+  kuickpayCustomerCharge: number;
   refresh: () => Promise<void>;
 }
 
@@ -32,6 +34,7 @@ export function useCollection<T = any>(
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(0);
+  const [kuickpayCustomerCharge, setKuickpayCustomerCharge] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +46,11 @@ export function useCollection<T = any>(
         setTotal(result.total);
         setPage(result.page);
         setLimit(result.limit);
+        setKuickpayCustomerCharge(
+          result.kuickpayCustomerCharge != null && Number.isFinite(Number(result.kuickpayCustomerCharge))
+            ? Number(result.kuickpayCustomerCharge)
+            : 0,
+        );
       } else {
         const result = await dataService.getAll(collectionName, stableParams);
         const list = Array.isArray(result) ? result : result?.data ?? [];
@@ -99,6 +107,7 @@ export function useCollection<T = any>(
     total,
     page,
     limit,
+    kuickpayCustomerCharge,
     refresh: load,
   };
 }

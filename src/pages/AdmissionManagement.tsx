@@ -503,6 +503,7 @@ export default function AdmissionManagement() {
     }
     const { application, voucher } = voucherPayload;
     try {
+      const kuickpayCustomerCharge = await dataService.fetchKuickpayCustomerCharge();
       await downloadFeeVoucherPdf(
         {
           ...voucher,
@@ -514,6 +515,7 @@ export default function AdmissionManagement() {
         },
         {
           campusName: application.campusName || voucher.campusName,
+          kuickpayCustomerCharge,
           fileName: `Admission_Voucher_${formatRollNumberForDisplay(application.rollNumber) || application.applicantName}.pdf`,
         },
       );
