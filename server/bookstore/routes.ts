@@ -12,7 +12,7 @@ import {
   releaseStockReservation,
   resolveStudentForSale,
 } from "./salesLogic.js";
-import { ensureBookstoreSchema, seedBookstoreStores } from "./schema.js";
+import { ensureBookCatalog, ensureBookstoreSchema, seedBookstoreStores } from "./schema.js";
 
 type PermissionAction = "view" | "create" | "update" | "delete";
 
@@ -229,7 +229,7 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!getPool()?.connected) await connectToDb();
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
-      await ensureBookstoreReady(pool);
+      await ensureBookCatalog(pool);
       const { page, limit, offset } = parsePage(req);
       const search = String(req.query.search || "").trim();
       const activeOnly = req.query.activeOnly !== "0";
@@ -259,7 +259,8 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
           code: "BOOKSTORE_SCHEMA_MISSING",
         });
       }
-      sendServerError(res, err, "Error fetching books");
+      console.error("Error fetching books", err);
+      return res.status(500).json({ message: msg || "Error fetching books" });
     }
   });
 
@@ -268,7 +269,7 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!getPool()?.connected) await connectToDb();
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
-      await ensureBookstoreReady(pool);
+      await ensureBookCatalog(pool);
       const body = req.body || {};
       const title = String(body.title || "").trim();
       if (!title) return res.status(400).json({ message: "Title is required" });

@@ -1,7 +1,7 @@
 import type { ConnectionPool } from "mssql";
 
-/** Book selling & multi-store inventory — SQL Server DDL (idempotent). */
-export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void> {
+/** Catalog table only — separate batches so a later inventory script cannot block listing books. */
+export async function ensureBookCatalog(pool: ConnectionPool): Promise<void> {
   await pool.request().query(`
     IF OBJECT_ID('BookCatalog', 'U') IS NULL
     CREATE TABLE BookCatalog (
@@ -19,11 +19,8 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
       created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
       updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_isbn' AND object_id = OBJECT_ID('BookCatalog'))
-      CREATE UNIQUE INDEX UX_BookCatalog_isbn ON BookCatalog(isbn) WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) <> '';
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_barcode' AND object_id = OBJECT_ID('BookCatalog'))
-      CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) <> '';
-
+  `);
+  await pool.request().query(`
     IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'unit_of_measure')
@@ -34,10 +31,29 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
         ALTER TABLE BookCatalog ADD created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
       IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'updated_at')
         ALTER TABLE BookCatalog ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+    END
+  `);
+  await pool.request().query(`
+    IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
+    BEGIN
       UPDATE BookCatalog SET isbn = NULL WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) = N'';
       UPDATE BookCatalog SET barcode = NULL WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) = N'';
     END
+  `);
+  await pool.request().query(`
+    IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_isbn' AND object_id = OBJECT_ID('BookCatalog'))
+      CREATE UNIQUE INDEX UX_BookCatalog_isbn ON BookCatalog(isbn) WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) <> '';
+    IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_barcode' AND object_id = OBJECT_ID('BookCatalog'))
+      CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) <> '';
+  `);
+}
 
+/** Book selling & multi-store inventory — SQL Server DDL (idempotent). */
+export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void> {
+  await ensureBookCatalog(pool);
+  await pool.request().query(`
     IF OBJECT_ID('BookPrices', 'U') IS NULL
     CREATE TABLE BookPrices (
       id NVARCHAR(50) PRIMARY KEY,
