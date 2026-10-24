@@ -443,8 +443,52 @@ export async function fetchPermissionsForRole(
     `);
 
   const map = rowToPermissionMap(permResult.recordset);
+  const defaults = DEFAULT_ROLE_PERMISSIONS[normalizedRole];
+  if (defaults) {
+    for (const mod of APP_MODULES) {
+      const hasRow = permResult.recordset.some(
+        (row) => String(row.moduleKey ?? row.module_key ?? "") === mod.key
+      );
+      if (!hasRow && defaults[mod.key]) {
+        map[mod.key] = { ...defaults[mod.key] };
+      }
+    }
+  }
   permissionCache.set(roleName, { at: Date.now(), map });
   return map;
+}
+
+/** Insert AppRolePermissions rows for new modules (e.g. bookstore) on existing system roles. */
+export async function seedMissingModulePermissions(pool: ConnectionPool): Promise<void> {
+  for (const [roleName, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+    const existing = await pool.request()
+      .input("name", roleName)
+      .query("SELECT id FROM AppRoles WHERE name = @name");
+    const roleId = existing.recordset[0]?.id as string | undefined;
+    if (!roleId) continue;
+
+    for (const mod of APP_MODULES) {
+      const perm = permissions[mod.key] ?? none();
+      const row = await pool.request()
+        .input("roleId", roleId)
+        .input("moduleKey", mod.key)
+        .query("SELECT id FROM AppRolePermissions WHERE roleId = @roleId AND moduleKey = @moduleKey");
+      if (row.recordset.length > 0) continue;
+      await pool.request()
+        .input("id", crypto.randomUUID())
+        .input("roleId", roleId)
+        .input("moduleKey", mod.key)
+        .input("canView", perm.view ? 1 : 0)
+        .input("canCreate", perm.create ? 1 : 0)
+        .input("canUpdate", perm.update ? 1 : 0)
+        .input("canDelete", perm.delete ? 1 : 0)
+        .query(`
+          INSERT INTO AppRolePermissions (id, roleId, moduleKey, canView, canCreate, canUpdate, canDelete)
+          VALUES (@id, @roleId, @moduleKey, @canView, @canCreate, @canUpdate, @canDelete)
+        `);
+      invalidatePermissionCache(roleName);
+    }
+  }
 }
 
 export function permissionsToRows(roleId: string, map: PermissionMap) {

@@ -26,8 +26,17 @@ export default function BookCatalog() {
     try {
       const res = await bookstoreService.fetchBooks({ search, limit: 200, activeOnly: false });
       setRows(res.data || []);
-    } catch {
-      toast.error('Failed to load books — check Bookstore view permission');
+    } catch (err: unknown) {
+      const ax = err as { response?: { status?: number; data?: { message?: string; code?: string } } };
+      const status = ax.response?.status;
+      const msg = ax.response?.data?.message;
+      if (status === 403) {
+        toast.error('No permission to view books — enable Bookstore → View in Role Management, then log in again.');
+      } else if (status === 503 || ax.response?.data?.code === 'BOOKSTORE_SCHEMA_MISSING') {
+        toast.error(msg || 'Bookstore database not ready — restart the server on VPS.');
+      } else {
+        toast.error(msg || `Failed to load books${status ? ` (${status})` : ''}`);
+      }
     } finally {
       setLoading(false);
     }

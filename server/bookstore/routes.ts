@@ -233,21 +233,32 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       const { page, limit, offset } = parsePage(req);
       const search = String(req.query.search || "").trim();
       const activeOnly = req.query.activeOnly !== "0";
-      const request = pool.request();
       let where = "WHERE 1=1";
       if (activeOnly) where += " AND is_active = 1";
       if (search) {
-        request.input("q", `%${search}%`);
         where += " AND (title LIKE @q OR isbn LIKE @q OR barcode LIKE @q OR publisher LIKE @q)";
       }
-      const total = (await request.query(`SELECT COUNT(*) AS total FROM BookCatalog ${where}`)).recordset[0]?.total ?? 0;
-      const rows = await request.query(`
+      const countReq = pool.request();
+      const listReq = pool.request();
+      if (search) {
+        countReq.input("q", sql.NVarChar(200), `%${search}%`);
+        listReq.input("q", sql.NVarChar(200), `%${search}%`);
+      }
+      const total = (await countReq.query(`SELECT COUNT(*) AS total FROM BookCatalog ${where}`)).recordset[0]?.total ?? 0;
+      const rows = await listReq.query(`
         SELECT * FROM BookCatalog ${where}
         ORDER BY title ASC
         OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY
       `);
       res.json({ data: rows.recordset.map(mapBook), page, limit, total });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/Invalid object name/i.test(msg)) {
+        return res.status(503).json({
+          message: "Bookstore tables are not ready. Restart the server after deploy.",
+          code: "BOOKSTORE_SCHEMA_MISSING",
+        });
+      }
       sendServerError(res, err, "Error fetching books");
     }
   });
