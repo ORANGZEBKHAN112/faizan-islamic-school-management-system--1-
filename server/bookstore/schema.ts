@@ -43,10 +43,10 @@ export async function ensureBookCatalog(pool: ConnectionPool): Promise<void> {
   await pool.request().query(`
     IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_isbn' AND object_id = OBJECT_ID('BookCatalog'))
-      CREATE UNIQUE INDEX UX_BookCatalog_isbn ON BookCatalog(isbn) WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) <> '';
+      CREATE UNIQUE INDEX UX_BookCatalog_isbn ON BookCatalog(isbn) WHERE isbn IS NOT NULL;
     IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_barcode' AND object_id = OBJECT_ID('BookCatalog'))
-      CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) <> '';
+      CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL;
   `);
 }
 
