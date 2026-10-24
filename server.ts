@@ -22,6 +22,7 @@ import {
   COLLECTION_TO_MODULE,
   ensureRoleSchema,
   seedAppRoles,
+  seedMissingModulePermissions,
   fetchPermissionsForRole,
   hasPermission,
   invalidatePermissionCache,
@@ -2113,6 +2114,11 @@ async function connectToDb() {
       console.error("Error normalizing staff usernames:", usernameErr);
     }
     await seedAppRoles(pool);
+    try {
+      await seedMissingModulePermissions(pool);
+    } catch (missingPermErr) {
+      console.error("Error seeding missing module permissions:", missingPermErr);
+    }
     try {
       await migrateRoleNameTypo(pool);
     } catch (roleTypoErr) {

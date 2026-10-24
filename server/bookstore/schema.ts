@@ -24,6 +24,20 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_barcode' AND object_id = OBJECT_ID('BookCatalog'))
       CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) <> '';
 
+    IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'unit_of_measure')
+        ALTER TABLE BookCatalog ADD unit_of_measure NVARCHAR(30) NOT NULL DEFAULT N'Unit';
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'is_active')
+        ALTER TABLE BookCatalog ADD is_active BIT NOT NULL DEFAULT 1;
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'created_at')
+        ALTER TABLE BookCatalog ADD created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookCatalog') AND name = 'updated_at')
+        ALTER TABLE BookCatalog ADD updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
+      UPDATE BookCatalog SET isbn = NULL WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) = N'';
+      UPDATE BookCatalog SET barcode = NULL WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) = N'';
+    END
+
     IF OBJECT_ID('BookPrices', 'U') IS NULL
     CREATE TABLE BookPrices (
       id NVARCHAR(50) PRIMARY KEY,
