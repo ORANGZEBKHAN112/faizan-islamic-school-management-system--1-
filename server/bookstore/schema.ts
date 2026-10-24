@@ -126,7 +126,8 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
       performed_by NVARCHAR(50) NULL,
       created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
-    CREATE INDEX IX_BookInventoryLedger_store_book ON BookInventoryLedger(store_id, book_id, created_at DESC);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BookInventoryLedger_store_book' AND object_id = OBJECT_ID('BookInventoryLedger'))
+      CREATE INDEX IX_BookInventoryLedger_store_book ON BookInventoryLedger(store_id, book_id, created_at DESC);
 
     IF OBJECT_ID('BookPacks', 'U') IS NULL
     CREATE TABLE BookPacks (
@@ -256,7 +257,8 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
       created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
       CONSTRAINT FK_BookSales_store FOREIGN KEY (store_id) REFERENCES BookstoreStores(id)
     );
-    CREATE UNIQUE INDEX UX_BookSales_invoice ON BookSales(invoice_no);
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookSales_invoice' AND object_id = OBJECT_ID('BookSales'))
+      CREATE UNIQUE INDEX UX_BookSales_invoice ON BookSales(invoice_no);
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookSales_idempotency' AND object_id = OBJECT_ID('BookSales'))
       CREATE UNIQUE INDEX UX_BookSales_idempotency ON BookSales(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
