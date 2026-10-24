@@ -60,29 +60,31 @@ export default function BookCatalog() {
       return;
     }
     try {
-      await bookstoreService.createBook({
+      const session = form.academicSession.trim();
+      if (session && !/^\d{4}-\d{4}$/.test(session)) {
+        toast.error('Session must be YYYY-YYYY (e.g. 2025-2026)');
+        return;
+      }
+      const created = await bookstoreService.createBook({
         title: form.title,
         isbn: form.isbn || null,
         publisher: form.publisher || null,
       });
-      if (form.academicSession && form.sellingPrice) {
-        const latest = await bookstoreService.fetchBooks({ search: form.title, limit: 1 });
-        const id = latest.data?.[0]?.id;
-        if (id) {
-          await bookstoreService.saveBookPrice({
-            bookId: id,
-            academicSession: form.academicSession,
-            sellingPrice: form.sellingPrice,
-            purchaseCost: 0,
-          });
-        }
+      const bookId = (created as { id?: string })?.id;
+      if (session && form.sellingPrice > 0 && bookId) {
+        await bookstoreService.saveBookPrice({
+          bookId,
+          academicSession: session,
+          sellingPrice: form.sellingPrice,
+          purchaseCost: 0,
+        });
       }
       toast.success('Book saved');
       setForm({ title: '', isbn: '', publisher: '', sellingPrice: 0, academicSession: '' });
       await load();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg || 'Could not save book');
+      const data = (err as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
+      toast.error(data?.message || 'Could not save book');
     }
   };
 
@@ -91,11 +93,24 @@ export default function BookCatalog() {
   return (
     <div className="space-y-6">
       <PermissionGate module="bookstore" action="create">
-        <div className="vibrant-card p-6 grid md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="vibrant-card p-6 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           <input className="vibrant-input" placeholder="Title *" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
           <input className="vibrant-input" placeholder="ISBN" value={form.isbn} onChange={(e) => setForm((f) => ({ ...f, isbn: e.target.value }))} />
           <input className="vibrant-input" placeholder="Publisher" value={form.publisher} onChange={(e) => setForm((f) => ({ ...f, publisher: e.target.value }))} />
-          <input className="vibrant-input" placeholder="Session e.g. 2025-26" value={form.academicSession} onChange={(e) => setForm((f) => ({ ...f, academicSession: e.target.value }))} />
+          <input
+            className="vibrant-input"
+            placeholder="Session YYYY-YYYY (optional)"
+            value={form.academicSession}
+            onChange={(e) => setForm((f) => ({ ...f, academicSession: e.target.value }))}
+          />
+          <input
+            type="number"
+            min={0}
+            className="vibrant-input"
+            placeholder="Selling price (optional)"
+            value={form.sellingPrice || ''}
+            onChange={(e) => setForm((f) => ({ ...f, sellingPrice: Number(e.target.value) || 0 }))}
+          />
           <button type="button" onClick={() => void create()} className="vibrant-btn flex items-center justify-center gap-2">
             <Plus className="w-4 h-4" /> Add book
           </button>

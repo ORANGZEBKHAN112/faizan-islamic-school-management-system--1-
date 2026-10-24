@@ -12,6 +12,7 @@ import {
   releaseStockReservation,
   resolveStudentForSale,
 } from "./salesLogic.js";
+import { ensureBookstoreSchema, seedBookstoreStores } from "./schema.js";
 
 type PermissionAction = "view" | "create" | "update" | "delete";
 
@@ -62,6 +63,33 @@ function mapBook(row: Record<string, unknown>) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function ensureBookstoreReady(pool: ConnectionPool): Promise<void> {
+  await ensureBookstoreSchema(pool);
+  await seedBookstoreStores(pool);
+}
+
+function emptyToNull(value: unknown): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s === "" ? null : s;
+}
+
+function respondBookstoreWriteError(res: Response, err: unknown, sendServerError: BookstoreRouteDeps["sendServerError"], context: string): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/Invalid object name/i.test(msg)) {
+    res.status(503).json({
+      message: "Bookstore database tables are missing. Restart the server after deploy so schema patches can run.",
+      code: "BOOKSTORE_SCHEMA_MISSING",
+    });
+    return;
+  }
+  if (/UX_BookCatalog/i.test(msg)) {
+    res.status(409).json({ message: "ISBN or barcode already exists" });
+    return;
+  }
+  sendServerError(res, err, context);
 }
 
 async function assertStoreCampusAccess(
@@ -185,22 +213,23 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!getPool()?.connected) await connectToDb();
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      await ensureBookstoreReady(pool);
       const body = req.body || {};
       const title = String(body.title || "").trim();
       if (!title) return res.status(400).json({ message: "Title is required" });
       const id = crypto.randomUUID();
       await pool.request()
-        .input("id", id)
-        .input("title", title)
-        .input("isbn", body.isbn || null)
-        .input("barcode", body.barcode || null)
-        .input("publisher", body.publisher || null)
-        .input("edition", body.edition || null)
-        .input("subject", body.subject || null)
-        .input("description", body.description || null)
-        .input("unitOfMeasure", body.unitOfMeasure || "Unit")
-        .input("imageUrl", body.imageUrl || null)
-        .input("isActive", body.isActive === false ? 0 : 1)
+        .input("id", sql.NVarChar(50), id)
+        .input("title", sql.NVarChar(300), title)
+        .input("isbn", sql.NVarChar(32), emptyToNull(body.isbn))
+        .input("barcode", sql.NVarChar(64), emptyToNull(body.barcode))
+        .input("publisher", sql.NVarChar(200), emptyToNull(body.publisher))
+        .input("edition", sql.NVarChar(80), emptyToNull(body.edition))
+        .input("subject", sql.NVarChar(120), emptyToNull(body.subject))
+        .input("description", sql.NVarChar(sql.MAX), emptyToNull(body.description))
+        .input("unitOfMeasure", sql.NVarChar(30), String(body.unitOfMeasure || "Unit").trim() || "Unit")
+        .input("imageUrl", sql.NVarChar(500), emptyToNull(body.imageUrl))
+        .input("isActive", sql.Bit, body.isActive === false ? 0 : 1)
         .query(`
           INSERT INTO BookCatalog (
             id, title, isbn, barcode, publisher, edition, subject, description,
@@ -212,11 +241,7 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
         `);
       res.status(201).json({ id, message: "Book created" });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/UX_BookCatalog/i.test(msg)) {
-        return res.status(409).json({ message: "ISBN or barcode already exists" });
-      }
-      sendServerError(res, err, "Error creating book");
+      respondBookstoreWriteError(res, err, sendServerError, "Error creating book");
     }
   });
 
@@ -258,16 +283,25 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!getPool()?.connected) await connectToDb();
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      await ensureBookstoreReady(pool);
       const authUser = await loadAuthUser(req);
       const { bookId, academicSession, purchaseCost, sellingPrice } = req.body || {};
       if (!bookId || !academicSession) {
         return res.status(400).json({ message: "bookId and academicSession are required" });
       }
+      let session: string;
+      try {
+        session = assertValidSessionLabel(String(academicSession));
+      } catch (err) {
+        const mapped = pricingErrorResponse(res, err);
+        if (mapped) return mapped;
+        throw err;
+      }
       const id = crypto.randomUUID();
       await pool.request()
         .input("id", id)
         .input("bookId", bookId)
-        .input("session", String(academicSession))
+        .input("session", session)
         .input("purchaseCost", Number(purchaseCost) || 0)
         .input("sellingPrice", Number(sellingPrice) || 0)
         .input("createdBy", authUser?.id ?? null)
