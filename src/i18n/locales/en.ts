@@ -108,6 +108,10 @@ export const en = {
       title: 'Books Management',
       description: 'Campus-wise book stock, sales, and summary exports (separate from Inventory).',
     },
+    bookstore: {
+      title: 'Bookstore & inventory',
+      description: 'Central warehouse, campus stock, class packs, transfers, and student book sales.',
+    },
     admissions: {
       title: 'Admissions',
       description: 'CNIC check → review → test → approve → enroll.',

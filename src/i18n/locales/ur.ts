@@ -110,6 +110,10 @@ export const ur: LocaleMessages = {
       title: 'کتب مینجمنٹ',
       description: 'کیمپس وار کتابوں کا اسٹاک اور رپورٹس۔',
     },
+    bookstore: {
+      title: 'بک اسٹور اور انوینٹری',
+      description: 'مرکزی گودام، کیمپس اسٹاک، کلاس پیک، اور فروخت۔',
+    },
     admissions: {
       title: 'داخلہ',
       description: 'CNIC چیک → جائزہ → ٹیسٹ → منظوری → داخلہ۔',

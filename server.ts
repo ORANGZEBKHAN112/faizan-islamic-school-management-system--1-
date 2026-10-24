@@ -72,6 +72,8 @@ import {
   quickPayConfigSelectSql,
   resolveBpsCredentials,
 } from "./server/kuickpayBps.js";
+import { ensureBookstoreSchema, seedBookstoreStores } from "./server/bookstore/schema.js";
+import { registerBookstoreRoutes } from "./server/bookstore/routes.js";
 
 interface JwtPayload {
   id: string;
@@ -1057,57 +1059,95 @@ if (!isWindows && sqlConfig.server.toLowerCase().includes('localdb')) {
   console.warn("Please provide a real SQL Server address in environment variables or appsettings.json.");
 }
 
-// Try to load from appsettings.json if it exists (common in .NET migrations)
-const appSettingsPath = path.join(process.cwd(), 'Backend', 'FaizanIslamicSchool.WebApi', 'appsettings.json');
-if (fs.existsSync(appSettingsPath)) {
+function envSqlConfigured(): boolean {
+  return Boolean(
+    process.env.SQL_SERVER?.trim() ||
+      process.env.SQL_DATABASE?.trim() ||
+      process.env.SQL_USER?.trim() ||
+      process.env.SQL_PASSWORD?.trim() ||
+      process.env.SQL_PORT?.trim()
+  );
+}
+
+function applySqlConfigFromEnv(): void {
+  if (process.env.SQL_SERVER?.trim()) sqlConfig.server = process.env.SQL_SERVER.trim();
+  if (process.env.SQL_USER !== undefined) sqlConfig.user = process.env.SQL_USER;
+  if (process.env.SQL_PASSWORD !== undefined) sqlConfig.password = process.env.SQL_PASSWORD;
+  if (process.env.SQL_DATABASE?.trim()) sqlConfig.database = process.env.SQL_DATABASE.trim();
+  if (process.env.SQL_PORT?.trim()) sqlConfig.port = parseInt(process.env.SQL_PORT, 10);
+  if (process.env.SQL_TRUSTED_CONNECTION !== undefined) {
+    sqlConfig.options.trustedConnection = parseBooleanEnv("SQL_TRUSTED_CONNECTION", false);
+  }
+  if (process.env.SQL_ENCRYPT !== undefined) {
+    sqlConfig.options.encrypt = parseBooleanEnv("SQL_ENCRYPT", true);
+  }
+  if (process.env.SQL_TRUST_SERVER_CERTIFICATE !== undefined) {
+    sqlConfig.options.trustServerCertificate = parseBooleanEnv("SQL_TRUST_SERVER_CERTIFICATE", true);
+  }
+}
+
+function parseAppSettingsConnectionString(connString: string): void {
+  const parts = connString.split(";");
+  parts.forEach((part: string) => {
+    const eq = part.indexOf("=");
+    if (eq <= 0) return;
+    const k = part.slice(0, eq).trim().toLowerCase();
+    const v = part.slice(eq + 1).trim();
+    if (!v) return;
+
+    if (k === "server" || k === "data source" || k === "datasource") {
+      if (v.includes(",")) {
+        const [host, portStr] = v.split(",", 2);
+        sqlConfig.server = host.trim();
+        const p = parseInt(portStr.trim(), 10);
+        if (!Number.isNaN(p)) sqlConfig.port = p;
+      } else {
+        sqlConfig.server = v;
+      }
+    }
+    if (k === "database" || k === "initial catalog") sqlConfig.database = v;
+    if (k === "user id" || k === "uid") sqlConfig.user = v;
+    if (k === "password" || k === "pwd") sqlConfig.password = v;
+    if (k === "encrypt") sqlConfig.options.encrypt = v.toLowerCase() === "true";
+    if (k === "trustservercertificate") {
+      sqlConfig.options.trustServerCertificate = v.toLowerCase() === "true";
+    }
+    if (k === "trusted_connection" || k === "integrated security") {
+      if (v.toLowerCase() === "true" || v.toLowerCase() === "sspi") {
+        sqlConfig.user = "";
+        sqlConfig.password = "";
+        sqlConfig.options.trustedConnection = true;
+      }
+    }
+  });
+}
+
+// Legacy .NET appsettings — only when .env does not define SQL (or SQL_USE_APPSETTINGS=true)
+const appSettingsPath = path.join(process.cwd(), "Backend", "FaizanIslamicSchool.WebApi", "appsettings.json");
+const useAppSettingsSql =
+  parseBooleanEnv("SQL_USE_APPSETTINGS", false) ||
+  (!envSqlConfigured() && fs.existsSync(appSettingsPath));
+
+if (useAppSettingsSql && fs.existsSync(appSettingsPath)) {
   try {
-    const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, 'utf8'));
+    const appSettings = JSON.parse(fs.readFileSync(appSettingsPath, "utf8"));
     const connString = appSettings?.ConnectionStrings?.DefaultConnection;
     if (connString) {
-      console.log("Found appsettings.json, parsing connection string...");
-      // Simple parser for SQL connection string
-      const parts = connString.split(';');
-      parts.forEach((part: string) => {
-        const [key, value] = part.split('=');
-        if (!key || !value) return;
-        const k = key.trim().toLowerCase();
-        const v = value.trim();
-        
-        if (k === 'server' || k === 'data source' || k === 'datasource') {
-          sqlConfig.server = v;
-        }
-        if (k === 'database' || k === 'initial catalog') sqlConfig.database = v;
-        if (k === 'user id' || k === 'uid') sqlConfig.user = v;
-        if (k === 'password' || k === 'pwd') sqlConfig.password = v;
-        if (k === 'encrypt') sqlConfig.options.encrypt = v.toLowerCase() === 'true';
-        if (k === 'trustservercertificate') sqlConfig.options.trustServerCertificate = v.toLowerCase() === 'true';
-        if (k === 'trusted_connection' || k === 'integrated security') {
-          if (v.toLowerCase() === 'true' || v.toLowerCase() === 'sspi') {
-            sqlConfig.user = "";
-            sqlConfig.password = "";
-            sqlConfig.options.trustedConnection = true;
-          }
-        }
-      });
-    }
-    
-    // Environment variables take precedence over appsettings.json
-    if (process.env.SQL_SERVER) sqlConfig.server = process.env.SQL_SERVER;
-    if (process.env.SQL_USER) sqlConfig.user = process.env.SQL_USER;
-    if (process.env.SQL_PASSWORD) sqlConfig.password = process.env.SQL_PASSWORD;
-    if (process.env.SQL_DATABASE) sqlConfig.database = process.env.SQL_DATABASE;
-    if (process.env.SQL_PORT) sqlConfig.port = parseInt(process.env.SQL_PORT);
-    if (process.env.SQL_TRUSTED_CONNECTION) {
-      sqlConfig.options.trustedConnection = parseBooleanEnv("SQL_TRUSTED_CONNECTION", false);
+      console.log("SQL config: Backend/appsettings.json (set SQL_* in .env to override locally)");
+      parseAppSettingsConnectionString(connString);
     }
   } catch (err) {
     console.error("Error parsing appsettings.json:", err);
   }
+} else if (envSqlConfigured()) {
+  console.log("SQL config: .env (SQL_* variables)");
+} else if (fs.existsSync(appSettingsPath)) {
+  console.log(
+    "SQL config: built-in defaults (create .env from .env.example or set SQL_USE_APPSETTINGS=true)"
+  );
 }
 
-if (process.env.SQL_TRUSTED_CONNECTION) {
-  sqlConfig.options.trustedConnection = parseBooleanEnv("SQL_TRUSTED_CONNECTION", false);
-}
+applySqlConfigFromEnv();
 
 function getProductionStartupErrors(): string[] {
   if (!IS_PRODUCTION) return [];
@@ -1147,7 +1187,14 @@ async function testConnection() {
   } catch (err) {
     console.error("❌ Database connection test failed!");
     console.error("Error details:", err instanceof Error ? err.message : String(err));
-    console.log("Note: (localdb) usually only works on Windows with SQL Server LocalDB installed.");
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!IS_PRODUCTION && /login failed/i.test(msg)) {
+      console.log(
+        "Hint: ELOGIN = wrong user/password, or SSH tunnel targets a different SQL host than live SQL_SERVER on the VPS. Run: npm run test:sql-env"
+      );
+    } else {
+      console.log("Note: (localdb) usually only works on Windows with SQL Server LocalDB installed.");
+    }
   }
 }
 
@@ -2075,6 +2122,12 @@ async function connectToDb() {
       await resetAndSeedKuickpayAdminUser();
     } catch (kuickErr) {
       console.error("Error seeding Kuickpay Admin:", kuickErr);
+    }
+    try {
+      await ensureBookstoreSchema(pool);
+      await seedBookstoreStores(pool);
+    } catch (bookstoreSchemaErr) {
+      console.error("Error applying bookstore schema:", bookstoreSchemaErr);
     }
   } catch (err) {
     console.error("Database connection failed:", err);
@@ -5055,6 +5108,21 @@ async function startServer() {
   app.post("/api/v1/BillInquiry", handleKuickpayBillInquiry);
   app.post("/api/v1/BillPayment", handleKuickpayBillPayment);
   app.post("/api/v1/payment", handleKuickpayBillPayment);
+
+  registerBookstoreRoutes(app, {
+    getPool: () => pool,
+    connectToDb,
+    loadAuthUser,
+    requireBookstore: (action) => requireModulePermission("bookstore", action),
+    sendServerError,
+    isSuperAdminRole,
+    canApplyBookstoreDiscount: async (req) => {
+      if (!req.auth) return false;
+      if (isSuperAdminRole(req.auth.role)) return true;
+      const perms = await getRolePermissions(req.auth.role);
+      return hasPermission(perms, "bookstore", "update", req.auth.role);
+    },
+  });
 
   app.post("/api/fees/assign-kuickpay-ids", requireFeeAction("update"), async (req, res) => {
     try {

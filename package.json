@@ -12,6 +12,9 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:fee-smoke": "node --test scripts/fee-module.smoke.test.mjs",
+    "test:bookstore-smoke": "node --test scripts/bookstore.smoke.test.mjs",
+    "test:bookstore-phase2": "node --test scripts/bookstore.phase2.test.mjs",
+    "test:sql-env": "node scripts/sql-env-check.mjs",
     "deploy:zip": "powershell -ExecutionPolicy Bypass -File deploy/zip-project.ps1",
     "deploy:zip:smarterasp": "npm run build && powershell -ExecutionPolicy Bypass -File deploy/zip-smarterasp.ps1"
   },

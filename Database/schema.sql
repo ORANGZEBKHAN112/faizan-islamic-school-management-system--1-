@@ -519,3 +519,5 @@ WHERE kuickpay_consumer_number IS NOT NULL
 
 -- Note: default admin (username 'admin', password 'admin123') is also seeded on server startup.
 -- For a full role seed set, run Database/02_seed_users_roles.sql after schema.
+
+-- Bookstore module (DDL applied at runtime via server/bookstore/schema.ts — see BookCatalog, BookstoreStores, BookInventoryLedger, etc.)

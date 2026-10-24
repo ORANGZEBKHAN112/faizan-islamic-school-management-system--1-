@@ -25,7 +25,8 @@ export const APP_MODULES: AppModuleDef[] = [
   { key: "campuses", label: "Campuses", group: "Administration" },
   { key: "classes", label: "Classes", group: "Administration" },
   { key: "staff", label: "Staff", group: "Administration" },
-  { key: "inventory", label: "Inventory", group: "Administration" },
+  { key: "inventory", label: "Inventory (IT Assets)", group: "Administration" },
+  { key: "bookstore", label: "Bookstore & Book Inventory", group: "Administration" },
   { key: "admissions", label: "Admissions", group: "Students & Admissions" },
   { key: "students", label: "Students", group: "Students & Admissions" },
   { key: "documents", label: "ID & Certificates", group: "Students & Admissions" },
@@ -94,6 +95,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionMap> = {
     ["classes", full()],
     ["staff", full()],
     ["inventory", none()],
+    ["bookstore", full()],
     ["admissions", full()],
     ["students", full()],
     ["documents", full()],
@@ -126,12 +128,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionMap> = {
     ["fees", viewOnly()],
     ["expenses", viewOnly()],
     ["reports", viewOnly()],
+    ["bookstore", full()],
   ]),
   Accountant: buildMap([
     ["dashboard", viewOnly()],
     ["fees", full()],
     ["expenses", full()],
     ["reports", viewOnly()],
+    ["bookstore", viewOnly()],
   ]),
   /** Fee desk: same fee generate/pay rights as Admin finance, plus Kuickpay setup. */
   "Kuickpay Admin": buildMap([

@@ -20,7 +20,14 @@ import StudentPortal from './pages/StudentPortal';
 import Exams from './pages/Exams';
 import MarksEntry from './pages/MarksEntry';
 import InventoryManagement from './pages/InventoryManagement';
-import BooksManagement from './pages/BooksManagement';
+import BookstoreLayout from './pages/bookstore/BookstoreLayout';
+import BookstoreDashboard from './pages/bookstore/BookstoreDashboard';
+import BookCatalog from './pages/bookstore/BookCatalog';
+import BookPacks from './pages/bookstore/BookPacks';
+import BookStock from './pages/bookstore/BookStock';
+import BookTransfers from './pages/bookstore/BookTransfers';
+import BookSales from './pages/bookstore/BookSales';
+import BookstoreReports from './pages/bookstore/BookstoreReports';
 import AdmissionManagement from './pages/AdmissionManagement';
 import Documents from './pages/Documents';
 import ExamAttendance from './pages/ExamAttendance';
@@ -133,7 +140,18 @@ function AppShell({
               {canAccess(user, 'users') && <Route path="users" element={<UserManagement />} />}
               {canAccess(user, 'roles') && <Route path="roles" element={<RoleManagement />} />}
               {canAccess(user, 'inventory') && <Route path="inventory" element={<InventoryManagement />} />}
-              {canAccess(user, 'inventory') && <Route path="books" element={<BooksManagement />} />}
+              {canAccess(user, 'bookstore') && (
+                <Route path="bookstore" element={<BookstoreLayout />}>
+                  <Route index element={<BookstoreDashboard />} />
+                  <Route path="catalog" element={<BookCatalog />} />
+                  <Route path="packs" element={<BookPacks />} />
+                  <Route path="stock" element={<BookStock />} />
+                  <Route path="transfers" element={<BookTransfers />} />
+                  <Route path="sales" element={<BookSales />} />
+                  <Route path="reports" element={<BookstoreReports />} />
+                </Route>
+              )}
+              {canAccess(user, 'bookstore') && <Route path="books" element={<Navigate to="/bookstore/catalog" replace />} />}
               {canAccess(user, 'campuses') && <Route path="campuses" element={<CampusManagement />} />}
               {canAccess(user, 'fee-settings') && <Route path="fee-settings" element={<FeeSettings />} />}
               {canAccess(user, 'classes') && <Route path="classes" element={<ClassManagement />} />}

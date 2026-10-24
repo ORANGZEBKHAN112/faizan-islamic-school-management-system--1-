@@ -110,6 +110,10 @@ export const ar: LocaleMessages = {
       title: 'إدارة الكتب',
       description: 'مخزون الكتب حسب الحرم والتقارير.',
     },
+    bookstore: {
+      title: 'المكتبة والمخزون',
+      description: 'المستودع المركزي، مخزون الحرم، حزم الصفوف، والمبيعات.',
+    },
     admissions: {
       title: 'القبول',
       description: 'فحص CNIC → مراجعة → اختبار → موافقة → تسجيل.',
