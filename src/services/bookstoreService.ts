@@ -4,8 +4,10 @@ export const bookstoreService = {
   fetchDashboard(params?: { campusId?: string }) {
     return api.get('/bookstore/dashboard', { params }).then((r) => r.data);
   },
-  fetchBooks(params?: { page?: number; limit?: number; search?: string }) {
-    return api.get('/bookstore/books', { params }).then((r) => r.data);
+  fetchBooks(params?: { page?: number; limit?: number; search?: string; activeOnly?: boolean }) {
+    const query =
+      params?.activeOnly === false ? { ...params, activeOnly: '0' } : params;
+    return api.get('/bookstore/books', { params: query }).then((r) => r.data);
   },
   fetchPrices(academicSession: string, bookIds: string[]) {
     return api

@@ -24,10 +24,10 @@ export default function BookCatalog() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await bookstoreService.fetchBooks({ search, limit: 100 });
+      const res = await bookstoreService.fetchBooks({ search, limit: 200, activeOnly: false });
       setRows(res.data || []);
     } catch {
-      toast.error('Failed to load books');
+      toast.error('Failed to load books — check Bookstore view permission');
     } finally {
       setLoading(false);
     }
@@ -85,6 +85,9 @@ export default function BookCatalog() {
     } catch (err: unknown) {
       const data = (err as { response?: { data?: { message?: string; code?: string } } })?.response?.data;
       toast.error(data?.message || 'Could not save book');
+      if (data?.code === 'DUPLICATE_ISBN_OR_BARCODE') {
+        setSearch(form.isbn.trim() || form.title.trim());
+      }
     }
   };
 
@@ -162,7 +165,9 @@ export default function BookCatalog() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                  No books in catalog yet
+                  {search.trim()
+                    ? 'No books match your search — clear the search box to see all titles.'
+                    : 'No books in catalog yet — add a title above (ISBN optional).'}
                 </td>
               </tr>
             )}

@@ -24,6 +24,12 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookCatalog_barcode' AND object_id = OBJECT_ID('BookCatalog'))
       CREATE UNIQUE INDEX UX_BookCatalog_barcode ON BookCatalog(barcode) WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) <> '';
 
+    IF OBJECT_ID('BookCatalog', 'U') IS NOT NULL
+    BEGIN
+      UPDATE BookCatalog SET isbn = NULL WHERE isbn IS NOT NULL AND LTRIM(RTRIM(isbn)) = N'';
+      UPDATE BookCatalog SET barcode = NULL WHERE barcode IS NOT NULL AND LTRIM(RTRIM(barcode)) = N'';
+    END
+
     IF OBJECT_ID('BookPrices', 'U') IS NULL
     CREATE TABLE BookPrices (
       id NVARCHAR(50) PRIMARY KEY,

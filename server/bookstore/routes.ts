@@ -48,6 +48,7 @@ function parsePage(req: Request) {
 }
 
 function mapBook(row: Record<string, unknown>) {
+  const active = row.is_active;
   return {
     id: row.id,
     title: row.title,
@@ -59,10 +60,37 @@ function mapBook(row: Record<string, unknown>) {
     description: row.description,
     unitOfMeasure: row.unit_of_measure,
     imageUrl: row.image_url,
-    isActive: Boolean(row.is_active),
+    isActive: active === true || active === 1 || active === "1",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function duplicateBookMessage(
+  pool: ConnectionPool,
+  isbn: string | null,
+  barcode: string | null
+): Promise<string> {
+  if (isbn) {
+    const r = await pool.request().input("isbn", sql.NVarChar(32), isbn).query(`
+      SELECT TOP 1 title, is_active FROM BookCatalog WHERE isbn = @isbn
+    `);
+    const row = r.recordset[0] as { title?: string; is_active?: boolean | number } | undefined;
+    if (row?.title) {
+      const inactive = row.is_active === 0 || row.is_active === false;
+      return inactive
+        ? `ISBN already used by inactive book "${row.title}" — clear search or ask admin to reactivate.`
+        : `ISBN already used by "${row.title}".`;
+    }
+  }
+  if (barcode) {
+    const r = await pool.request().input("barcode", sql.NVarChar(64), barcode).query(`
+      SELECT TOP 1 title FROM BookCatalog WHERE barcode = @barcode
+    `);
+    const title = (r.recordset[0] as { title?: string } | undefined)?.title;
+    if (title) return `Barcode already used by "${title}".`;
+  }
+  return "ISBN or barcode already exists in the catalog.";
 }
 
 async function ensureBookstoreReady(pool: ConnectionPool): Promise<void> {
@@ -76,7 +104,14 @@ function emptyToNull(value: unknown): string | null {
   return s === "" ? null : s;
 }
 
-function respondBookstoreWriteError(res: Response, err: unknown, sendServerError: BookstoreRouteDeps["sendServerError"], context: string): void {
+async function respondBookstoreWriteError(
+  res: Response,
+  err: unknown,
+  sendServerError: BookstoreRouteDeps["sendServerError"],
+  context: string,
+  pool?: ConnectionPool | null,
+  dup?: { isbn: string | null; barcode: string | null }
+): Promise<void> {
   const msg = err instanceof Error ? err.message : String(err);
   if (/Invalid object name/i.test(msg)) {
     res.status(503).json({
@@ -86,7 +121,15 @@ function respondBookstoreWriteError(res: Response, err: unknown, sendServerError
     return;
   }
   if (/UX_BookCatalog/i.test(msg)) {
-    res.status(409).json({ message: "ISBN or barcode already exists" });
+    let message = "ISBN or barcode already exists in the catalog.";
+    if (pool && dup) {
+      try {
+        message = await duplicateBookMessage(pool, dup.isbn, dup.barcode);
+      } catch {
+        /* keep default */
+      }
+    }
+    res.status(409).json({ message, code: "DUPLICATE_ISBN_OR_BARCODE" });
     return;
   }
   sendServerError(res, err, context);
@@ -186,6 +229,7 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!getPool()?.connected) await connectToDb();
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      await ensureBookstoreReady(pool);
       const { page, limit, offset } = parsePage(req);
       const search = String(req.query.search || "").trim();
       const activeOnly = req.query.activeOnly !== "0";
@@ -217,12 +261,14 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       const body = req.body || {};
       const title = String(body.title || "").trim();
       if (!title) return res.status(400).json({ message: "Title is required" });
+      const isbn = emptyToNull(body.isbn);
+      const barcode = emptyToNull(body.barcode);
       const id = crypto.randomUUID();
       await pool.request()
         .input("id", sql.NVarChar(50), id)
         .input("title", sql.NVarChar(300), title)
-        .input("isbn", sql.NVarChar(32), emptyToNull(body.isbn))
-        .input("barcode", sql.NVarChar(64), emptyToNull(body.barcode))
+        .input("isbn", sql.NVarChar(32), isbn)
+        .input("barcode", sql.NVarChar(64), barcode)
         .input("publisher", sql.NVarChar(200), emptyToNull(body.publisher))
         .input("edition", sql.NVarChar(80), emptyToNull(body.edition))
         .input("subject", sql.NVarChar(120), emptyToNull(body.subject))
@@ -241,7 +287,11 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
         `);
       res.status(201).json({ id, message: "Book created" });
     } catch (err: unknown) {
-      respondBookstoreWriteError(res, err, sendServerError, "Error creating book");
+      const body = req.body || {};
+      await respondBookstoreWriteError(res, err, sendServerError, "Error creating book", getPool(), {
+        isbn: emptyToNull(body.isbn),
+        barcode: emptyToNull(body.barcode),
+      });
     }
   });
 
