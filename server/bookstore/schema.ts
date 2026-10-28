@@ -1,4 +1,6 @@
 import type { ConnectionPool } from "mssql";
+import { ensureCourseSellingSchema } from "./courseSchema.js";
+import { seedCourseMaster } from "./courseMaster.js";
 
 /** Catalog table only — separate batches so a later inventory script cannot block listing books. */
 export async function ensureBookCatalog(pool: ConnectionPool): Promise<void> {
@@ -350,6 +352,70 @@ export async function ensureBookstoreSchema(pool: ConnectionPool): Promise<void>
       IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('BookSaleItems') AND name = 'academic_session')
         ALTER TABLE BookSaleItems ADD academic_session NVARCHAR(30) NULL;
     END
+  `);
+  await ensureBookstorePhase3(pool);
+  await ensureCourseSellingSchema(pool);
+  await seedCourseMaster(pool);
+}
+
+/** Returns, refunds, and sale reversal columns. Separate batches from base DDL. */
+export async function ensureBookstorePhase3(pool: ConnectionPool): Promise<void> {
+  const alters = [
+    `IF OBJECT_ID('BookSales', 'U') IS NOT NULL AND COL_LENGTH('BookSales', 'reservation_id') IS NULL
+      ALTER TABLE BookSales ADD reservation_id NVARCHAR(50) NULL`,
+    `IF OBJECT_ID('BookSales', 'U') IS NOT NULL AND COL_LENGTH('BookSales', 'cancel_reason') IS NULL
+      ALTER TABLE BookSales ADD cancel_reason NVARCHAR(500) NULL`,
+    `IF OBJECT_ID('BookSales', 'U') IS NOT NULL AND COL_LENGTH('BookSales', 'cancelled_at') IS NULL
+      ALTER TABLE BookSales ADD cancelled_at DATETIME2 NULL`,
+    `IF OBJECT_ID('BookSales', 'U') IS NOT NULL AND COL_LENGTH('BookSales', 'cancelled_by') IS NULL
+      ALTER TABLE BookSales ADD cancelled_by NVARCHAR(50) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'return_no') IS NULL
+      ALTER TABLE BookReturns ADD return_no NVARCHAR(40) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'store_id') IS NULL
+      ALTER TABLE BookReturns ADD store_id NVARCHAR(50) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'campus_id') IS NULL
+      ALTER TABLE BookReturns ADD campus_id NVARCHAR(50) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'idempotency_key') IS NULL
+      ALTER TABLE BookReturns ADD idempotency_key NVARCHAR(80) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'submitted_at') IS NULL
+      ALTER TABLE BookReturns ADD submitted_at DATETIME2 NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'approved_by') IS NULL
+      ALTER TABLE BookReturns ADD approved_by NVARCHAR(50) NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'approved_at') IS NULL
+      ALTER TABLE BookReturns ADD approved_at DATETIME2 NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'posted_at') IS NULL
+      ALTER TABLE BookReturns ADD posted_at DATETIME2 NULL`,
+    `IF OBJECT_ID('BookReturns', 'U') IS NOT NULL AND COL_LENGTH('BookReturns', 'posted_by') IS NULL
+      ALTER TABLE BookReturns ADD posted_by NVARCHAR(50) NULL`,
+  ];
+  for (const q of alters) await pool.request().query(q);
+
+  await pool.request().query(`
+    IF OBJECT_ID('BookReturns', 'U') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookReturns_idempotency' AND object_id = OBJECT_ID('BookReturns'))
+      CREATE UNIQUE INDEX UX_BookReturns_idempotency ON BookReturns(idempotency_key) WHERE idempotency_key IS NOT NULL;
+  `);
+
+  await pool.request().query(`
+    IF OBJECT_ID('BookRefunds', 'U') IS NULL
+    CREATE TABLE BookRefunds (
+      id NVARCHAR(50) PRIMARY KEY,
+      sale_id NVARCHAR(50) NOT NULL,
+      return_id NVARCHAR(50) NULL,
+      amount DECIMAL(18, 2) NOT NULL,
+      payment_method NVARCHAR(40) NOT NULL,
+      status NVARCHAR(20) NOT NULL DEFAULT 'requested',
+      transaction_ref NVARCHAR(100) NULL,
+      idempotency_key NVARCHAR(80) NULL,
+      created_by NVARCHAR(50) NULL,
+      created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+      completed_by NVARCHAR(50) NULL,
+      completed_at DATETIME2 NULL,
+      CONSTRAINT FK_BookRefunds_sale FOREIGN KEY (sale_id) REFERENCES BookSales(id)
+    );
+    IF OBJECT_ID('BookRefunds', 'U') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_BookRefunds_idempotency' AND object_id = OBJECT_ID('BookRefunds'))
+      CREATE UNIQUE INDEX UX_BookRefunds_idempotency ON BookRefunds(idempotency_key) WHERE idempotency_key IS NOT NULL;
   `);
 }
 

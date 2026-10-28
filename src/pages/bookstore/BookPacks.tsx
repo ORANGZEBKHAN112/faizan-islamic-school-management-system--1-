@@ -4,6 +4,10 @@ import { bookstoreService } from '../../services/bookstoreService';
 import { dataService } from '../../services/dataService';
 import type { Campus, Class } from '../../types';
 import { deriveAcademicSession } from '../../utils/academicSession';
+import { apiError } from './courseShared';
+
+type MasterItem = { title: string; publisher?: string | null; quantity: number; sharedStationery?: boolean | number };
+type MasterRegion = { name: string; classes: Array<{ grade: string; items: MasterItem[] }> };
 
 export default function BookPacks() {
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -23,10 +27,20 @@ export default function BookPacks() {
     dataService.getAll('campuses').then(setCampuses);
     dataService.getAll('classes').then(setClasses);
     bookstoreService.fetchBooks({ limit: 200 }).then((r) => setBooks(r.data || []));
+    bookstoreService.fetchCourseMaster().then((rows: MasterRegion[]) => {
+      setMaster(rows || []);
+      if (rows?.[0]) {
+        setRegionName(rows[0].name);
+        setGrade(rows[0].classes[0]?.grade || '');
+      }
+    }).catch(() => setMaster([]));
     void loadPacks();
   }, []);
 
   const [demand, setDemand] = useState<Record<string, unknown> | null>(null);
+  const [master, setMaster] = useState<MasterRegion[]>([]);
+  const [regionName, setRegionName] = useState('');
+  const [grade, setGrade] = useState('');
 
   const loadPacks = async () => {
     try {
@@ -70,6 +84,77 @@ export default function BookPacks() {
 
   return (
     <div className="space-y-6">
+      <div className="vibrant-card p-4 space-y-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Client course list</p>
+          <p className="text-sm text-slate-500 mt-1">Titles, publisher, and quantity per student from the working file. Copies marked All Classes stay with the class above them, in the same order.</p>
+        </div>
+        <div className="grid md:grid-cols-4 gap-3">
+          <select className="vibrant-input" value={regionName} onChange={(e) => {
+            const name = e.target.value;
+            setRegionName(name);
+            const next = master.find((r) => r.name === name);
+            setGrade(next?.classes[0]?.grade || '');
+          }}>
+            {master.map((region) => <option key={region.name} value={region.name}>{region.name}</option>)}
+          </select>
+          <select className="vibrant-input" value={grade} onChange={(e) => setGrade(e.target.value)}>
+            {(master.find((r) => r.name === regionName)?.classes || []).map((cls) => (
+              <option key={cls.grade} value={cls.grade}>{cls.grade} ({cls.items.length})</option>
+            ))}
+          </select>
+          <select className="vibrant-input" value={form.campusId} onChange={(e) => setForm((f) => ({ ...f, campusId: e.target.value }))}>
+            <option value="">Campus for class sets</option>
+            {campuses.map((c) => <option key={c.id} value={c.id}>{c.campusName}{c.region ? ` · ${c.region}` : ''}</option>)}
+          </select>
+          <button
+            type="button"
+            className="vibrant-btn-primary"
+            onClick={() => {
+              if (!form.campusId) {
+                toast.error('Choose a campus');
+                return;
+              }
+              void bookstoreService.applyCourseMaster({
+                campusId: form.campusId,
+                academicSession: form.academicSession,
+                regionName,
+              }).then(async (result) => {
+                const skipped = [
+                  ...(result.missingGrades || []).map((g: string) => `${g} has no matching class`),
+                  ...(result.unmatchedClasses || []).map((g: string) => `${g} name did not match`),
+                ];
+                toast.success(`${result.packs} class sets saved for ${result.campusName}`);
+                if (skipped.length) toast.warning(skipped.slice(0, 4).join(' · '));
+                await loadPacks();
+              }).catch((err) => toast.error(apiError(err, 'Could not apply course list')));
+            }}
+          >
+            Apply to campus
+          </button>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-[10px] uppercase text-slate-400">
+            <tr>
+              <th className="text-left py-2">#</th>
+              <th className="text-left">Title</th>
+              <th className="text-left">Publisher</th>
+              <th className="text-right">Each student</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(master.find((r) => r.name === regionName)?.classes.find((c) => c.grade === grade)?.items || []).map((item, index) => (
+              <tr key={`${item.title}-${index}`} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="py-2 text-slate-400">{index + 1}</td>
+                <td className="font-semibold">{item.title}</td>
+                <td>{item.publisher || '—'}</td>
+                <td className="text-right">{item.quantity} Piece{item.sharedStationery ? ' · copy' : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       <div className="vibrant-card p-6 grid md:grid-cols-3 gap-4">
         <select className="vibrant-input" value={form.campusId} onChange={(e) => setForm((f) => ({ ...f, campusId: e.target.value }))}>
           <option value="">Campus</option>

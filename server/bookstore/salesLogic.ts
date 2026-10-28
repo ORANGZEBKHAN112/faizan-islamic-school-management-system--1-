@@ -272,13 +272,14 @@ export async function executeBookSale(
       .input("paymentStatus", paymentStatus)
       .input("createdBy", input.performedBy)
       .input("idempotencyKey", input.idempotencyKey || null)
+      .input("reservationId", input.reservationId || null)
       .query(`
         INSERT INTO BookSales (
           id, invoice_no, student_id, campus_id, store_id, academic_session,
-          status, subtotal, discount, total, paid_amount, payment_status, created_by, idempotency_key
+          status, subtotal, discount, total, paid_amount, payment_status, created_by, idempotency_key, reservation_id
         ) VALUES (
           @id, @invoiceNo, @studentId, @campusId, @storeId, @session,
-          'posted', @subtotal, @discount, @total, @paid, @paymentStatus, @createdBy, @idempotencyKey
+          'posted', @subtotal, @discount, @total, @paid, @paymentStatus, @createdBy, @idempotencyKey, @reservationId
         )
       `);
 

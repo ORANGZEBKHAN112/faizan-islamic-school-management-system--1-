@@ -27,7 +27,16 @@ import BookPacks from './pages/bookstore/BookPacks';
 import BookStock from './pages/bookstore/BookStock';
 import BookTransfers from './pages/bookstore/BookTransfers';
 import BookSales from './pages/bookstore/BookSales';
+import BookReturns from './pages/bookstore/BookReturns';
+import SaleReceipt from './pages/bookstore/SaleReceipt';
 import BookstoreReports from './pages/bookstore/BookstoreReports';
+import CourseProjection from './pages/bookstore/CourseProjection';
+import CourseOrders from './pages/bookstore/CourseOrders';
+import WarehouseDispatchPage from './pages/bookstore/WarehouseDispatchPage';
+import CampusReceivingPage from './pages/bookstore/CampusReceivingPage';
+import CourseInventory from './pages/bookstore/CourseInventory';
+import CourseVouchers from './pages/bookstore/CourseVouchers';
+import CourseAdjustments from './pages/bookstore/CourseAdjustments';
 import AdmissionManagement from './pages/AdmissionManagement';
 import Documents from './pages/Documents';
 import ExamAttendance from './pages/ExamAttendance';
@@ -143,11 +152,20 @@ function AppShell({
               {canAccess(user, 'bookstore') && (
                 <Route path="bookstore" element={<BookstoreLayout />}>
                   <Route index element={<BookstoreDashboard />} />
+                  <Route path="projection" element={<CourseProjection />} />
+                  <Route path="orders" element={<CourseOrders />} />
+                  <Route path="dispatch" element={<WarehouseDispatchPage />} />
+                  <Route path="receiving" element={<CampusReceivingPage />} />
+                  <Route path="class-stock" element={<CourseInventory />} />
                   <Route path="catalog" element={<BookCatalog />} />
                   <Route path="packs" element={<BookPacks />} />
                   <Route path="stock" element={<BookStock />} />
                   <Route path="transfers" element={<BookTransfers />} />
+                  <Route path="vouchers" element={<CourseVouchers />} />
                   <Route path="sales" element={<BookSales />} />
+                  <Route path="adjustments" element={<CourseAdjustments />} />
+                  <Route path="returns" element={<BookReturns />} />
+                  <Route path="receipt/:saleId" element={<SaleReceipt />} />
                   <Route path="reports" element={<BookstoreReports />} />
                 </Route>
               )}

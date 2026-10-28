@@ -3,11 +3,16 @@ import TranslatedPageHeader from '../../components/TranslatedPageHeader';
 
 const tabs = [
   { to: '/bookstore', end: true, label: 'Dashboard' },
-  { to: '/bookstore/catalog', label: 'Catalog' },
-  { to: '/bookstore/packs', label: 'Class packs' },
-  { to: '/bookstore/stock', label: 'Stock & GRN' },
-  { to: '/bookstore/transfers', label: 'Transfers' },
-  { to: '/bookstore/sales', label: 'Sales (POS)' },
+  { to: '/bookstore/projection', label: 'Projection' },
+  { to: '/bookstore/orders', label: 'Purchase orders' },
+  { to: '/bookstore/dispatch', label: 'Dispatch' },
+  { to: '/bookstore/receiving', label: 'Receiving' },
+  { to: '/bookstore/class-stock', label: 'Inventory' },
+  { to: '/bookstore/transfers', label: 'Shuffling' },
+  { to: '/bookstore/vouchers', label: 'Vouchers' },
+  { to: '/bookstore/adjustments', label: 'Adjustments' },
+  { to: '/bookstore/catalog', label: 'Titles' },
+  { to: '/bookstore/packs', label: 'Class sets' },
   { to: '/bookstore/reports', label: 'Reports' },
 ];
 

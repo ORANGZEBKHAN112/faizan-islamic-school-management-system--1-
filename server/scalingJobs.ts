@@ -643,6 +643,11 @@ export async function refreshDashboardCampusStats(
     );
   `);
 
+  await pool.request().query(`
+    DELETE FROM DashboardCampusStats
+    WHERE campus_id NOT IN (SELECT id FROM Campuses)
+  `);
+
   const countResult = await pool.request().query(`SELECT COUNT(*) AS n FROM DashboardCampusStats`);
   return countResult.recordset[0]?.n ?? 0;
 }

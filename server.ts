@@ -75,6 +75,7 @@ import {
 } from "./server/kuickpayBps.js";
 import { ensureBookstoreSchema, seedBookstoreStores } from "./server/bookstore/schema.js";
 import { registerBookstoreRoutes } from "./server/bookstore/routes.js";
+import { markCourseVoucherPaidById } from "./server/bookstore/courseFlow.js";
 
 interface JwtPayload {
   id: string;
@@ -5201,6 +5202,22 @@ async function startServer() {
         .query("SELECT * FROM Fees WHERE id = @id");
       const fee = feeResult.recordset[0];
       if (!fee) {
+        try {
+          const coursePay = await markCourseVoucherPaidById(
+            pool,
+            String(fee_id),
+            Number(amount) || 0,
+            String(transaction_id)
+          );
+          if (coursePay.applied) {
+            return res.json({
+              message: "Course voucher payment recorded",
+              paymentStatus: coursePay.paymentStatus,
+            });
+          }
+        } catch (courseErr) {
+          console.error("Course voucher KuickPay callback failed:", courseErr);
+        }
         return res.status(404).json({ message: "Fee record not found" });
       }
       const campusCheck = await pool.request()

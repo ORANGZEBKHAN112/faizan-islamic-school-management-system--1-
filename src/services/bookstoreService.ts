@@ -86,8 +86,74 @@ export const bookstoreService = {
   createTransfer(payload: Record<string, unknown>) {
     return api.post('/bookstore/stock-transfers', payload).then((r) => r.data);
   },
-  updateTransferStatus(id: string, status: string) {
-    return api.patch(`/bookstore/stock-transfers/${id}/status`, { status }).then((r) => r.data);
+  updateTransferStatus(id: string, status: string, items?: Array<{ itemId: string; qtyReceived: number }>) {
+    return api.patch(`/bookstore/stock-transfers/${id}/status`, { status, items }).then((r) => r.data);
+  },
+  saveProjection(payload: Record<string, unknown>) {
+    return api.post('/bookstore/course/projections', payload).then((r) => r.data);
+  },
+  fetchProjections(params?: { academicSession?: string; campusId?: string }) {
+    return api.get('/bookstore/course/projections', { params }).then((r) => r.data);
+  },
+  createCourseOrder(projectionIds: string[], notes?: string) {
+    return api.post('/bookstore/course/purchase-orders', { projectionIds, notes }).then((r) => r.data);
+  },
+  fetchCourseOrders() {
+    return api.get('/bookstore/course/purchase-orders').then((r) => r.data);
+  },
+  postDispatch(payload: Record<string, unknown>) {
+    return api.post('/bookstore/course/dispatches', payload).then((r) => r.data);
+  },
+  fetchDispatches() {
+    return api.get('/bookstore/course/dispatches').then((r) => r.data);
+  },
+  fetchReceiving(campusId?: string) {
+    return api.get('/bookstore/course/receiving', { params: campusId ? { campusId } : {} }).then((r) => r.data);
+  },
+  verifyReceiving(itemId: string, qtyReceived: number) {
+    return api.post(`/bookstore/course/receiving/${itemId}/verify`, { qtyReceived }).then((r) => r.data);
+  },
+  createCourseVoucher(payload: Record<string, unknown>) {
+    return api.post('/bookstore/course/vouchers', payload).then((r) => r.data);
+  },
+  fetchCourseVouchers(campusId?: string) {
+    return api.get('/bookstore/course/vouchers', { params: campusId ? { campusId } : {} }).then((r) => r.data);
+  },
+  payCourseVoucher(id: string, payload: { amount: number; method: string; transactionRef?: string }) {
+    return api.post(`/bookstore/course/vouchers/${id}/payment`, payload).then((r) => r.data);
+  },
+  issueCourseVoucher(id: string) {
+    return api.post(`/bookstore/course/vouchers/${id}/issue`, {}).then((r) => r.data);
+  },
+  fetchCourseDashboard(campusId?: string) {
+    return api.get('/bookstore/course/dashboard', { params: campusId ? { campusId } : {} }).then((r) => r.data);
+  },
+  fetchCourseExceptions() {
+    return api.get('/bookstore/course/exceptions').then((r) => r.data);
+  },
+  fetchClassInventory(campusId?: string) {
+    return api.get('/bookstore/course/inventory', { params: campusId ? { campusId } : {} }).then((r) => r.data);
+  },
+  fetchStockHistory(bookId: string, campusId?: string) {
+    return api.get('/bookstore/course/inventory/history', { params: { bookId, campusId } }).then((r) => r.data);
+  },
+  createAdjustment(payload: Record<string, unknown>) {
+    return api.post('/bookstore/course/adjustments', payload).then((r) => r.data);
+  },
+  fetchAdjustments() {
+    return api.get('/bookstore/course/adjustments').then((r) => r.data);
+  },
+  approveAdjustment(id: string) {
+    return api.post(`/bookstore/course/adjustments/${id}/approve`, {}).then((r) => r.data);
+  },
+  fetchCourseReport(kind: string, params?: { poId?: string }) {
+    return api.get(`/bookstore/course/reports/${kind}`, { params }).then((r) => r.data);
+  },
+  fetchCourseMaster() {
+    return api.get('/bookstore/course/master').then((r) => r.data);
+  },
+  applyCourseMaster(payload: { campusId: string; academicSession: string; regionName?: string }) {
+    return api.post('/bookstore/course/master/apply', payload).then((r) => r.data);
   },
   createSale(payload: Record<string, unknown>, idempotencyKey?: string) {
     return api.post('/bookstore/sales', payload, {
@@ -99,5 +165,39 @@ export const bookstoreService = {
   },
   fetchReportSummary(params?: { from?: string; to?: string }) {
     return api.get('/bookstore/reports/summary', { params }).then((r) => r.data);
+  },
+  fetchSale(saleId: string) {
+    return api.get(`/bookstore/sales/${saleId}`).then((r) => r.data);
+  },
+  fetchReceipt(saleId: string) {
+    return api.get(`/bookstore/sales/${saleId}/receipt`).then((r) => r.data);
+  },
+  cancelSale(saleId: string, reason: string) {
+    return api.post(`/bookstore/sales/${saleId}/cancel`, { reason }).then((r) => r.data);
+  },
+  createReturn(payload: Record<string, unknown>, idempotencyKey?: string) {
+    return api.post('/bookstore/returns', payload, {
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+    }).then((r) => r.data);
+  },
+  submitReturn(id: string) {
+    return api.post(`/bookstore/returns/${id}/submit`, {}).then((r) => r.data);
+  },
+  approveReturn(id: string) {
+    return api.post(`/bookstore/returns/${id}/approve`, {}).then((r) => r.data);
+  },
+  postReturn(id: string) {
+    return api.post(`/bookstore/returns/${id}/post`, {}).then((r) => r.data);
+  },
+  createRefund(payload: Record<string, unknown>, idempotencyKey?: string) {
+    return api.post('/bookstore/refunds', payload, {
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {},
+    }).then((r) => r.data);
+  },
+  completeRefund(id: string, reference?: string) {
+    return api.post(`/bookstore/refunds/${id}/complete`, { reference }).then((r) => r.data);
+  },
+  fetchReconciliation(saleId: string) {
+    return api.get('/bookstore/reports/reconciliation', { params: { saleId } }).then((r) => r.data);
   },
 };

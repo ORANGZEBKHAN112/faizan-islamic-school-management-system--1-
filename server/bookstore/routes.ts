@@ -13,6 +13,21 @@ import {
   resolveStudentForSale,
 } from "./salesLogic.js";
 import { ensureBookCatalog, ensureBookstoreSchema, seedBookstoreStores } from "./schema.js";
+import { registerCourseSellingRoutes } from "./courseRoutes.js";
+import { adjustClassBalance } from "./courseFlow.js";
+import {
+  approveBookReturn,
+  BookstoreFlowError,
+  buildReceipt,
+  buildReconciliation,
+  cancelBookSale,
+  completeRefund,
+  createBookReturn,
+  createRefund,
+  getSaleDetail,
+  postBookReturn,
+  submitBookReturn,
+} from "./returnsLogic.js";
 
 type PermissionAction = "view" | "create" | "update" | "delete";
 
@@ -153,6 +168,14 @@ async function assertStoreCampusAccess(
   if (isSuperAdminRole(authUser.role) || authUser.role === "Admin") return { ok: true, campusId };
   if (campusId && authUser.campusIds.includes(campusId)) return { ok: true, campusId };
   return { ok: false, campusId };
+}
+
+function sendFlow(res: Response, err: unknown, sendServerError: BookstoreRouteDeps["sendServerError"], context: string) {
+  if (err instanceof BookstoreFlowError) {
+    res.status(err.status).json({ message: err.message, code: err.code });
+    return;
+  }
+  sendServerError(res, err, context);
 }
 
 export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps): void {
@@ -919,7 +942,7 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
       const authUser = await loadAuthUser(req);
       const body = req.body || {};
-      const { fromStoreId, toStoreId, academicSession, notes, items } = body;
+      const { fromStoreId, toStoreId, academicSession, notes, reason, items } = body;
       if (!fromStoreId || !toStoreId || fromStoreId === toStoreId) {
         return res.status(400).json({ message: "Valid fromStoreId and toStoreId required" });
       }
@@ -933,20 +956,22 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
           .input("toStoreId", toStoreId)
           .input("session", academicSession || null)
           .input("notes", notes || null)
+          .input("reason", reason || null)
           .input("createdBy", authUser?.id ?? null)
           .query(`
-            INSERT INTO BookStockTransfers (id, from_store_id, to_store_id, academic_session, status, notes, created_by)
-            VALUES (@id, @fromStoreId, @toStoreId, @session, 'draft', @notes, @createdBy)
+            INSERT INTO BookStockTransfers (id, from_store_id, to_store_id, academic_session, status, notes, reason, created_by)
+            VALUES (@id, @fromStoreId, @toStoreId, @session, 'draft', @notes, @reason, @createdBy)
           `);
         for (const it of Array.isArray(items) ? items : []) {
           await tx.request()
             .input("id", crypto.randomUUID())
             .input("transferId", id)
             .input("bookId", it.bookId)
+            .input("classId", it.classId || null)
             .input("qty", Number(it.qtyRequested) || 0)
             .query(`
-              INSERT INTO BookStockTransferItems (id, transfer_id, book_id, qty_requested)
-              VALUES (@id, @transferId, @bookId, @qty)
+              INSERT INTO BookStockTransferItems (id, transfer_id, book_id, class_id, qty_requested)
+              VALUES (@id, @transferId, @bookId, @classId, @qty)
             `);
         }
         await tx.commit();
@@ -979,6 +1004,10 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       const items = await pool.request().input("id", id).query(`SELECT * FROM BookStockTransferItems WHERE transfer_id = @id`);
 
       if (status === "dispatched") {
+        const fromCampus = await pool.request().input("storeId", transfer.from_store_id).query(`
+          SELECT campus_id FROM BookstoreStores WHERE id = @storeId
+        `);
+        const fromCampusId = fromCampus.recordset[0]?.campus_id ? String(fromCampus.recordset[0].campus_id) : null;
         const tx = new sql.Transaction(pool);
         await tx.begin();
         try {
@@ -987,12 +1016,17 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
             await postInventoryMovement(pool, {
               storeId: transfer.from_store_id,
               bookId: it.book_id,
+              campusId: fromCampusId,
               txnType: "transfer_dispatch",
               qtyDelta: -qty,
               docType: "stock_transfer",
               docId: id,
+              reason: transfer.reason || "Course shuffling",
               performedBy: authUser.id,
             }, tx);
+            if (fromCampusId && it.class_id) {
+              await adjustClassBalance(tx, fromCampusId, String(it.class_id), String(it.book_id), -qty, 0);
+            }
             await postInventoryMovement(pool, {
               storeId: transfer.to_store_id,
               bookId: it.book_id,
@@ -1021,24 +1055,45 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       }
 
       if (status === "received") {
+        const toCampus = await pool.request().input("storeId", transfer.to_store_id).query(`
+          SELECT campus_id FROM BookstoreStores WHERE id = @storeId
+        `);
+        const toCampusId = toCampus.recordset[0]?.campus_id ? String(toCampus.recordset[0].campus_id) : null;
+        const receivedByItem = new Map<string, number>();
+        if (Array.isArray(req.body?.items)) {
+          for (const line of req.body.items as Array<{ itemId?: string; qtyReceived?: number }>) {
+            if (line?.itemId) receivedByItem.set(String(line.itemId), Number(line.qtyReceived));
+          }
+        }
         const tx = new sql.Transaction(pool);
         await tx.begin();
         try {
           for (const it of items.recordset) {
-            const qty = Number(it.qty_dispatched || it.qty_requested);
+            const dispatchedQty = Number(it.qty_dispatched || it.qty_requested);
+            const receivedQty = receivedByItem.has(String(it.id))
+              ? Number(receivedByItem.get(String(it.id)))
+              : dispatchedQty;
+            if (!(receivedQty >= 0) || receivedQty - dispatchedQty > 0.0001) {
+              throw new Error("Received quantity cannot exceed dispatched quantity");
+            }
             await postInventoryMovement(pool, {
               storeId: transfer.to_store_id,
               bookId: it.book_id,
+              campusId: toCampusId,
               txnType: "transfer_receive",
-              qtyDelta: qty,
-              inTransitDelta: -qty,
+              qtyDelta: receivedQty,
+              inTransitDelta: -dispatchedQty,
               docType: "stock_transfer",
               docId: id,
+              reason: transfer.reason || "Course shuffling",
               performedBy: authUser.id,
             }, tx);
+            if (toCampusId && it.class_id && receivedQty > 0) {
+              await adjustClassBalance(tx, toCampusId, String(it.class_id), String(it.book_id), receivedQty, 0);
+            }
             await tx.request()
               .input("itemId", it.id)
-              .input("qty", qty)
+              .input("qty", receivedQty)
               .query(`UPDATE BookStockTransferItems SET qty_received = @qty WHERE id = @itemId`);
           }
           await tx.request().input("id", id).input("by", authUser.id).query(`
@@ -1077,13 +1132,25 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
       const rows = await pool.request().query(`
-        SELECT t.*, fs.name AS fromStoreName, ts.name AS toStoreName
+        SELECT t.*, fs.name AS fromStoreName, ts.name AS toStoreName,
+               fsc.campus_name AS sourceCampus, tsc.campus_name AS receivingCampus
         FROM BookStockTransfers t
         JOIN BookstoreStores fs ON fs.id = t.from_store_id
         JOIN BookstoreStores ts ON ts.id = t.to_store_id
+        LEFT JOIN Campuses fsc ON fsc.id = fs.campus_id
+        LEFT JOIN Campuses tsc ON tsc.id = ts.campus_id
         ORDER BY t.created_at DESC
       `);
-      res.json(rows.recordset);
+      const items = await pool.request().query(`
+        SELECT i.*, bc.title
+        FROM BookStockTransferItems i
+        JOIN BookCatalog bc ON bc.id = i.book_id
+        ORDER BY bc.title
+      `);
+      res.json(rows.recordset.map((t) => ({
+        ...t,
+        items: items.recordset.filter((it) => it.transfer_id === t.id),
+      })));
     } catch (err) {
       sendServerError(res, err, "Error listing transfers");
     }
@@ -1172,6 +1239,195 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
     }
   });
 
+  async function saleStoreAllowed(req: Request, pool: ConnectionPool, storeId: string) {
+    const authUser = await loadAuthUser(req);
+    if (!authUser) return { user: null as null, ok: false };
+    const access = await assertStoreCampusAccess(authUser, storeId, pool, isSuperAdminRole);
+    return { user: authUser, ok: access.ok };
+  }
+
+  app.get("/api/bookstore/sales/:id", v, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const detail = await getSaleDetail(pool, req.params.id);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(detail);
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error loading sale");
+    }
+  });
+
+  app.get("/api/bookstore/sales/:id/receipt", v, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const detail = await getSaleDetail(pool, req.params.id);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(await buildReceipt(pool, req.params.id));
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error building receipt");
+    }
+  });
+
+  app.post("/api/bookstore/sales/:id/cancel", u, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const detail = await getSaleDetail(pool, req.params.id);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      const result = await cancelBookSale(pool, req.params.id, String(req.body?.reason || ""), gate.user.id);
+      res.json(result);
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error cancelling sale");
+    }
+  });
+
+  app.post("/api/bookstore/returns", c, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const body = req.body || {};
+      const saleId = String(body.saleId || "");
+      if (!saleId) return res.status(400).json({ message: "saleId is required" });
+      const detail = await getSaleDetail(pool, saleId);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      const result = await createBookReturn(pool, {
+        saleId,
+        lines: Array.isArray(body.lines) ? body.lines : [],
+        reason: String(body.reason || ""),
+        idempotencyKey: String(req.headers["idempotency-key"] || body.idempotencyKey || "") || null,
+        performedBy: gate.user.id,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error creating return");
+    }
+  });
+
+  app.post("/api/bookstore/returns/:id/submit", c, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const row = await pool.request().input("id", req.params.id).query(`SELECT store_id FROM BookReturns WHERE id = @id`);
+      if (!row.recordset[0]) return res.status(404).json({ message: "Return not found" });
+      const gate = await saleStoreAllowed(req, pool, String(row.recordset[0].store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(await submitBookReturn(pool, req.params.id, gate.user.id));
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error submitting return");
+    }
+  });
+
+  app.post("/api/bookstore/returns/:id/approve", u, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const row = await pool.request().input("id", req.params.id).query(`SELECT store_id FROM BookReturns WHERE id = @id`);
+      if (!row.recordset[0]) return res.status(404).json({ message: "Return not found" });
+      const gate = await saleStoreAllowed(req, pool, String(row.recordset[0].store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(await approveBookReturn(pool, req.params.id, gate.user.id));
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error approving return");
+    }
+  });
+
+  app.post("/api/bookstore/returns/:id/post", u, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const row = await pool.request().input("id", req.params.id).query(`SELECT store_id FROM BookReturns WHERE id = @id`);
+      if (!row.recordset[0]) return res.status(404).json({ message: "Return not found" });
+      const gate = await saleStoreAllowed(req, pool, String(row.recordset[0].store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(await postBookReturn(pool, req.params.id, gate.user.id));
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error posting return");
+    }
+  });
+
+  app.post("/api/bookstore/refunds", c, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const body = req.body || {};
+      const saleId = String(body.saleId || "");
+      if (!saleId) return res.status(400).json({ message: "saleId is required" });
+      const detail = await getSaleDetail(pool, saleId);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      const result = await createRefund(pool, {
+        saleId,
+        returnId: body.returnId ? String(body.returnId) : null,
+        amount: Number(body.amount),
+        method: String(body.method || "Cash"),
+        idempotencyKey: String(req.headers["idempotency-key"] || body.idempotencyKey || "") || null,
+        performedBy: gate.user.id,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error creating refund");
+    }
+  });
+
+  app.post("/api/bookstore/refunds/:id/complete", u, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const refund = await pool.request().input("id", req.params.id).query(`
+        SELECT rf.id, bs.store_id FROM BookRefunds rf JOIN BookSales bs ON bs.id = rf.sale_id WHERE rf.id = @id
+      `);
+      if (!refund.recordset[0]) return res.status(404).json({ message: "Refund not found" });
+      const access = await assertStoreCampusAccess(authUser, String(refund.recordset[0].store_id), pool, isSuperAdminRole);
+      if (!access.ok) return res.status(403).json({ message: "Forbidden for store" });
+      const result = await completeRefund(pool, req.params.id, req.body?.reference ? String(req.body.reference) : null, authUser.id);
+      res.json(result);
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error completing refund");
+    }
+  });
+
+  app.get("/api/bookstore/reports/reconciliation", v, async (req, res) => {
+    try {
+      if (!getPool()?.connected) await connectToDb();
+      const pool = getPool();
+      if (!pool) return res.status(503).json({ message: "Database unavailable" });
+      const saleId = String(req.query.saleId || "");
+      if (!saleId) return res.status(400).json({ message: "saleId is required" });
+      const detail = await getSaleDetail(pool, saleId);
+      const gate = await saleStoreAllowed(req, pool, String(detail.sale.store_id));
+      if (!gate.user) return res.status(401).json({ message: "Unauthorized" });
+      if (!gate.ok) return res.status(403).json({ message: "Forbidden for store" });
+      res.json(await buildReconciliation(pool, saleId));
+    } catch (err) {
+      sendFlow(res, err, sendServerError, "Error building reconciliation");
+    }
+  });
+
   app.post("/api/bookstore/suppliers", c, async (req, res) => {
     try {
       if (!getPool()?.connected) await connectToDb();
@@ -1217,39 +1473,81 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
-      const request = pool.request();
+      const bind = () => {
+        const r = pool.request();
+        if (from) r.input("from", from);
+        if (to) r.input("to", to);
+        return r;
+      };
       let dateFilter = "";
-      if (from) {
-        request.input("from", from);
-        dateFilter += " AND bs.created_at >= @from";
-      }
-      if (to) {
-        request.input("to", to);
-        dateFilter += " AND bs.created_at <= @to";
-      }
-      const sales = await request.query(`
+      if (from) dateFilter += " AND bs.created_at >= @from";
+      if (to) dateFilter += " AND bs.created_at <= @to";
+      const sales = await bind().query(`
         SELECT
           COUNT(*) AS orders,
-          COALESCE(SUM(total), 0) AS gross,
+          COALESCE(SUM(subtotal), 0) AS gross,
           COALESCE(SUM(discount), 0) AS discounts,
-          COALESCE(SUM(paid_amount), 0) AS collected
-        FROM BookSales bs WHERE status = 'posted' ${dateFilter}
+          COALESCE(SUM(total), 0) AS netSales,
+          COALESCE(SUM(paid_amount), 0) AS collected,
+          COALESCE(SUM(CASE WHEN total > paid_amount THEN total - paid_amount ELSE 0 END), 0) AS outstanding
+        FROM BookSales bs         WHERE status = 'posted' ${dateFilter}
       `);
-      const cogs = await request.query(`
+      const cogs = await bind().query(`
         SELECT COALESCE(SUM(si.quantity * si.unit_cost), 0) AS cogs
         FROM BookSaleItems si
         JOIN BookSales bs ON bs.id = si.sale_id
         WHERE bs.status = 'posted' ${dateFilter}
       `);
+      const returns = await bind().query(`
+        SELECT
+          COALESCE(SUM(i.quantity * si.unit_price), 0) AS returnValue,
+          COALESCE(SUM(i.restock_qty * si.unit_cost), 0) AS restockCost,
+          COALESCE(SUM(CASE WHEN i.condition_code = 'damaged' THEN i.quantity ELSE 0 END), 0) AS damagedQty,
+          COALESCE(SUM(i.restock_qty), 0) AS restockedQty
+        FROM BookReturnItems i
+        JOIN BookReturns r ON r.id = i.return_id AND r.status = 'posted'
+        JOIN BookSaleItems si ON si.id = i.sale_item_id
+        JOIN BookSales bs ON bs.id = r.sale_id
+        WHERE 1=1 ${dateFilter}
+      `);
+      const refunds = await bind().query(`
+        SELECT COALESCE(SUM(rf.amount), 0) AS refunded
+        FROM BookRefunds rf
+        JOIN BookSales bs ON bs.id = rf.sale_id
+        WHERE rf.status = 'completed' ${dateFilter.replaceAll("bs.created_at", "rf.completed_at")}
+      `);
       const gross = Number(sales.recordset[0]?.gross || 0);
-      const cogsVal = Number(cogs.recordset[0]?.cogs || 0);
+      const discounts = Number(sales.recordset[0]?.discounts || 0);
+      const netSales = Number(sales.recordset[0]?.netSales || 0);
+      const returnValue = Number(returns.recordset[0]?.returnValue || 0);
+      const cogsVal = Number(cogs.recordset[0]?.cogs || 0) - Number(returns.recordset[0]?.restockCost || 0);
+      const refunded = Number(refunds.recordset[0]?.refunded || 0);
       res.json({
         ...sales.recordset[0],
         cogs: cogsVal,
-        grossProfit: gross - Number(sales.recordset[0]?.discounts || 0) - cogsVal,
+        returnValue,
+        refunded,
+        damagedQty: Number(returns.recordset[0]?.damagedQty || 0),
+        restockedQty: Number(returns.recordset[0]?.restockedQty || 0),
+        netRevenue: netSales - returnValue,
+        grossProfit: netSales - returnValue - cogsVal,
+        formulas: {
+          gross: "SUM(subtotal) of posted sales",
+          discounts: "SUM(discount) of posted sales",
+          netSales: "SUM(total) of posted sales = gross - discounts",
+          returnValue: "SUM(posted return qty * original unit price). Not the same as cash refunds.",
+          refunded: "SUM(completed refund amounts) only. Requested refunds are excluded.",
+          netRevenue: "netSales - returnValue. Refunds are cash movement and are not subtracted again.",
+          cogs: "SUM(sold qty * unit cost) - SUM(restocked qty * unit cost)",
+          outstanding: "SUM(total - paid_amount) for posted sales where unpaid",
+        },
+        grossLegacy: gross,
+        discounts,
       });
     } catch (err) {
       sendServerError(res, err, "Error generating report");
     }
   });
+
+  registerCourseSellingRoutes(app, deps);
 }
