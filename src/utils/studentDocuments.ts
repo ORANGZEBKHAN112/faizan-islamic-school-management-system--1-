@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import type { Student, Campus, ExamResult } from '../types';
+import type { Student, Campus, ExamResult, ExamReport, ExamReportStudent } from '../types';
 import { formatRollNumberForDisplay } from './rollNumber';
 
 const SCHOOL_NAME = 'Faizan Islamic School';
@@ -357,4 +357,133 @@ export function downloadExamProgressReport(
   });
 
   doc.save(`Progress_${examTitle.replace(/\s+/g, '_')}.pdf`);
+}
+
+function drawReportCardPage(doc: jsPDF, report: ExamReport, student: ExamReportStudent) {
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.setFillColor(0, 59, 92);
+  doc.rect(0, 0, pageW, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text(SCHOOL_NAME, pageW / 2, 11, { align: 'center' });
+  doc.setFontSize(10);
+  doc.text('Report Card  ·  Natija', pageW / 2, 20, { align: 'center' });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(11);
+  doc.text(report.exam.title, 14, 38);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  const meta = [
+    report.exam.examType,
+    report.exam.academicSession ? `Session ${report.exam.academicSession}` : '',
+    report.exam.className || '',
+    report.exam.campusName || '',
+  ].filter(Boolean).join('  ·  ');
+  doc.text(meta, 14, 45);
+  doc.text(`Student: ${student.studentName}`, 14, 54);
+  doc.text(`Roll: ${formatRollNumberForDisplay(student.rollNumber)}`, 120, 54);
+  const attendance = student.attendanceTotal
+    ? `Class attendance: ${student.attendancePresent}/${student.attendanceTotal}`
+    : 'Class attendance: not recorded';
+  doc.text(attendance, 14, 60);
+
+  if (student.resultStatus === 'Withheld') {
+    doc.setTextColor(153, 27, 27);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Result withheld until the fee balance is cleared.', 14, 68);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+  }
+
+  let y = student.resultStatus === 'Withheld' ? 78 : 70;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Subject', 14, y);
+  doc.text('Paper', 78, y);
+  doc.text('Marks', 120, y);
+  doc.text('Result', 160, y);
+  y += 6;
+  doc.setFont('helvetica', 'normal');
+  const lines = student.subjects.length
+    ? student.subjects
+    : [];
+  if (lines.length === 0) {
+    doc.text('No subject paper on this exam.', 14, y);
+    y += 8;
+  }
+  lines.forEach((subject) => {
+    const unit = subject.gradingMode === 'Hifz' ? 'paras' : '';
+    doc.text(clip(doc, subject.subjectName, 60), 14, y);
+    doc.text(subject.component || 'Written', 78, y);
+    doc.text(`${subject.obtainedMarks}/${subject.totalMarks}${unit ? ' ' + unit : ''}`, 120, y);
+    doc.text(subject.passed ? 'Pass' : student.resultStatus === 'Absent' ? 'Absent' : 'Fail', 160, y);
+    y += 6;
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Total ${student.obtainedMarks}/${student.totalMarks}    ${student.percentage}%    Grade ${student.grade || '—'}    ${student.resultStatus}`, 14, y);
+  y += 7;
+  doc.setFont('helvetica', 'normal');
+  if (student.classRank != null) doc.text(`Class rank ${student.classRank}`, 14, y);
+  if (student.heldReason) {
+    y += 7;
+    doc.text(student.heldReason, 14, y);
+  }
+  y += 16;
+  doc.text('Class teacher', 14, y);
+  doc.text('Principal', 120, y);
+  doc.setFontSize(8);
+  doc.text(`Ref ${report.exam.id.slice(0, 8)} / ${student.rollNumber}`, 14, 285);
+}
+
+export function downloadExamReportCards(report: ExamReport, studentId?: string) {
+  const rows = studentId ? report.students.filter((student) => student.studentId === studentId) : report.students;
+  if (rows.length === 0) return false;
+  const doc = new jsPDF();
+  rows.forEach((student, index) => {
+    if (index > 0) doc.addPage();
+    drawReportCardPage(doc, report, student);
+  });
+  const suffix = studentId ? rows[0].rollNumber : 'class';
+  doc.save(`ReportCard_${report.exam.title.replace(/\s+/g, '_')}_${suffix}.pdf`);
+  return true;
+}
+
+export function downloadExamDateSheet(report: ExamReport) {
+  const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.setFillColor(0, 59, 92);
+  doc.rect(0, 0, pageW, 24, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('Date Sheet', pageW / 2, 15, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(11);
+  doc.text(report.exam.title, 14, 36);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(`${report.exam.className || ''}  ·  ${report.exam.campusName || ''}`, 14, 43);
+  let y = 56;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Subject', 14, y);
+  doc.text('Paper', 80, y);
+  doc.text('Date', 120, y);
+  doc.text('Time', 160, y);
+  y += 7;
+  doc.setFont('helvetica', 'normal');
+  report.subjects.forEach((subject) => {
+    doc.text(clip(doc, subject.subjectName, 60), 14, y);
+    doc.text(subject.component || 'Written', 80, y);
+    doc.text(subject.examDate || report.exam.examDate || '—', 120, y);
+    doc.text(subject.startTime || '—', 160, y);
+    y += 7;
+  });
+  doc.save(`DateSheet_${report.exam.title.replace(/\s+/g, '_')}.pdf`);
 }

@@ -14,6 +14,7 @@ import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageLoader from '../components/ui/PageLoader';
 import TableShell from '../components/ui/TableShell';
+import FeeDeskReports from '../components/reports/FeeDeskReports';
 import { toast } from 'sonner';
 
 type ReportSummary = {
@@ -38,6 +39,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [collections, setCollections] = useState<Array<Record<string, unknown>>>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [reportTab, setReportTab] = useState<'overview' | 'defaulters' | 'classes' | 'daily'>('overview');
 
   useEffect(() => {
     let cancelled = false;
@@ -211,9 +213,12 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   };
 
-  if (loading) {
-    return <PageLoader label="Loading reports…" />;
-  }
+  const reportTabs = [
+    { id: 'overview' as const, label: 'Overview' },
+    { id: 'defaulters' as const, label: 'Defaulters' },
+    { id: 'classes' as const, label: 'By class' },
+    { id: 'daily' as const, label: 'Daily collection' },
+  ];
 
   return (
     <div className="space-y-8 pb-12">
@@ -237,41 +242,70 @@ export default function Reports() {
                 />
               </div>
             )}
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl">
-              <TrendingUp className="w-4 h-4 text-slate-400 shrink-0" />
-              <SearchableSelect
-                variant="inline"
-                value={filterYear}
-                onChange={setFilterYear}
-                searchPlaceholder="Search year…"
-                options={[2023, 2024, 2025, 2026].map((y) => ({ value: String(y), label: String(y) }))}
-              />
-            </div>
-            <button
-              onClick={exportToPDF}
-              className="p-2.5 bg-primary/10 text-primary rounded-xl hover:bg-primary hover:text-white transition-all"
-              title="Export PDF"
-            >
-              <Download className="w-5 h-5" />
-            </button>
-            <button
-              onClick={exportToCsv}
-              className="p-2.5 bg-secondary/10 text-secondary rounded-xl hover:bg-secondary hover:text-white transition-all"
-              title="Export CSV"
-            >
-              <Download className="w-5 h-5" />
-            </button>
-            <button
-              onClick={exportAccountRoll}
-              className="px-3 py-2.5 bg-accent/10 text-accent rounded-xl hover:bg-accent hover:text-white transition-all text-[10px] font-black uppercase tracking-widest"
-              title="Account Roll — All Campuses (or selected campus)"
-            >
-              Account Roll
-            </button>
+            {reportTab !== 'daily' && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <TrendingUp className="w-4 h-4 text-slate-400 shrink-0" />
+                <SearchableSelect
+                  variant="inline"
+                  value={filterYear}
+                  onChange={setFilterYear}
+                  searchPlaceholder="Search year…"
+                  options={[2023, 2024, 2025, 2026].map((y) => ({ value: String(y), label: String(y) }))}
+                />
+              </div>
+            )}
+            {reportTab === 'overview' && (
+              <>
+                <button
+                  onClick={exportToPDF}
+                  className="p-2.5 bg-primary/10 text-primary rounded-xl hover:bg-primary hover:text-white transition-all"
+                  title="Export PDF"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={exportToCsv}
+                  className="p-2.5 bg-secondary/10 text-secondary rounded-xl hover:bg-secondary hover:text-white transition-all"
+                  title="Export CSV"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={exportAccountRoll}
+                  className="px-3 py-2.5 bg-accent/10 text-accent rounded-xl hover:bg-accent hover:text-white transition-all text-[10px] font-black uppercase tracking-widest"
+                  title="Account Roll — All Campuses (or selected campus)"
+                >
+                  Account Roll
+                </button>
+              </>
+            )}
           </div>
         }
       />
 
+      <div className="flex flex-wrap gap-2">
+        {reportTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setReportTab(tab.id)}
+            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              reportTab === tab.id
+                ? 'bg-primary text-white'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {reportTab !== 'overview' ? (
+        <FeeDeskReports view={reportTab} campusId={filterCampus} year={filterYear} />
+      ) : loading ? (
+        <PageLoader label="Loading reports…" />
+      ) : (
+      <>
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
@@ -486,6 +520,8 @@ export default function Reports() {
           </table>
         </TableShell>
       </motion.div>
+      </>
+      )}
     </div>
   );
 }

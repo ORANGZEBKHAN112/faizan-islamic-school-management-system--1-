@@ -160,6 +160,53 @@ export interface Fee {
   outstandingFees?: number;
 }
 
+export interface FeeDefaulterRow {
+  studentId: string;
+  admissionNo: string;
+  studentName: string;
+  fatherName?: string | null;
+  fatherMobile?: string | null;
+  campusName?: string | null;
+  className?: string | null;
+  sectionName?: string | null;
+  status: string;
+  thisMonthBalance: number;
+  olderBalance: number;
+  totalBalance: number;
+}
+
+export interface ClassCollectionRow {
+  classId?: string | null;
+  className: string;
+  sectionName?: string | null;
+  campusName?: string | null;
+  billed: number;
+  collected: number;
+  balance: number;
+  students: number;
+}
+
+export interface DailyCollectionLine {
+  id: string;
+  performedOn: string;
+  amount: number;
+  actionType: string;
+  performedBy?: string | null;
+  notes?: string | null;
+  reason?: string | null;
+  studentName: string;
+  admissionNo: string;
+  campusName?: string | null;
+}
+
+export interface DailyCollectionReport {
+  date: string;
+  collected: number;
+  reversed: number;
+  net: number;
+  lines: DailyCollectionLine[];
+}
+
 export interface QuickPayConfig {
   id: string;
   merchantId: string;
@@ -267,6 +314,10 @@ export interface ExamSubject {
   totalMarks: number;
   passingMarks: number;
   sortOrder?: number;
+  examDate?: string | null;
+  startTime?: string | null;
+  component?: string;
+  gradingMode?: string;
 }
 
 export interface Exam {
@@ -281,6 +332,9 @@ export interface Exam {
   examDate?: string;
   totalMarks: number;
   createdOn?: string;
+  status?: 'Draft' | 'Locked' | 'Published' | string;
+  academicSession?: string | null;
+  weightPercent?: number | null;
   subjects?: ExamSubject[];
 }
 
@@ -296,6 +350,93 @@ export interface ExamResult {
   recordedOn?: string;
   percentage?: number;
   subjectMarks?: Record<string, number>;
+  resultStatus?: string;
+  heldReason?: string | null;
+}
+
+export interface ExamReportSubjectMark {
+  subjectId: string;
+  subjectName: string;
+  component: string;
+  gradingMode: string;
+  totalMarks: number;
+  passingMarks: number;
+  obtainedMarks: number;
+  grade: string;
+  passed: boolean;
+  examDate?: string | null;
+  startTime?: string | null;
+}
+
+export interface ExamReportStudent {
+  studentId: string;
+  studentName: string;
+  rollNumber: string;
+  sectionName?: string;
+  obtainedMarks: number;
+  totalMarks: number;
+  percentage: number;
+  grade: string;
+  resultStatus: string;
+  heldReason?: string | null;
+  remarks?: string;
+  classRank: number | null;
+  sectionRank: number | null;
+  attendancePresent: number;
+  attendanceTotal: number;
+  subjects: ExamReportSubjectMark[];
+}
+
+export interface ExamReport {
+  exam: Exam & { sectionName?: string };
+  subjects: ExamSubject[];
+  summary: {
+    students: number;
+    pass: number;
+    fail: number;
+    absent: number;
+    withheld: number;
+    average: number;
+  };
+  subjectStats: Array<{ subjectId: string; subjectName: string; average: number; passPercent: number }>;
+  students: ExamReportStudent[];
+}
+
+export interface ExamMeritRow {
+  campusName: string;
+  studentName: string;
+  rollNumber: string;
+  obtainedMarks: number;
+  totalMarks: number;
+  percentage: number;
+  grade?: string;
+  resultStatus: string;
+  rank: number | null;
+}
+
+export interface ExamCumulative {
+  classId: string;
+  session: string | null;
+  exams: Array<{ id: string; title: string; examType: string; weightPercent: number }>;
+  students: Array<{
+    studentId: string;
+    studentName: string;
+    rollNumber: string;
+    weightedPercentage: number;
+    grade: string;
+  }>;
+}
+
+export interface StudentPortalExamResult {
+  examId: string;
+  title: string;
+  examType: string;
+  examDate?: string;
+  totalMarks: number | null;
+  obtainedMarks: number | null;
+  grade?: string | null;
+  resultStatus: string;
+  heldReason?: string | null;
 }
 
 export interface ExamResultsPayload {
@@ -582,4 +723,5 @@ export interface StudentPortalData {
   student: Student;
   fees: Fee[];
   attendanceSummary: { present: number; absent: number; late: number; total: number };
+  publishedResults?: StudentPortalExamResult[];
 }

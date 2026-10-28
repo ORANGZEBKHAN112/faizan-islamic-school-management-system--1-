@@ -188,6 +188,9 @@ export const ar: LocaleMessages = {
       noVouchers: 'لا توجد قسائم بعد',
       arrearsNote: '+{{amount}} متأخرات',
       portalUnavailable: 'البوابة غير متاحة',
+      publishedResults: 'النتائج المنشورة',
+      noResults: 'لا توجد نتائج منشورة بعد',
+      resultHeld: 'النتيجة محجوبة حتى تسديد الرسوم',
     },
   },
   public: {

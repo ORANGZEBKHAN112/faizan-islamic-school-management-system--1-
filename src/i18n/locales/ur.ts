@@ -188,6 +188,9 @@ export const ur: LocaleMessages = {
       noVouchers: 'ابھی کوئی واؤچر نہیں',
       arrearsNote: '+{{amount}} بقایا',
       portalUnavailable: 'پورٹل دستیاب نہیں',
+      publishedResults: 'شائع شدہ نتائج',
+      noResults: 'ابھی کوئی نتیجہ شائع نہیں ہوا',
+      resultHeld: 'فیس باقی ہونے کی وجہ سے نتیجہ روکا گیا ہے',
     },
   },
   public: {

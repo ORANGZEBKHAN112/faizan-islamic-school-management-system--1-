@@ -135,7 +135,7 @@ export const en = {
     },
     exams: {
       title: 'Exams & Results',
-      description: 'Schedule exams and record student marks.',
+      description: 'Schedule papers, lock marks, and publish report cards.',
     },
     'marks-entry': {
       title: 'Marks Entry',
@@ -186,6 +186,9 @@ export const en = {
       noVouchers: 'No fee vouchers yet',
       arrearsNote: '+{{amount}} arrears',
       portalUnavailable: 'Portal unavailable',
+      publishedResults: 'Published results',
+      noResults: 'No published results yet',
+      resultHeld: 'Result withheld until the fee balance is cleared',
     },
   },
   public: {

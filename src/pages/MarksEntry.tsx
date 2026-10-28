@@ -8,8 +8,8 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import PageLoader from '../components/ui/PageLoader';
 import { PermissionGate } from '../context/PermissionContext';
-import { gradeFromMarks } from '../utils/examGrades';
-import { downloadExamProgressReport, downloadExamResultSheet } from '../utils/studentDocuments';
+import { gradeFromMarks, overallOutcome } from '../utils/examGrades';
+import { downloadExamProgressReport, downloadExamReportCards, downloadExamResultSheet } from '../utils/studentDocuments';
 
 function inferEducationLevel(className?: string): 'Pre-Primary' | 'Primary' | 'Secondary' {
   const n = String(className || '').toLowerCase();
@@ -49,6 +49,8 @@ export default function MarksEntry() {
   const [saving, setSaving] = useState(false);
   const [subjects, setSubjects] = useState<ExamSubject[]>([]);
   const [results, setResults] = useState<Record<string, StudentMarksState>>({});
+  const [absentIds, setAbsentIds] = useState<Set<string>>(new Set());
+  const [reloadKey, setReloadKey] = useState(0);
 
   const { data: campuses, loading: campusesLoading } = useCollection<Campus>('campuses');
   const { data: classes, loading: classesLoading } = useCollection<Class>('classes');
@@ -119,11 +121,17 @@ export default function MarksEntry() {
     }
     (async () => {
       try {
-        const [subs, existing] = await Promise.all([
+        const [subs, existing, attendance] = await Promise.all([
           dataService.fetchExamSubjects(selectedExamId),
           dataService.getAll('exam-results', { examId: selectedExamId }) as Promise<ExamResult[]>,
+          dataService.fetchExamAttendance(selectedExamId),
         ]);
         setSubjects(subs || []);
+        setAbsentIds(new Set(
+          (attendance as Array<{ personType: string; personId: string; status: string }>)
+            .filter((row) => row.personType === 'Student' && row.status === 'Absent')
+            .map((row) => row.personId)
+        ));
         const map: Record<string, StudentMarksState> = {};
         (existing || []).forEach((r) => {
           map[r.studentId] = {
@@ -137,9 +145,10 @@ export default function MarksEntry() {
       } catch {
         setSubjects([]);
         setResults({});
+        setAbsentIds(new Set());
       }
     })();
-  }, [selectedExamId]);
+  }, [selectedExamId, reloadKey]);
 
   const examStudents = useMemo(() => {
     if (!selectedExam) return [];
@@ -175,11 +184,13 @@ export default function MarksEntry() {
     return totals;
   }, [examStudents, subjects, results]);
 
+  const marksLocked = !!selectedExam && (selectedExam.status || 'Draft') !== 'Draft';
+
   const classRanks = useMemo(() => {
     if (!showRanks || !selectedExam) return {} as Record<string, number>;
     return assignRanks(
       students
-        .filter((s) => s.classId === selectedExam.classId && s.status === 'Active')
+        .filter((s) => s.classId === selectedExam.classId && s.status === 'Active' && !absentIds.has(s.id))
         .map((s) => ({
           id: s.id,
           marks: subjects.length
@@ -187,12 +198,12 @@ export default function MarksEntry() {
             : Number(results[s.id]?.obtainedMarks || 0),
         }))
     );
-  }, [students, results, selectedExam, showRanks, subjects]);
+  }, [students, results, selectedExam, showRanks, subjects, absentIds]);
 
   const sectionRanks = useMemo(() => {
     if (!showRanks) return {} as Record<string, number>;
-    return assignRanks(examStudents.map((s) => ({ id: s.id, marks: studentTotals[s.id] || 0 })));
-  }, [examStudents, studentTotals, showRanks]);
+    return assignRanks(examStudents.filter((s) => !absentIds.has(s.id)).map((s) => ({ id: s.id, marks: studentTotals[s.id] || 0 })));
+  }, [examStudents, studentTotals, showRanks, absentIds]);
 
   const setSubjectMark = (studentId: string, subjectId: string, marks: number, subjectTotal: number) => {
     const clamped = Math.max(0, Math.min(subjectTotal, marks));
@@ -214,6 +225,7 @@ export default function MarksEntry() {
 
   const saveResults = async () => {
     if (!selectedExam) return toast.error('Select an exam');
+    if (marksLocked) return toast.error('This exam is locked. Reopen it on the Exams page before editing marks.');
     setSaving(true);
     try {
       const payload = examStudents.map((s) => {
@@ -236,6 +248,7 @@ export default function MarksEntry() {
         };
       });
       await dataService.saveExamResults(selectedExam.id, payload);
+      setReloadKey((key) => key + 1);
       toast.success(`Saved marks for ${payload.length} student(s)`);
     } catch (err) {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to save marks');
@@ -329,7 +342,11 @@ export default function MarksEntry() {
               <p className="mt-2 inline-flex rounded-lg bg-emerald-100 dark:bg-emerald-900/40 px-3 py-1 text-sm font-black text-emerald-800 dark:text-emerald-200">
                 Total Marks: {examTotalMarks}
                 {subjects.length ? ` · ${subjects.length} subjects` : ''}
+                {` · ${selectedExam.status || 'Draft'}`}
               </p>
+              {marksLocked && (
+                <p className="text-xs text-amber-700 mt-2">Marks are locked. Reopen the exam from the Exams page to edit them.</p>
+              )}
               {subjects.length === 0 && (
                 <p className="text-xs text-amber-600 mt-2">No subjects on this exam. Create a new exam with Subjects & Marks Setup, or enter a single total below.</p>
               )}
@@ -344,6 +361,22 @@ export default function MarksEntry() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
+              <button
+                type="button"
+                className="vibrant-btn-secondary flex items-center gap-2 py-2 px-4"
+                onClick={async () => {
+                  try {
+                    const report = await dataService.fetchExamReport(selectedExam.id);
+                    if (!downloadExamReportCards(report)) return toast.error('Save marks before downloading report cards');
+                    toast.success('Report cards downloaded');
+                  } catch (err) {
+                    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                    toast.error(msg || 'Could not build report cards');
+                  }
+                }}
+              >
+                <Download className="w-4 h-4" /> Report cards
+              </button>
               <button
                 type="button"
                 className="vibrant-btn-secondary flex items-center gap-2 py-2 px-4"
@@ -389,7 +422,7 @@ export default function MarksEntry() {
                 <Download className="w-4 h-4" /> Progress
               </button>
               <PermissionGate module="exams" action="update">
-                <button type="button" disabled={saving || studentsLoading} onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
+                <button type="button" disabled={saving || studentsLoading || marksLocked} onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
                   <Save className="w-4 h-4" />
                   {saving ? 'Saving…' : 'Save marks'}
                 </button>
@@ -410,7 +443,8 @@ export default function MarksEntry() {
                     {subjects.map((sub) => (
                       <th key={sub.id} className="px-3 py-4 whitespace-nowrap">
                         <div>{sub.subjectName}</div>
-                        <div className="text-emerald-600 normal-case font-bold">/ {sub.totalMarks}</div>
+                        <div className="text-emerald-600 normal-case font-bold">/ {sub.totalMarks} · pass {sub.passingMarks}</div>
+                        <div className="normal-case">{sub.component || 'Written'}{sub.gradingMode === 'Hifz' ? ' · paras' : ''}</div>
                       </th>
                     ))}
                     {!subjects.length && (
@@ -423,41 +457,58 @@ export default function MarksEntry() {
                     <th className="px-4 py-4">Obtained</th>
                     <th className="px-4 py-4">%</th>
                     <th className="px-4 py-4">Grade</th>
+                    <th className="px-4 py-4">Result</th>
                     {showRanks && <th className="px-4 py-4">Class Rank</th>}
                     {showRanks && <th className="px-4 py-4">Section Rank</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {examStudents.map((s) => {
-                    const total = studentTotals[s.id] || 0;
-                    const pct = examTotalMarks > 0 ? Math.round((total / examTotalMarks) * 1000) / 10 : 0;
-                    const grade = gradeFromMarks(total, examTotalMarks);
+                    const absent = absentIds.has(s.id);
+                    const total = absent ? 0 : (studentTotals[s.id] || 0);
+                    const pct = !absent && examTotalMarks > 0 ? Math.round((total / examTotalMarks) * 1000) / 10 : 0;
+                    const hasEntry = absent || !!results[s.id];
+                    const outcome = hasEntry ? overallOutcome({
+                      absent,
+                      obtained: total,
+                      total: examTotalMarks,
+                      subjects: subjects.map((sub) => ({
+                        obtained: Number(results[s.id]?.subjectMarks?.[sub.id] || 0),
+                        passing: Number(sub.passingMarks) || 0,
+                      })),
+                    }) : { grade: '', resultStatus: '' };
                     return (
                       <tr key={s.id}>
                         <td className="px-4 py-3">
                           <p className="font-bold text-sm">{s.firstName}</p>
-                          <p className="text-xs text-slate-400">{s.rollNumber}</p>
+                          <p className="text-xs text-slate-400">{s.rollNumber}{absent ? ' · Absent' : ''}</p>
                         </td>
-                        {subjects.map((sub) => (
+                        {subjects.map((sub) => {
+                          const mark = Number(results[s.id]?.subjectMarks?.[sub.id] || 0);
+                          const below = !absent && mark < Number(sub.passingMarks || 0);
+                          return (
                           <td key={sub.id} className="px-3 py-3">
                             <input
                               type="number"
                               min={0}
                               max={sub.totalMarks}
-                              className="vibrant-input w-20 py-2"
-                              value={results[s.id]?.subjectMarks?.[sub.id] ?? ''}
+                              disabled={marksLocked || absent}
+                              className={`vibrant-input w-20 py-2 ${below ? 'border-rose-400' : ''}`}
+                              value={absent ? '' : (results[s.id]?.subjectMarks?.[sub.id] ?? '')}
                               onChange={(e) => setSubjectMark(s.id, sub.id, parseFloat(e.target.value) || 0, sub.totalMarks)}
                             />
                           </td>
-                        ))}
+                          );
+                        })}
                         {!subjects.length && (
                           <td className="px-4 py-3">
                             <input
                               type="number"
                               min={0}
                               max={examTotalMarks}
+                              disabled={marksLocked || absent}
                               className="vibrant-input w-24 py-2"
-                              value={results[s.id]?.obtainedMarks ?? ''}
+                              value={absent ? '' : (results[s.id]?.obtainedMarks ?? '')}
                               onChange={(e) => {
                                 const obtained = parseFloat(e.target.value) || 0;
                                 setResults({
@@ -473,9 +524,10 @@ export default function MarksEntry() {
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3 font-black">{total}</td>
-                        <td className="px-4 py-3">{pct}%</td>
-                        <td className="px-4 py-3 font-bold">{grade || '—'}</td>
+                        <td className="px-4 py-3 font-black">{absent ? '—' : total}</td>
+                        <td className="px-4 py-3">{absent ? '—' : `${pct}%`}</td>
+                        <td className="px-4 py-3 font-bold">{outcome.grade || '—'}</td>
+                        <td className="px-4 py-3 font-bold">{outcome.resultStatus || '—'}</td>
                         {showRanks && <td className="px-4 py-3 font-black text-primary">{classRanks[s.id] ?? '—'}</td>}
                         {showRanks && <td className="px-4 py-3 font-black">{sectionRanks[s.id] ?? '—'}</td>}
                       </tr>

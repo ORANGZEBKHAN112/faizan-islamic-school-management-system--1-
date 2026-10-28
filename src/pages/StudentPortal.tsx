@@ -51,7 +51,7 @@ export default function StudentPortal({ user }: StudentPortalProps) {
     );
   }
 
-  const { student, fees, attendanceSummary } = data;
+  const { student, fees, attendanceSummary, publishedResults = [] } = data;
   const collected = feeCollectedTotal(fees);
   const outstanding = feeOutstandingTotal(fees);
 
@@ -131,6 +131,29 @@ export default function StudentPortal({ user }: StudentPortalProps) {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="vibrant-card overflow-hidden">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="font-black uppercase tracking-widest text-sm">{t('pages.studentPortal.publishedResults')}</h3>
+        </div>
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {publishedResults.length === 0 ? (
+            <p className="p-8 text-center text-slate-400">{t('pages.studentPortal.noResults')}</p>
+          ) : publishedResults.map((exam) => (
+            <div key={exam.examId} className="px-8 py-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-bold">{exam.title}</p>
+                <p className="text-xs text-slate-500">{exam.examType}{exam.examDate ? ` · ${exam.examDate}` : ''}</p>
+              </div>
+              {exam.resultStatus === 'Withheld' ? (
+                <p className="text-sm font-bold text-amber-700">{t('pages.studentPortal.resultHeld')}</p>
+              ) : (
+                <p className="font-black">{exam.obtainedMarks}/{exam.totalMarks} · {exam.grade || '—'} · {exam.resultStatus}</p>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
