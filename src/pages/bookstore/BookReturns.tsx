@@ -62,7 +62,7 @@ export default function BookReturns() {
     <div className="space-y-6">
       <div className="vibrant-card p-6 flex flex-wrap gap-3">
         <input className="vibrant-input flex-1 min-w-[16rem]" placeholder="Sale id" value={saleId} onChange={(e) => setSaleId(e.target.value)} />
-        <button type="button" className="vibrant-btn" onClick={() => void load()}>Load sale</button>
+        <button type="button" className="vibrant-btn-primary" onClick={() => void load()}>Load sale</button>
       </div>
       {detail && (
         <div className="vibrant-card p-6 space-y-4">
@@ -88,25 +88,25 @@ export default function BookReturns() {
           <input className="vibrant-input" value={reason} onChange={(e) => setReason(e.target.value)} />
           <div className="flex flex-wrap gap-2">
             <PermissionGate module="bookstore" action="create">
-              <button type="button" className="vibrant-btn" onClick={() => void createReturn()}>Create draft</button>
-              <button type="button" className="vibrant-btn" disabled={!returnId} onClick={() => void step(() => bookstoreService.submitReturn(returnId), 'Submitted')}>Submit</button>
+              <button type="button" className="vibrant-btn-primary" onClick={() => void createReturn()}>Create draft</button>
+              <button type="button" className="vibrant-btn-primary" disabled={!returnId} onClick={() => void step(() => bookstoreService.submitReturn(returnId), 'Submitted')}>Submit</button>
             </PermissionGate>
             <PermissionGate module="bookstore" action="update">
-              <button type="button" className="vibrant-btn" disabled={!returnId} onClick={() => void step(() => bookstoreService.approveReturn(returnId), 'Approved')}>Approve</button>
-              <button type="button" className="vibrant-btn" disabled={!returnId} onClick={() => void step(() => bookstoreService.postReturn(returnId), 'Posted')}>Post</button>
-              <button type="button" className="vibrant-btn" onClick={() => void step(() => bookstoreService.cancelSale(detail.sale.id, reason), 'Cancelled')}>Cancel sale</button>
+              <button type="button" className="vibrant-btn-primary" disabled={!returnId} onClick={() => void step(() => bookstoreService.approveReturn(returnId), 'Approved')}>Approve</button>
+              <button type="button" className="vibrant-btn-primary" disabled={!returnId} onClick={() => void step(() => bookstoreService.postReturn(returnId), 'Posted')}>Post</button>
+              <button type="button" className="vibrant-btn-primary" onClick={() => void step(() => bookstoreService.cancelSale(detail.sale.id, reason), 'Cancelled')}>Cancel sale</button>
             </PermissionGate>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <input type="number" min={0} className="vibrant-input max-w-[10rem]" placeholder="Refund amount" value={refundAmount || ''} onChange={(e) => setRefundAmount(Number(e.target.value))} />
             <PermissionGate module="bookstore" action="create">
-              <button type="button" className="vibrant-btn" onClick={() => void step(async () => {
+              <button type="button" className="vibrant-btn-primary" onClick={() => void step(async () => {
                 const row = await bookstoreService.createRefund({ saleId: detail.sale.id, returnId: returnId || null, amount: refundAmount, method: 'Cash' }, `rf-${detail.sale.id}-${Date.now()}`);
                 setRefundId(row.id);
               }, 'Refund requested')}>Request refund</button>
             </PermissionGate>
             <PermissionGate module="bookstore" action="update">
-              <button type="button" className="vibrant-btn" disabled={!refundId} onClick={() => void step(() => bookstoreService.completeRefund(refundId, 'cash'), 'Refund completed')}>Complete refund</button>
+              <button type="button" className="vibrant-btn-primary" disabled={!refundId} onClick={() => void step(() => bookstoreService.completeRefund(refundId, 'cash'), 'Refund completed')}>Complete refund</button>
             </PermissionGate>
           </div>
           <p className="text-xs text-slate-400">A return does not refund cash. Request a refund, then complete it. Paid sales must be refunded before cancellation.</p>

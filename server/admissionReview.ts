@@ -63,6 +63,7 @@ export interface AdmissionFeePreview {
   examFee: number;
   transportFee: number;
   miscFee: number;
+  idCardFee: number;
   subtotal: number;
   manualDiscountAmount: number;
   manualDiscountPercent: number;
@@ -96,6 +97,7 @@ export interface FeeStructureRow {
   examFee: number;
   transportFee: number;
   miscFee: number;
+  idCardFee: number;
 }
 
 export function normalizeCnic(raw: string | null | undefined): string {
@@ -173,6 +175,7 @@ export function computeAdmissionFeePreview(
   const examFee = Number(feeStructure.examFee) || 0;
   const transportFee = Number(feeStructure.transportFee) || 0;
   const miscFee = Number(feeStructure.miscFee) || 0;
+  const idCardFee = Number(feeStructure.idCardFee) || 0;
   const carryArrears = Number(options.carryArrears) || 0;
 
   const siblingDiscountPercent = Number(options.siblingDiscountPercent) || 0;
@@ -180,7 +183,7 @@ export function computeAdmissionFeePreview(
     ? Math.round((tuitionFee * siblingDiscountPercent) / 100)
     : 0;
 
-  const grossSubtotal = tuitionFee + admissionFee + securityFee + registrationFee + examFee + transportFee + miscFee;
+  const grossSubtotal = tuitionFee + admissionFee + securityFee + registrationFee + examFee + transportFee + miscFee + idCardFee;
   let manualDiscountAmount = Number(options.discountAmount) || 0;
   const manualDiscountPercent = Number(options.discountPercent) || 0;
   if (manualDiscountPercent > 0) {
@@ -199,6 +202,7 @@ export function computeAdmissionFeePreview(
   if (examFee > 0) lines.push({ label: "Exam fee", amount: examFee });
   if (transportFee > 0) lines.push({ label: "Transport", amount: transportFee });
   if (miscFee > 0) lines.push({ label: "Misc fee", amount: miscFee });
+  if (idCardFee > 0) lines.push({ label: "ID card charges", amount: idCardFee });
   if (siblingDiscountAmount > 0) {
     lines.push({ label: `Sibling discount (${siblingDiscountPercent}% on tuition)`, amount: -siblingDiscountAmount });
   }
@@ -219,6 +223,7 @@ export function computeAdmissionFeePreview(
     examFee,
     transportFee,
     miscFee,
+    idCardFee,
     subtotal: grossSubtotal,
     manualDiscountAmount,
     manualDiscountPercent,
@@ -361,13 +366,15 @@ export async function fetchClassFeeStructure(
         ISNULL(fs.exam_fee, 0) AS classExamFee,
         ISNULL(fs.transport_fee, 0) AS classTransportFee,
         ISNULL(fs.misc_fee, 0) AS classMiscFee,
+        ISNULL(fs.id_card_fee, 0) AS classIdCardFee,
         ISNULL(st.tuition_fee, 0) AS campusMonthlyFee,
         ISNULL(st.admission_fee, 0) AS campusAdmissionFee,
         ISNULL(st.security_fee, 0) AS campusSecurityFee,
         ISNULL(st.registration_fee, 0) AS campusRegistrationFee,
         ISNULL(st.exam_fee, 0) AS campusExamFee,
         ISNULL(st.transport_fee, 0) AS campusTransportFee,
-        ISNULL(st.misc_fee, 0) AS campusMiscFee
+        ISNULL(st.misc_fee, 0) AS campusMiscFee,
+        ISNULL(st.id_card_fee, 0) AS campusIdCardFee
       FROM Classes cl
       LEFT JOIN FeeSettings fs ON fs.class_id = cl.id
       OUTER APPLY (
@@ -378,7 +385,8 @@ export async function fetchClassFeeStructure(
           st.registration_fee,
           st.exam_fee,
           st.transport_fee,
-          st.misc_fee
+          st.misc_fee,
+          st.id_card_fee
         FROM FeeStructures st
         WHERE st.campus_id = cl.campus_id
           AND st.class_id IS NULL
@@ -399,7 +407,8 @@ export async function fetchClassFeeStructure(
     Number(row.classRegistrationFee) +
     Number(row.classExamFee) +
     Number(row.classTransportFee) +
-    Number(row.classMiscFee);
+    Number(row.classMiscFee) +
+    Number(row.classIdCardFee);
   const useClass = Boolean(row.feeSettingsId) && classTotal > 0;
 
   const monthlyFee = useClass ? Number(row.classMonthlyFee) : Number(row.campusMonthlyFee);
@@ -409,9 +418,10 @@ export async function fetchClassFeeStructure(
   const examFee = useClass ? Number(row.classExamFee) : Number(row.campusExamFee);
   const transportFee = useClass ? Number(row.classTransportFee) : Number(row.campusTransportFee);
   const miscFee = useClass ? Number(row.classMiscFee) : Number(row.campusMiscFee);
+  const idCardFee = useClass ? Number(row.classIdCardFee) : Number(row.campusIdCardFee);
 
   if (
-    !monthlyFee && !admissionFee && !securityFee && !registrationFee && !examFee && !transportFee && !miscFee
+    !monthlyFee && !admissionFee && !securityFee && !registrationFee && !examFee && !transportFee && !miscFee && !idCardFee
   ) {
     return null;
   }
@@ -424,6 +434,7 @@ export async function fetchClassFeeStructure(
     examFee: examFee || 0,
     transportFee: transportFee || 0,
     miscFee: miscFee || 0,
+    idCardFee: idCardFee || 0,
   };
 }
 
@@ -666,6 +677,7 @@ export async function createEnrollmentFeeVoucher(
     .input("exam_fee", preview.examFee)
     .input("transport_fee", preview.transportFee)
     .input("misc_fee", preview.miscFee)
+    .input("id_card_fee", preview.idCardFee)
     .input("arrears", preview.carryArrears)
     .input("discount_amount", preview.totalDiscount)
     .input("balance_amount", preview.totalDue)
@@ -674,11 +686,11 @@ export async function createEnrollmentFeeVoucher(
     .query(`
       INSERT INTO Fees (
         id, student_id, amount, month, year, status, due_date, fee_type,
-        tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee,
+        tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee, id_card_fee,
         arrears, discount_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
       ) VALUES (
         @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
-        @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee,
+        @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee, @id_card_fee,
         @arrears, @discount_amount, @balance_amount, 0, @campus_name_snapshot, @months_label
       )
     `);

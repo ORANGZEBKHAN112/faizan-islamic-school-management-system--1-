@@ -66,25 +66,25 @@ export default function BookstoreReports() {
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase text-slate-400">
               <tr>
-                <th className="p-3 text-left">Stage</th>
-                <th className="p-3 text-right">Quantity</th>
-                <th className="p-3 text-right">Difference</th>
-                <th className="p-3 text-right">Purchase</th>
-                <th className="p-3 text-right">Profit</th>
-                <th className="p-3 text-right">Sale</th>
-                <th className="p-3 text-right">Payable to warehouse</th>
+                <th className="p-3 text-start">Stage</th>
+                <th className="p-3 text-end">Quantity</th>
+                <th className="p-3 text-end">Difference</th>
+                <th className="p-3 text-end">Purchase</th>
+                <th className="p-3 text-end">Profit</th>
+                <th className="p-3 text-end">Sale</th>
+                <th className="p-3 text-end">Payable to warehouse</th>
               </tr>
             </thead>
             <tbody>
               {stages.map((stage) => (
                 <tr key={String(stage.stage)} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="p-3 font-semibold">{stageLabels[String(stage.stage)] || String(stage.stage)}</td>
-                  <td className="p-3 text-right">{money(stage.quantity)}</td>
-                  <td className="p-3 text-right">{stage.difference == null ? '—' : money(stage.difference)}</td>
-                  <td className="p-3 text-right">{money(stage.purchase)}</td>
-                  <td className="p-3 text-right">{money(stage.profit)}</td>
-                  <td className="p-3 text-right">{money(stage.sale)}</td>
-                  <td className="p-3 text-right">{stage.payable == null ? '—' : money(stage.payable)}</td>
+                  <td className="p-3 text-end">{money(stage.quantity)}</td>
+                  <td className="p-3 text-end">{stage.difference == null ? '—' : money(stage.difference)}</td>
+                  <td className="p-3 text-end">{money(stage.purchase)}</td>
+                  <td className="p-3 text-end">{money(stage.profit)}</td>
+                  <td className="p-3 text-end">{money(stage.sale)}</td>
+                  <td className="p-3 text-end">{stage.payable == null ? '—' : money(stage.payable)}</td>
                 </tr>
               ))}
             </tbody>
@@ -94,7 +94,7 @@ export default function BookstoreReports() {
         <div className="vibrant-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase text-slate-400">
-              <tr>{columns.map((col) => <th key={col} className="p-3 text-left">{col}</th>)}</tr>
+              <tr>{columns.map((col) => <th key={col} className="p-3 text-start">{col}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (

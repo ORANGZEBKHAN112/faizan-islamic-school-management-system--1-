@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useI18n } from '../../context/I18nContext';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -16,16 +17,15 @@ export default function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'primary',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const confirmClass =
-    variant === 'danger'
-      ? 'bg-danger hover:bg-danger/90 shadow-danger/20'
-      : 'bg-primary hover:bg-primary/90 shadow-primary/20';
+  const { t } = useI18n();
+  const confirmText = confirmLabel ?? t('common.confirm');
+  const cancelText = cancelLabel ?? t('common.cancel');
 
   return (
     <AnimatePresence>
@@ -33,7 +33,7 @@ export default function ConfirmDialog({
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
           <motion.button
             type="button"
-            aria-label="Close dialog"
+            aria-label={t('common.close')}
             className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -68,15 +68,15 @@ export default function ConfirmDialog({
               </div>
             </div>
             <div className="flex flex-col-reverse sm:flex-row gap-3 mt-8">
-              <button type="button" onClick={onCancel} className="vibrant-btn-secondary flex-1 py-3 text-sm font-semibold">
-                {cancelLabel}
+              <button type="button" onClick={onCancel} className="vibrant-btn-secondary flex-1">
+                {cancelText}
               </button>
               <button
                 type="button"
                 onClick={onConfirm}
-                className={`flex-1 py-3 rounded-2xl text-sm font-semibold text-white shadow-lg transition-all active:scale-95 ${confirmClass}`}
+                className={`flex-1 ${variant === 'danger' ? 'vibrant-btn-danger' : 'vibrant-btn-primary'}`}
               >
-                {confirmLabel}
+                {confirmText}
               </button>
             </div>
           </motion.div>

@@ -73,11 +73,11 @@ export default function WarehouseDispatchPage() {
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase text-slate-400">
               <tr>
-                <th className="text-left py-2">Campus</th>
-                <th className="text-left">Class</th>
-                <th className="text-left">Title</th>
-                <th className="text-right">Ordered</th>
-                <th className="text-right">Dispatched</th>
+                <th className="text-start py-2">Campus</th>
+                <th className="text-start">Class</th>
+                <th className="text-start">Title</th>
+                <th className="text-end">Ordered</th>
+                <th className="text-end">Dispatched</th>
               </tr>
             </thead>
             <tbody>
@@ -86,8 +86,8 @@ export default function WarehouseDispatchPage() {
                   <td className="py-2">{item.campusName}</td>
                   <td>{item.className}</td>
                   <td className="font-semibold">{item.title}</td>
-                  <td className="text-right">{item.quantity}</td>
-                  <td className="text-right">
+                  <td className="text-end">{item.quantity}</td>
+                  <td className="text-end">
                     <input
                       type="number"
                       min={0}

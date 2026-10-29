@@ -165,7 +165,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
                       key={i}
                       type="button"
                       onClick={result.action}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-primary/5 dark:hover:bg-primary/10 group transition-all text-left"
+                      className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-primary/5 dark:hover:bg-primary/10 group transition-all text-start"
                     >
                       <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl group-hover:bg-primary/10 text-slate-400 group-hover:text-primary transition-colors">
                         <result.icon className="w-4 h-4" />
@@ -199,7 +199,7 @@ export default function CommandPalette({ userRole }: CommandPaletteProps) {
                           navigate(item.path);
                           setIsOpen(false);
                         }}
-                        className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-primary/30 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all text-left"
+                        className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-primary/30 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all text-start"
                       >
                         <item.icon className="w-4 h-4 text-primary shrink-0" />
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">

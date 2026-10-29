@@ -10,10 +10,13 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
 import { toTitleCase } from '../utils/titleCase';
+import { useI18n } from '../context/I18nContext';
+import { formatMoney } from '../utils/money';
 
 const scopeUser = getStoredUser();
 
 export default function StaffManagement() {
+  const { t } = useI18n();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -132,12 +135,12 @@ export default function StaffManagement() {
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800">
           <div className="relative max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input type="text" placeholder="Search staff..." className="vibrant-input pl-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input type="text" placeholder="Search staff..." className="vibrant-input ps-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Name</th>
@@ -146,7 +149,7 @@ export default function StaffManagement() {
                 <th className="px-8 py-5">CNIC</th>
                 <th className="px-8 py-5">Salary</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -156,19 +159,17 @@ export default function StaffManagement() {
                   <td className="px-8 py-5 text-sm">{member.role}</td>
                   <td className="px-8 py-5 text-sm text-slate-500">{member.campusName || '—'}</td>
                   <td className="px-8 py-5 font-mono text-sm">{member.cnic}</td>
-                  <td className="px-8 py-5 text-sm">Rs. {(member.salary || 0).toLocaleString()}</td>
+                  <td className="px-8 py-5 text-sm">{formatMoney((member.salary || 0))}</td>
                   <td className="px-8 py-5">
                     {member.isActive !== false ? (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-success/10 text-success">
-                        <CheckCircle className="w-3 h-3" /> Active
-                      </span>
+                        <CheckCircle className="w-3 h-3" /> {t('common.active')}</span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent/10 text-accent">
-                        <XCircle className="w-3 h-3" /> Inactive
-                      </span>
+                        <XCircle className="w-3 h-3" /> {t('common.inactive')}</span>
                     )}
                   </td>
-                  <td className="px-8 py-5 text-right">
+                  <td className="px-8 py-5 text-end">
                     <PermissionGate module="staff" action="update">
                       <button onClick={() => handleEdit(member)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary">
                         <Edit2 className="w-4 h-4" />
@@ -192,7 +193,7 @@ export default function StaffManagement() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-8">
                 <Briefcase className="w-6 h-6 text-primary" />
@@ -247,8 +248,8 @@ export default function StaffManagement() {
                   </label>
                 </div>
                 <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">Cancel</button>
-                  <button type="submit" className="flex-1 vibrant-btn-primary">Save</button>
+                  <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary">{t('common.save')}</button>
                 </div>
               </form>
             </motion.div>

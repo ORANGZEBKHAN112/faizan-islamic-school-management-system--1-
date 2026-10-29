@@ -5,6 +5,7 @@ import { dataService } from '../../services/dataService';
 import type { Student } from '../../types';
 import { usePermissions } from '../../context/PermissionContext';
 import PageLoader from '../../components/ui/PageLoader';
+import { formatMoney } from '../../utils/money';
 
 type PosStudent = {
   id: string;
@@ -239,7 +240,7 @@ export default function BookSales() {
     <div className="grid lg:grid-cols-2 gap-6">
       <div className="space-y-4">
         <div className="vibrant-card p-4 space-y-3">
-          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Campus store</label>
+          <label className="text-[10px] font-black uppercase text-slate-400 ms-1">Campus store</label>
           <select className="vibrant-input" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
             {stores.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -250,7 +251,7 @@ export default function BookSales() {
             <button
               key={s.id}
               type="button"
-              className={`w-full text-left p-3 rounded-xl border ${posStudent?.id === s.id ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700'}`}
+              className={`w-full text-start p-3 rounded-xl border ${posStudent?.id === s.id ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700'}`}
               onClick={() => void loadStudentContext(s.id)}
             >
               <p className="font-bold">{s.firstName}</p>
@@ -278,12 +279,12 @@ export default function BookSales() {
                 key={p.id}
                 type="button"
                 disabled={loadingQuote}
-                className={`w-full text-left p-3 rounded-xl border ${selectedPackId === p.id ? 'border-primary' : 'border-slate-200 dark:border-slate-700'}`}
+                className={`w-full text-start p-3 rounded-xl border ${selectedPackId === p.id ? 'border-primary' : 'border-slate-200 dark:border-slate-700'}`}
                 onClick={() => void loadPackQuote(p.id)}
               >
                 <span className="font-semibold">{p.name}</span>
                 {p.packDiscount ? (
-                  <span className="text-xs text-slate-500 ml-2">max discount Rs. {p.packDiscount}</span>
+                  <span className="text-xs text-slate-500 ms-2">max discount Rs. {p.packDiscount}</span>
                 ) : null}
               </button>
             ))}
@@ -315,15 +316,15 @@ export default function BookSales() {
             <span>
               {l.title} × {l.quantity}
               {packQuote?.items && (
-                <span className={`ml-2 text-xs ${packQuote.items.find((x) => x.bookId === l.bookId)?.sufficient ? 'text-emerald-600' : 'text-red-500'}`}>
+                <span className={`ms-2 text-xs ${packQuote.items.find((x) => x.bookId === l.bookId)?.sufficient ? 'text-success' : 'text-danger'}`}>
                   stock {packQuote.items.find((x) => x.bookId === l.bookId)?.available ?? '—'}
                 </span>
               )}
             </span>
-            <span>Rs. {(l.quantity * l.unitPrice).toLocaleString()}</span>
+            <span>{formatMoney((l.quantity * l.unitPrice))}</span>
           </div>
         ))}
-        <p className="text-sm text-slate-500">Subtotal Rs. {subtotal.toLocaleString()}</p>
+        <p className="text-sm text-slate-500">Subtotal {formatMoney(subtotal)}</p>
         {canDiscount && (
           <div>
             <label className="text-[10px] font-black uppercase text-slate-400">Discount (max Rs. {maxDiscount})</label>
@@ -337,9 +338,9 @@ export default function BookSales() {
             />
           </div>
         )}
-        <p className="font-black text-lg">Total Rs. {total.toLocaleString()}</p>
+        <p className="font-black text-lg">Total {formatMoney(total)}</p>
         {reservationId && (
-          <p className="text-xs text-emerald-600 font-semibold">Reservation active: {reservationId.slice(0, 8)}…</p>
+          <p className="text-xs text-success font-semibold">Reservation active: {reservationId.slice(0, 8)}…</p>
         )}
         <div className="flex flex-wrap gap-2">
           <button type="button" className="vibrant-btn-secondary" disabled={!cart.length} onClick={() => void reserveCart()}>
@@ -364,7 +365,7 @@ export default function BookSales() {
           <option>Cash</option>
           <option>Bank Transfer</option>
         </select>
-        <button type="button" className="vibrant-btn w-full" disabled={!posStudent || cart.length === 0 || checkingOut || (packQuote && !packQuote.allInStock && !reservationId)} onClick={() => void checkout()}>
+        <button type="button" className="vibrant-btn-primary w-full" disabled={!posStudent || cart.length === 0 || checkingOut || (packQuote && !packQuote.allInStock && !reservationId)} onClick={() => void checkout()}>
           {checkingOut ? 'Processing…' : 'Complete sale'}
         </button>
         {packQuote && !packQuote.allInStock && !reservationId && (

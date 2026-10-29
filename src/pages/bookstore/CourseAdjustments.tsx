@@ -98,12 +98,12 @@ export default function CourseAdjustments() {
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase text-slate-400">
             <tr>
-              <th className="p-3 text-left">No.</th>
-              <th className="p-3 text-left">Campus / class / title</th>
-              <th className="p-3 text-left">Type</th>
-              <th className="p-3 text-right">Qty</th>
-              <th className="p-3 text-left">Reason</th>
-              <th className="p-3 text-left">Audit</th>
+              <th className="p-3 text-start">No.</th>
+              <th className="p-3 text-start">Campus / class / title</th>
+              <th className="p-3 text-start">Type</th>
+              <th className="p-3 text-end">Qty</th>
+              <th className="p-3 text-start">Reason</th>
+              <th className="p-3 text-start">Audit</th>
               <th className="p-3" />
             </tr>
           </thead>
@@ -113,10 +113,10 @@ export default function CourseAdjustments() {
                 <td className="p-3 font-bold">{row.adjustment_no}</td>
                 <td className="p-3">{row.campusName} · {row.className} · {row.title}</td>
                 <td className="p-3">{row.adj_type}</td>
-                <td className="p-3 text-right">{row.quantity}</td>
+                <td className="p-3 text-end">{row.quantity}</td>
                 <td className="p-3">{row.reason}</td>
                 <td className="p-3 text-xs text-slate-500">{row.status} · by {row.requested_by || '—'} · approved {row.approved_by || '—'}</td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-end">
                   {row.status === 'pending' && (
                     <button type="button" className="vibrant-btn-primary" onClick={() => void approve(row.id)}>Approve</button>
                   )}

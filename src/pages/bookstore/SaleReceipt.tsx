@@ -51,7 +51,7 @@ export default function SaleReceipt() {
       <table className="w-full mt-4 text-sm border-collapse">
         <thead>
           <tr className="border-b">
-            <th className="text-left py-2">Book</th>
+            <th className="text-start py-2">Book</th>
             <th>Qty</th>
             <th>Price</th>
             <th>Total</th>
@@ -62,8 +62,8 @@ export default function SaleReceipt() {
             <tr key={line.title} className="border-b">
               <td className="py-2">{line.title}</td>
               <td className="text-center">{line.quantity}</td>
-              <td className="text-right">{line.unitPrice}</td>
-              <td className="text-right">{line.lineTotal}</td>
+              <td className="text-end">{line.unitPrice}</td>
+              <td className="text-end">{line.lineTotal}</td>
             </tr>
           ))}
         </tbody>

@@ -102,7 +102,7 @@ export default function PublicAdmissionApply() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-8">
+      <div className="auth-shell min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-8">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -133,7 +133,7 @@ export default function PublicAdmissionApply() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6">
+    <div className="auth-shell min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6">
       <div className="max-w-2xl mx-auto space-y-8">
         <div className="flex justify-end">
           <LanguageSwitcher compact />

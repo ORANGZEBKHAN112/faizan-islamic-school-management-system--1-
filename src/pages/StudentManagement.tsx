@@ -581,11 +581,11 @@ export default function StudentManagement() {
       <div className="vibrant-card">
         <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-6 bg-slate-50/50 dark:bg-slate-900/50 overflow-visible">
           <div className="relative group col-span-1 md:col-span-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
             <input
               type="text"
               placeholder={t('pages.students.searchPlaceholder')}
-              className="vibrant-input pl-12"
+              className="vibrant-input ps-12"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -643,7 +643,7 @@ export default function StudentManagement() {
           </div>
         ) : (
         <TableShell>
-          <table className="w-full min-w-[880px] text-left border-collapse table-sticky-head">
+          <table className="w-full min-w-[880px] text-start border-collapse table-sticky-head">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Roll #</th>
@@ -652,7 +652,7 @@ export default function StudentManagement() {
                 <th className="px-8 py-5">Father Name</th>
                 <th className="px-8 py-5">Outstanding</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -714,7 +714,7 @@ export default function StudentManagement() {
                       {student.status}
                     </span>
                   </td>
-                  <td className="px-8 py-5 text-right">
+                  <td className="px-8 py-5 text-end">
                     <div className="flex items-center justify-end gap-2">
                       <motion.button 
                         whileHover={{ scale: 1.1 }}
@@ -723,7 +723,7 @@ export default function StudentManagement() {
                           setSelectedStudent(student);
                           setIsProfileModalOpen(true);
                         }} 
-                        className="p-2.5 text-slate-400 hover:text-success hover:bg-success/10 rounded-xl transition-all"
+                        className="icon-btn icon-btn-success"
                         title="View Profile"
                       >
                         <Eye className="w-5 h-5" />
@@ -733,7 +733,7 @@ export default function StudentManagement() {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={() => handleEdit(student)} 
-                        className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                        className="icon-btn"
                       >
                         <Edit2 className="w-5 h-5" />
                       </motion.button>
@@ -743,7 +743,7 @@ export default function StudentManagement() {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={() => handleDelete(student.id)} 
-                        className="p-2.5 text-slate-400 hover:text-danger hover:bg-danger/10 rounded-xl transition-all"
+                        className="icon-btn icon-btn-danger"
                       >
                         <Trash2 className="w-5 h-5" />
                       </motion.button>
@@ -770,7 +770,7 @@ export default function StudentManagement() {
       {/* Profile Modal */}
       <AnimatePresence>
         {isProfileModalOpen && selectedStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -823,19 +823,19 @@ export default function StudentManagement() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     <div className="space-y-6">
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Father's Name</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Father's Name</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.fatherName}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">CNIC / B-Form</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">CNIC / B-Form</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.cnicBForm}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Date of Birth</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Date of Birth</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.dateOfBirth}</p>
                         </div>
@@ -843,19 +843,19 @@ export default function StudentManagement() {
                     </div>
                     <div className="space-y-6">
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Contact Number</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Contact Number</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.contactNumber}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Admission Date</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Admission Date</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.admissionDate}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Registration Date</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Registration Date</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white">{selectedStudent.registrationDate}</p>
                         </div>
@@ -863,19 +863,19 @@ export default function StudentManagement() {
                     </div>
                     <div className="space-y-6">
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Location</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Location</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white text-xs">{selectedStudent.tehsil}, {selectedStudent.city}, {selectedStudent.province}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Address</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Address</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white text-xs leading-relaxed">{selectedStudent.address}</p>
                         </div>
                       </div>
                       <div className="group">
-                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ml-1">Campus Info</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-2 ms-1">Campus Info</p>
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group-hover:border-primary/30 transition-colors">
                           <p className="font-bold text-slate-900 dark:text-white text-xs">{selectedStudent.campusName} ({selectedStudent.campusType})</p>
                         </div>
@@ -919,7 +919,7 @@ export default function StudentManagement() {
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{vouchers.filter(v => v.studentId === selectedStudent.id).length} Records</span>
                       </div>
                       <div className="border border-slate-100 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-                        <table className="w-full text-left border-collapse">
+                        <table className="w-full text-start border-collapse">
                           <thead className="bg-slate-50 dark:bg-slate-800/50 text-[10px] text-slate-400 uppercase font-black tracking-widest">
                             <tr>
                               <th className="px-8 py-4">Month/Year</th>
@@ -978,7 +978,7 @@ export default function StudentManagement() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -999,7 +999,7 @@ export default function StudentManagement() {
               <form onSubmit={handleSubmit} className="p-10 space-y-8 overflow-y-auto bg-white dark:bg-slate-900">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Campus</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Campus</label>
                     <SearchableSelect
                       required
                       value={formData.campusId}
@@ -1013,7 +1013,7 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Class</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Class</label>
                     <SearchableSelect
                       required
                       value={formData.classId}
@@ -1029,19 +1029,19 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Roll Number</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Roll Number</label>
                     <input className="vibrant-input" value={formData.rollNumber} onChange={(e) => setFormData({ ...formData, rollNumber: e.target.value })} placeholder="Auto-generated if empty" />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Student Code</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Student Code</label>
                     <input className="vibrant-input" value={formData.studentCode} onChange={(e) => setFormData({ ...formData, studentCode: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Serial Number</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Serial Number</label>
                     <input className="vibrant-input" value={formData.serialNo} onChange={(e) => setFormData({ ...formData, serialNo: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">First Name</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">First Name</label>
                     <input
                       required
                       className="vibrant-input"
@@ -1051,7 +1051,7 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Last Name</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Last Name</label>
                     <input
                       className="vibrant-input"
                       value={formData.lastName}
@@ -1060,7 +1060,7 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Father's Name</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Father's Name</label>
                     <input
                       className="vibrant-input"
                       value={formData.fatherName}
@@ -1069,15 +1069,15 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">CNIC / B-Form</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">CNIC / B-Form</label>
                     <input className="vibrant-input" value={formData.cnicBForm} onChange={(e) => setFormData({ ...formData, cnicBForm: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Date of Birth</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Date of Birth</label>
                     <input type="date" className="vibrant-input" value={formData.dateOfBirth} onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gender</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Gender</label>
                     <SearchableSelect
                       value={formData.gender}
                       onChange={(gender) => setFormData({ ...formData, gender })}
@@ -1090,27 +1090,27 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contact Number</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Contact Number</label>
                     <input className="vibrant-input" value={formData.contactNumber} onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Admission Date</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Admission Date</label>
                     <input type="date" className="vibrant-input" value={formData.admissionDate} onChange={(e) => setFormData({ ...formData, admissionDate: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registration Date</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Registration Date</label>
                     <input type="date" className="vibrant-input" value={formData.registrationDate} onChange={(e) => setFormData({ ...formData, registrationDate: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Session</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Session</label>
                     <input className="vibrant-input" value={formData.session} onChange={(e) => setFormData({ ...formData, session: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Campus Type</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Campus Type</label>
                     <input className="vibrant-input" value={formData.campusType} onChange={(e) => setFormData({ ...formData, campusType: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Status</label>
                     <SearchableSelect
                       value={formData.status}
                       onChange={(status) => setFormData({ ...formData, status: status as Student['status'] })}
@@ -1123,17 +1123,17 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Outstanding Fees (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Outstanding Fees (Rs.)</label>
                     <input type="number" className="vibrant-input font-black text-primary" value={formData.outstandingFees} onChange={(e) => setFormData({ ...formData, outstandingFees: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Country</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Country</label>
                     <input className="vibrant-input" value={formData.country} onChange={(e) => setFormData({ ...formData, country: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Province</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Province</label>
                     <SearchableSelect
                       value={formData.province}
                       onChange={(province) => {
@@ -1149,7 +1149,7 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">City</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">City</label>
                     <SearchableSelect
                       value={formData.city}
                       onChange={(city) => setFormData({ ...formData, city })}
@@ -1158,17 +1158,17 @@ export default function StudentManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tehsil / Area</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Tehsil / Area</label>
                     <input className="vibrant-input" value={formData.tehsil} onChange={(e) => setFormData({ ...formData, tehsil: e.target.value })} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Address</label>
                   <textarea className="vibrant-input" rows={3} value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
                 </div>
                 {(canCreate('students') || canUpdate('students')) && (
                   <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Profile photo (ID card)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Profile photo (ID card)</label>
                     <div className="flex items-center gap-6">
                       <div className="w-20 h-24 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
                         {formData.profileImage ? (
@@ -1216,10 +1216,8 @@ export default function StudentManagement() {
                     whileTap={{ scale: 0.98 }}
                     type="button" 
                     onClick={() => setIsModalOpen(false)} 
-                    className="flex-1 px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    Cancel
-                  </motion.button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</motion.button>
                   <motion.button 
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
@@ -1268,9 +1266,7 @@ export default function StudentManagement() {
                   <canvas ref={canvasRef} className="hidden" />
                 </div>
                 <div className="flex gap-4">
-                  <button type="button" onClick={closeCamera} className="flex-1 vibrant-btn-secondary py-3">
-                    Cancel
-                  </button>
+                  <button type="button" onClick={closeCamera} className="flex-1 vibrant-btn-secondary py-3">{t('common.cancel')}</button>
                   <button type="button" onClick={captureCameraPhoto} disabled={cameraLoading || uploadingPhoto} className="flex-1 vibrant-btn-primary py-3 disabled:opacity-60">
                     {uploadingPhoto ? 'Uploading…' : 'Capture Photo'}
                   </button>
@@ -1301,16 +1297,12 @@ export default function StudentManagement() {
               <div className="flex gap-4 pt-4">
                 <button
                   onClick={() => setIsDeleteModalOpen(false)}
-                  className="flex-1 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
+                  className="vibrant-btn-secondary flex-1"
+                >{t('common.cancel')}</button>
                 <button
                   onClick={confirmDelete}
-                  className="flex-1 px-6 py-4 bg-danger text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-danger/20 transition-all hover:bg-danger/90"
-                >
-                  Delete
-                </button>
+                  className="vibrant-btn-danger flex-1"
+                >{t('common.delete')}</button>
               </div>
             </motion.div>
           </div>

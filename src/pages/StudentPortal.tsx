@@ -4,8 +4,10 @@ import { dataService } from '../services/dataService';
 import { feeCollectedTotal, feeLineBalance, feeOutstandingTotal } from '../utils/feeStats';
 import { User as UserIcon, CreditCard, CalendarCheck, School, AlertCircle } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
+import PageLoader from '../components/ui/PageLoader';
 import { motion } from 'motion/react';
 import { useI18n } from '../context/I18nContext';
+import { formatMoney } from '../utils/money';
 
 interface StudentPortalProps {
   user: User;
@@ -32,11 +34,7 @@ export default function StudentPortal({ user }: StudentPortalProps) {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (error || !data) {
@@ -73,8 +71,8 @@ export default function StudentPortal({ user }: StudentPortalProps) {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="vibrant-card p-8">
           <CreditCard className="w-8 h-8 text-success mb-4" />
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('pages.studentPortal.fees')}</p>
-          <p className="text-xl font-black mt-2 text-success">Rs. {collected.toLocaleString()} {t('pages.studentPortal.paid')}</p>
-          <p className="text-sm text-danger mt-2">Rs. {outstanding.toLocaleString()} {t('pages.studentPortal.outstanding')}</p>
+          <p className="text-xl font-black mt-2 text-success">{formatMoney(collected)} {t('pages.studentPortal.paid')}</p>
+          <p className="text-sm text-danger mt-2">{formatMoney(outstanding)} {t('pages.studentPortal.outstanding')}</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="vibrant-card p-8">
           <CalendarCheck className="w-8 h-8 text-accent mb-4" />
@@ -92,7 +90,7 @@ export default function StudentPortal({ user }: StudentPortalProps) {
           <h3 className="font-black uppercase tracking-widest text-sm">{t('pages.studentPortal.feeVouchers')}</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-4">{t('pages.studentPortal.monthYear')}</th>
@@ -112,15 +110,15 @@ export default function StudentPortal({ user }: StudentPortalProps) {
                   <tr key={f.id}>
                     <td className="px-8 py-4 font-bold">{f.month}/{f.year}</td>
                     <td className="px-8 py-4">
-                      <span>Rs. {(f.amount || 0).toLocaleString()}</span>
+                      <span>{formatMoney((f.amount || 0))}</span>
                       {arrears > 0 && (
                         <span className="block text-[10px] text-slate-400 font-semibold mt-0.5">
                           {t('pages.studentPortal.arrearsNote', { amount: arrears.toLocaleString() })}
                         </span>
                       )}
                     </td>
-                    <td className="px-8 py-4 text-success">Rs. {(f.paidAmount || 0).toLocaleString()}</td>
-                    <td className="px-8 py-4 text-danger">Rs. {lineBalance.toLocaleString()}</td>
+                    <td className="px-8 py-4 text-success">{formatMoney((f.paidAmount || 0))}</td>
+                    <td className="px-8 py-4 text-danger">{formatMoney(lineBalance)}</td>
                     <td className="px-8 py-4">
                       <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${f.status === 'Paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
                         {f.status}

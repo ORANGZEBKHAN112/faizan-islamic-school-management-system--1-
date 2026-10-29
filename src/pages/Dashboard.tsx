@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney, formatMoneyCompact } from '../utils/money';
 import {
   Users, School, Building, CreditCard, AlertCircle, TrendingUp, BarChart3,
   Calendar, ArrowRight, Clock, History as HistoryIcon, TrendingDown,
@@ -138,22 +139,22 @@ export default function Dashboard({ user }: DashboardProps) {
 
   const cards = [
     { title: 'Active Students', value: stats.activeStudents, icon: Users, color: 'bg-success', path: '/students' },
-    { title: 'Fees Collected', value: `Rs. ${stats.totalCollected.toLocaleString()}`, icon: CreditCard, color: 'bg-teal-500', path: feesPath },
-    { title: 'Outstanding', value: `Rs. ${stats.totalOutstanding.toLocaleString()}`, icon: AlertCircle, color: 'bg-danger', path: feesPath },
-    { title: 'Fee Defaulters', value: stats.defaulters, icon: AlertCircle, color: 'bg-rose-500', path: feesPath },
+    { title: 'Fees Collected', value: `${formatMoney(stats.totalCollected)}`, icon: CreditCard, color: 'bg-teal-500', path: feesPath },
+    { title: 'Outstanding', value: `${formatMoney(stats.totalOutstanding)}`, icon: AlertCircle, color: 'bg-danger', path: feesPath },
+    { title: 'Fee Defaulters', value: stats.defaulters, icon: AlertCircle, color: 'bg-danger', path: feesPath },
     { title: 'Pending Admissions', value: stats.pendingAdmissions, icon: UserPlus, color: 'bg-accent', path: '/admissions' },
     { title: 'Exams This Month', value: stats.examsScheduled, icon: ClipboardList, color: 'bg-primary', path: '/exams' },
     { title: 'Campuses', value: stats.campusCount, icon: School, color: 'bg-primary', path: '/campuses' },
     { title: 'Classes', value: stats.classCount, icon: GraduationCap, color: 'bg-secondary', path: '/classes' },
-    { title: 'Online Payments', value: `Rs. ${stats.onlineCollections.toLocaleString()}`, icon: TrendingUp, color: 'bg-accent', path: '/quickpay' },
+    { title: 'Online Payments', value: `${formatMoney(stats.onlineCollections)}`, icon: TrendingUp, color: 'bg-accent', path: '/quickpay' },
   ];
 
   const recentActivity = (stats.recentPayments || []).map((t) => ({
     id: t.id,
-    title: `${t.studentName || 'Student'} — Rs. ${t.amount.toLocaleString()}`,
+    title: `${t.studentName || 'Student'} — ${formatMoney(t.amount)}`,
     time: t.transactionDate ? new Date(t.transactionDate).toLocaleString() : 'Recent',
     icon: CreditCard,
-    color: 'text-green-500',
+    color: 'text-success',
   }));
 
   const setupSteps = [
@@ -253,7 +254,7 @@ export default function Dashboard({ user }: DashboardProps) {
       />
 
       {canSeeAudit && (
-        <div className="flex flex-wrap gap-2">
+        <div className="segmented">
           {[
             { id: 'overview' as const, label: 'Overview', icon: BarChart3 },
             { id: 'reversals' as const, label: 'Reversals', icon: Undo2 },
@@ -263,11 +264,7 @@ export default function Dashboard({ user }: DashboardProps) {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === tab.id
-                  ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                  : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-100 dark:border-slate-800 hover:text-primary'
-              }`}
+              className={`segmented-item ${activeTab === tab.id ? 'segmented-item-active' : ''}`}
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
@@ -283,7 +280,7 @@ export default function Dashboard({ user }: DashboardProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {cards.map((card, i) => (
               <motion.button key={i} whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }} onClick={() => navigate(card.path)}
-                className="vibrant-card p-6 flex items-center gap-5 text-left group">
+                className="vibrant-card p-6 flex items-center gap-5 text-start group">
                 <div className={`${card.color} p-4 rounded-2xl text-white shadow-lg`}>
                   <card.icon className="w-6 h-6" />
                 </div>
@@ -306,10 +303,10 @@ export default function Dashboard({ user }: DashboardProps) {
                 {stats.monthlyFees?.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={stats.monthlyFees}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
-                      <XAxis dataKey="monthName" tick={{ fontSize: 10, fontWeight: 700 }} />
-                      <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `Rs.${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
-                      <Tooltip formatter={(v: number) => [`Rs. ${v.toLocaleString()}`, '']} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" opacity={0.5} />
+                      <XAxis dataKey="monthName" tick={{ fontSize: 12, fontWeight: 600, fill: 'var(--chart-tick)' }} />
+                      <YAxis tick={{ fontSize: 12, fill: 'var(--chart-tick)' }} tickFormatter={(v) => formatMoneyCompact(v)} />
+                      <Tooltip formatter={(v: number) => [`${formatMoney(v)}`, '']} />
                       <Bar dataKey="collected" fill={CHART_PRIMARY} name="Collected" radius={[8, 8, 0, 0]} />
                       <Bar dataKey="pending" fill={CHART_SECONDARY} name="Pending" radius={[8, 8, 0, 0]} />
                     </BarChart>
@@ -354,7 +351,7 @@ export default function Dashboard({ user }: DashboardProps) {
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Reversed', value: auditSummary.totalReversed, color: 'text-rose-600', bg: 'bg-rose-500/10' },
+              { label: 'Total Reversed', value: auditSummary.totalReversed, color: 'text-danger', bg: 'bg-danger/10' },
               { label: 'Collection Reversed', value: auditSummary.collectionReversed, color: 'text-amber-600', bg: 'bg-amber-500/10' },
               { label: 'Income Reversed', value: auditSummary.incomeReversed, color: 'text-orange-600', bg: 'bg-orange-500/10' },
               { label: 'Affected Students', value: auditSummary.affectedStudents, color: 'text-primary', bg: 'bg-primary/10', plain: true },
@@ -362,7 +359,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <div key={card.label} className="vibrant-card p-5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
                 <p className={`text-2xl font-black mt-2 ${card.color}`}>
-                  {card.plain ? card.value : `Rs. ${Number(card.value || 0).toLocaleString()}`}
+                  {card.plain ? card.value : `${formatMoney(Number(card.value || 0))}`}
                 </p>
               </div>
             ))}
@@ -374,7 +371,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <p className="text-xs font-bold text-slate-400 mt-1">Collection and income reversals with before/after paid amounts</p>
             </div>
             <TableShell hint="Swipe to see all audit columns">
-              <table className="w-full min-w-[900px] text-left border-collapse table-sticky-head">
+              <table className="w-full min-w-[900px] text-start border-collapse table-sticky-head">
                 <thead>
                   <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                     <th className="px-5 py-4">When</th>
@@ -398,8 +395,8 @@ export default function Dashboard({ user }: DashboardProps) {
                         <div className="font-bold text-slate-900 dark:text-white">{row.studentName || '—'}</div>
                         <div className="text-[10px] font-mono text-slate-400">{formatRollNumberForDisplay(row.rollNumber)}</div>
                       </td>
-                      <td className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-rose-600">{actionLabel(row.actionType)}</td>
-                      <td className="px-5 py-4 font-black">Rs. {Number(row.amount || 0).toLocaleString()}</td>
+                      <td className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-danger">{actionLabel(row.actionType)}</td>
+                      <td className="px-5 py-4 font-black">{formatMoney(Number(row.amount || 0))}</td>
                       <td className="px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
                         {Number(row.previousPaid ?? 0).toLocaleString()} → {Number(row.newPaid ?? 0).toLocaleString()}
                       </td>
@@ -418,14 +415,14 @@ export default function Dashboard({ user }: DashboardProps) {
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Increases', value: auditSummary.totalIncrease, color: 'text-emerald-600' },
+              { label: 'Increases', value: auditSummary.totalIncrease, color: 'text-success' },
               { label: 'Decreases', value: auditSummary.totalDecrease, color: 'text-amber-600' },
-              { label: 'Net Adjustment', value: netAdjustment, color: netAdjustment >= 0 ? 'text-primary' : 'text-rose-600' },
+              { label: 'Net Adjustment', value: netAdjustment, color: netAdjustment >= 0 ? 'text-primary' : 'text-danger' },
               { label: 'Payments Logged', value: auditSummary.totalPaymentsLogged, color: 'text-teal-600' },
             ].map((card) => (
               <div key={card.label} className="vibrant-card p-5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
-                <p className={`text-2xl font-black mt-2 ${card.color}`}>Rs. {Number(card.value || 0).toLocaleString()}</p>
+                <p className={`text-2xl font-black mt-2 ${card.color}`}>{formatMoney(Number(card.value || 0))}</p>
               </div>
             ))}
           </div>
@@ -436,7 +433,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <p className="text-xs font-bold text-slate-400 mt-1">Payments, adjustments, and income/collection reversals — for audit</p>
             </div>
             <TableShell hint="Swipe to review voucher change history">
-              <table className="w-full min-w-[980px] text-left border-collapse table-sticky-head">
+              <table className="w-full min-w-[980px] text-start border-collapse table-sticky-head">
                 <thead>
                   <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                     <th className="px-5 py-4">When</th>
@@ -463,7 +460,7 @@ export default function Dashboard({ user }: DashboardProps) {
                         <div className="text-[10px] text-slate-400">{row.campusName || ''}</div>
                       </td>
                       <td className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-primary">{actionLabel(row.actionType)}</td>
-                      <td className="px-5 py-4 font-black">Rs. {Number(row.amount || 0).toLocaleString()}</td>
+                      <td className="px-5 py-4 font-black">{formatMoney(Number(row.amount || 0))}</td>
                       <td className="px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
                         {row.previousAmount != null && row.newAmount != null
                           ? `${Number(row.previousAmount).toLocaleString()} → ${Number(row.newAmount).toLocaleString()}`

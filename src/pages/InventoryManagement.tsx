@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
+import { useI18n } from '../context/I18nContext';
 import {
   ASSET_STATUSES,
   INVENTORY_CATEGORIES,
@@ -29,6 +30,7 @@ const defaultForm = {
 };
 
 export default function InventoryManagement() {
+  const { t } = useI18n();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,19 +131,19 @@ export default function InventoryManagement() {
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800">
           <div className="relative max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input type="text" placeholder="Search inventory..." className="vibrant-input pl-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input type="text" placeholder="Search inventory..." className="vibrant-input ps-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Item</th>
                 <th className="px-8 py-5">Category</th>
                 <th className="px-8 py-5">Quantity</th>
                 <th className="px-8 py-5">Asset</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -161,9 +163,9 @@ export default function InventoryManagement() {
                     <td className="px-8 py-5 text-sm">{item.category}</td>
                     <td className="px-8 py-5 font-black">{item.quantity} {item.unit || 'PCS'}</td>
                     <td className="px-8 py-5 text-sm text-slate-500">{specs.assetStatus || '—'}</td>
-                    <td className="px-8 py-5 text-right">
+                    <td className="px-8 py-5 text-end">
                       <PermissionGate module="inventory" action="update">
-                        <button onClick={() => handleEdit(item)} className="p-2 hover:text-primary text-slate-400"><Edit2 className="w-4 h-4" /></button>
+                        <button onClick={() => handleEdit(item)} className="icon-btn"><Edit2 className="w-4 h-4" /></button>
                       </PermissionGate>
                     </td>
                   </tr>
@@ -182,7 +184,7 @@ export default function InventoryManagement() {
                 <h3 className="text-2xl font-black mb-6">{editingId ? 'Edit Item' : 'New Item'}</h3>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Item Category</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Item Category</label>
                     <SearchableSelect
                       className="w-full"
                       value={formData.category}
@@ -200,7 +202,7 @@ export default function InventoryManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Item Name</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Item Name</label>
                     <SearchableSelect
                       className="w-full"
                       value={formData.itemName}
@@ -211,7 +213,7 @@ export default function InventoryManagement() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
                     <div className="space-y-2">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Quantity (Qty)</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Quantity (Qty)</label>
                       <input
                         type="number"
                         min={0}
@@ -222,7 +224,7 @@ export default function InventoryManagement() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Unit</label>
                       <SearchableSelect
                         value={formData.unit}
                         onChange={(unit) => setFormData({ ...formData, unit })}
@@ -266,8 +268,8 @@ export default function InventoryManagement() {
                   )}
 
                   <div className="flex gap-4 pt-4">
-                    <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">Cancel</button>
-                    <button type="submit" className="flex-1 vibrant-btn-primary">Save</button>
+                    <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
+                    <button type="submit" className="flex-1 vibrant-btn-primary">{t('common.save')}</button>
                   </div>
                 </form>
               </motion.div>

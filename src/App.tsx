@@ -111,13 +111,13 @@ function AppShell({
   homePath: string | null;
   isStudentPortal: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, isRtl } = useI18n();
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 dark:bg-slate-950 gap-4">
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary border-t-transparent" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('app.loading')}</p>
+        <p className="text-sm font-medium text-slate-500">{t('app.loading')}</p>
       </div>
     );
   }
@@ -126,7 +126,7 @@ function AppShell({
     <PermissionProvider permissions={user?.permissions} role={user?.role}>
       <ConfirmProvider>
         <Router>
-          <Toaster position="top-right" richColors closeButton />
+          <Toaster position={isRtl ? 'top-left' : 'top-right'} richColors closeButton />
           <Routes>
             <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
             <Route path="/apply" element={<PublicAdmissionApply />} />

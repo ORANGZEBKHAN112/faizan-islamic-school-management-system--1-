@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { bookstoreService } from '../../services/bookstoreService';
 import { PermissionGate } from '../../context/PermissionContext';
 import PageLoader from '../../components/ui/PageLoader';
+import { formatMoney } from '../../utils/money';
 
 type BookRow = {
   id: string;
@@ -123,7 +124,7 @@ export default function BookCatalog() {
             value={form.sellingPrice || ''}
             onChange={(e) => setForm((f) => ({ ...f, sellingPrice: Number(e.target.value) || 0 }))}
           />
-          <button type="button" onClick={() => void create()} className="vibrant-btn flex items-center justify-center gap-2">
+          <button type="button" onClick={() => void create()} className="vibrant-btn-primary flex items-center justify-center gap-2">
             <Plus className="w-4 h-4" /> Add book
           </button>
         </div>
@@ -148,11 +149,11 @@ export default function BookCatalog() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 dark:bg-slate-900/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
             <tr>
-              <th className="px-4 py-3 text-left">Title</th>
-              <th className="px-4 py-3 text-left">ISBN</th>
-              <th className="px-4 py-3 text-left">Publisher</th>
-              <th className="px-4 py-3 text-left">Session price</th>
-              <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-start">Title</th>
+              <th className="px-4 py-3 text-start">ISBN</th>
+              <th className="px-4 py-3 text-start">Publisher</th>
+              <th className="px-4 py-3 text-start">Session price</th>
+              <th className="px-4 py-3 text-start">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -164,11 +165,15 @@ export default function BookCatalog() {
                 <td className="px-4 py-3">
                   {sessionFilter
                     ? priceMap[b.id] != null
-                      ? `Rs. ${priceMap[b.id]}`
+                      ? formatMoney(priceMap[b.id])
                       : '—'
                     : '—'}
                 </td>
-                <td className="px-4 py-3">{b.isActive ? 'Active' : 'Inactive'}</td>
+                <td className="px-4 py-3">
+                  <span className={b.isActive ? 'status-badge status-success' : 'status-badge status-neutral'}>
+                    {b.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (

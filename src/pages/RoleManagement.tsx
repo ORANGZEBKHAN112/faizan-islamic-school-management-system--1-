@@ -8,6 +8,7 @@ import { AppRole, PermissionMap, PermissionModuleDef } from '../types';
 import { emptyPermissionMap, fullPermissionMap, SUPER_ADMIN_ROLE } from '../config/permissions';
 import { useConfirm } from '../context/ConfirmContext';
 import { usePermissions } from '../context/PermissionContext';
+import { useI18n } from '../context/I18nContext';
 
 type ActionKey = 'view' | 'create' | 'update' | 'delete';
 
@@ -19,6 +20,7 @@ const ACTION_LABELS: Record<ActionKey, string> = {
 };
 
 export default function RoleManagement() {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const { canCreate, canUpdate, canDelete } = usePermissions();
   const [roles, setRoles] = useState<AppRole[]>([]);
@@ -216,7 +218,7 @@ export default function RoleManagement() {
               key={role.id}
               type="button"
               onClick={() => setSelectedRoleId(role.id)}
-              className={`w-full text-left px-3 py-3 rounded-xl border transition-all ${
+              className={`w-full text-start px-3 py-3 rounded-xl border transition-all ${
                 selectedRoleId === role.id
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/60'
@@ -260,9 +262,7 @@ export default function RoleManagement() {
                       onClick={() => openEdit(selectedRole)}
                       className="px-4 py-2 rounded-xl border text-xs font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
-                      <Edit2 className="w-4 h-4 inline mr-1" />
-                      Edit
-                    </button>
+                      <Edit2 className="w-4 h-4 inline me-1" /> {t('common.edit')}</button>
                   )}
                   {canDelete('roles') && !selectedRole.isSystem && (
                     <button
@@ -270,9 +270,7 @@ export default function RoleManagement() {
                       onClick={() => handleDeleteRole(selectedRole)}
                       className="px-4 py-2 rounded-xl border border-danger/30 text-danger text-xs font-black uppercase tracking-widest hover:bg-danger/5"
                     >
-                      <Trash2 className="w-4 h-4 inline mr-1" />
-                      Delete
-                    </button>
+                      <Trash2 className="w-4 h-4 inline me-1" /> {t('common.delete')}</button>
                   )}
                   {canUpdate('roles') && !isSuperAdmin && (
                     <button
@@ -289,7 +287,7 @@ export default function RoleManagement() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left">
+                <table className="w-full min-w-[760px] text-start">
                   <thead>
                     <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                       <th className="px-6 py-4">Module</th>
@@ -348,7 +346,7 @@ export default function RoleManagement() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="app-modal">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -381,8 +379,8 @@ export default function RoleManagement() {
                   />
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">Cancel</button>
-                  <button type="submit" className="flex-1 vibrant-btn-primary">Save</button>
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
+                  <button type="submit" className="flex-1 vibrant-btn-primary">{t('common.save')}</button>
                 </div>
               </form>
             </motion.div>

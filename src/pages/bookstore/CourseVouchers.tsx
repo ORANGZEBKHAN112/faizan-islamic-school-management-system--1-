@@ -4,6 +4,7 @@ import { bookstoreService } from '../../services/bookstoreService';
 import { dataService } from '../../services/dataService';
 import type { Campus, Class, Student } from '../../types';
 import { apiError, currentAcademicSession, money } from './courseShared';
+import { useI18n } from '../../context/I18nContext';
 
 type Book = { id: string; title: string };
 type Pack = { id: string; name: string; campus_id?: string; class_id?: string; campusId?: string; classId?: string };
@@ -27,6 +28,7 @@ type Voucher = {
 };
 
 export default function CourseVouchers() {
+  const { t } = useI18n();
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
@@ -210,7 +212,7 @@ export default function CourseVouchers() {
                 <p className="text-xs text-slate-500">Due {voucher.due_date ? String(voucher.due_date).slice(0, 10) : '—'} · {voucher.payment_status} · {voucher.issue_status === 'issued' ? 'Course issued' : 'Not issued'}</p>
                 {voucher.stock_alert && <p className="text-xs text-amber-600 mt-1">{voucher.stock_alert}</p>}
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <p className="font-black text-primary">{money(voucher.total)}</p>
                 <p className="text-[10px] uppercase text-slate-400">Paid {money(voucher.paid_amount)}</p>
               </div>
@@ -252,7 +254,7 @@ export default function CourseVouchers() {
           <input className="vibrant-input" placeholder="KuickPay / transaction reference" value={pay.transactionRef} onChange={(e) => setPay({ ...pay, transactionRef: e.target.value })} />
           <div className="flex gap-2">
             <button type="button" className="vibrant-btn-primary" onClick={() => void submitPay()}>Save payment</button>
-            <button type="button" className="vibrant-btn-secondary" onClick={() => setPay(null)}>Cancel</button>
+            <button type="button" className="vibrant-btn-secondary" onClick={() => setPay(null)}>{t('common.cancel')}</button>
           </div>
         </div>
       )}

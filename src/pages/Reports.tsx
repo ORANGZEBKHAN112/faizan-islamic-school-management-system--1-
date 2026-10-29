@@ -15,6 +15,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import PageLoader from '../components/ui/PageLoader';
 import TableShell from '../components/ui/TableShell';
 import { toast } from 'sonner';
+import { formatMoney, formatMoneyCompact } from '../utils/money';
 
 type ReportSummary = {
   totalExpected: number;
@@ -165,15 +166,15 @@ export default function Reports() {
     doc.setFontSize(12);
     doc.text(`Year: ${filterYear} | Campus: ${filterCampus === 'all' ? 'All' : campuses.find(c => c.id === filterCampus)?.campusName}`, 15, 30);
     
-    doc.text(`Total Expected: Rs. ${stats.totalExpected.toLocaleString()}`, 15, 45);
-    doc.text(`Total Collected: Rs. ${stats.totalCollected.toLocaleString()}`, 15, 52);
-    doc.text(`Total Pending: Rs. ${stats.totalPending.toLocaleString()}`, 15, 59);
+    doc.text(`Total Expected: ${formatMoney(stats.totalExpected)}`, 15, 45);
+    doc.text(`Total Collected: ${formatMoney(stats.totalCollected)}`, 15, 52);
+    doc.text(`Total Pending: ${formatMoney(stats.totalPending)}`, 15, 59);
 
     const tableData = monthlyData.map((m: any) => [
       m.month,
-      `Rs. ${m.Collected.toLocaleString()}`,
-      `Rs. ${m.Pending.toLocaleString()}`,
-      `Rs. ${(m.Collected + m.Pending).toLocaleString()}`
+      `${formatMoney(m.Collected)}`,
+      `${formatMoney(m.Pending)}`,
+      `${formatMoney((m.Collected + m.Pending))}`
     ]);
 
     autoTable(doc, {
@@ -275,9 +276,9 @@ export default function Reports() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Collected', value: stats.totalCollected, icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-500/10', isAmount: true },
-          { label: 'Total Expenses', value: stats.totalExpenses, icon: TrendingDown, color: 'text-rose-500', bg: 'bg-rose-500/10', isAmount: true },
-          { label: 'Net Profit/Loss', value: stats.netProfit, icon: DollarSign, color: stats.netProfit >= 0 ? 'text-primary' : 'text-rose-600', bg: stats.netProfit >= 0 ? 'bg-primary/10' : 'bg-rose-600/10', isAmount: true },
+          { label: 'Total Collected', value: stats.totalCollected, icon: TrendingUp, color: 'text-success', bg: 'bg-success/10', isAmount: true },
+          { label: 'Total Expenses', value: stats.totalExpenses, icon: TrendingDown, color: 'text-danger', bg: 'bg-danger/10', isAmount: true },
+          { label: 'Net Profit/Loss', value: stats.netProfit, icon: DollarSign, color: stats.netProfit >= 0 ? 'text-primary' : 'text-danger', bg: stats.netProfit >= 0 ? 'bg-primary/10' : 'bg-rose-600/10', isAmount: true },
           { label: 'Outstanding Fees', value: stats.totalPending, icon: AlertCircle, color: 'text-amber-500', bg: 'bg-amber-500/10', isAmount: true }
         ].map((stat, i) => (
           <motion.div
@@ -292,7 +293,7 @@ export default function Reports() {
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
             <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-              {stat.isAmount === false ? stat.value : `Rs. ${stat.value.toLocaleString()}`}
+              {stat.isAmount === false ? stat.value : `${formatMoney(stat.value)}`}
             </h3>
           </motion.div>
         ))}
@@ -307,14 +308,14 @@ export default function Reports() {
         </div>
         <div className="overflow-x-auto">
           <TableShell hint="Recent collections eligible for income reversal">
-            <table className="w-full min-w-[720px] text-left border-collapse table-sticky-head">
+            <table className="w-full min-w-[720px] text-start border-collapse table-sticky-head">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                   <th className="px-6 py-4">Student</th>
                   <th className="px-6 py-4">Campus</th>
                   <th className="px-6 py-4">Payment</th>
                   <th className="px-6 py-4">Amount</th>
-                  <th className="px-6 py-4 text-right">Action</th>
+                  <th className="px-6 py-4 text-end">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -339,12 +340,12 @@ export default function Reports() {
                         <td className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                           {c.date ? new Date(String(c.date)).toLocaleDateString() : '—'} · {String(c.method || 'Cash')}
                         </td>
-                        <td className="px-6 py-4 font-black text-slate-900 dark:text-white">Rs. {Number(c.amount || 0).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 font-black text-slate-900 dark:text-white">{formatMoney(Number(c.amount || 0))}</td>
+                        <td className="px-6 py-4 text-end">
                           <button
                             type="button"
                             onClick={() => handleIncomeReverse(String(row.id), Number(c.historyIndex), String(row.studentName || 'student'))}
-                            className="px-3 py-2 rounded-xl bg-rose-500/10 text-rose-600 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all"
+                            className="px-3 py-2 rounded-xl bg-danger/10 text-danger text-[10px] font-black uppercase tracking-widest hover:bg-danger hover:text-white transition-all"
                           >
                             Reverse Income
                           </button>
@@ -377,14 +378,14 @@ export default function Reports() {
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ReBarChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }} tickFormatter={(v) => `Rs. ${v/1000}k`} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: 'var(--chart-tick)' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: 'var(--chart-tick)' }} tickFormatter={(v) => formatMoneyCompact(v)} />
                 <Tooltip 
                   cursor={{ fill: 'transparent' }}
                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 900 }}
                 />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 900 }} />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '12px', fontWeight: 600 }} />
                 <Bar dataKey="Collected" fill={CHART_PRIMARY} radius={[4, 4, 0, 0]} barSize={20} />
                 <Bar dataKey="Pending" fill={CHART_SECONDARY} radius={[4, 4, 0, 0]} barSize={20} />
               </ReBarChart>
@@ -443,19 +444,19 @@ export default function Reports() {
             <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight uppercase">Campus Summary</h3>
             <p className="text-xs font-bold text-slate-400 mt-1">Network-wide collections and outstanding by campus</p>
           </div>
-          <span className="px-4 py-2 bg-rose-500/10 text-rose-500 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+          <span className="px-4 py-2 status-badge status-danger rounded-2xl text-[10px] font-black uppercase tracking-widest">
             {stats.defaulters} Defaulters
           </span>
         </div>
         <TableShell>
-          <table className="w-full min-w-[640px] text-left table-sticky-head">
+          <table className="w-full min-w-[640px] text-start table-sticky-head">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-[10px] text-slate-400 uppercase font-black tracking-widest">
                 <th className="px-8 py-4">Campus</th>
                 <th className="px-8 py-4">Defaulters</th>
                 <th className="px-8 py-4">Outstanding</th>
                 <th className="px-8 py-4">Collected</th>
-                <th className="px-8 py-4 text-right">Action</th>
+                <th className="px-8 py-4 text-end">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -469,9 +470,9 @@ export default function Reports() {
                 <tr key={row.campusId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all">
                   <td className="px-8 py-6 font-black text-slate-900 dark:text-white">{row.campusName}</td>
                   <td className="px-8 py-6 text-sm text-slate-600 dark:text-slate-300">{row.defaulters} students</td>
-                  <td className="px-8 py-6 text-sm font-bold text-rose-500">Rs. {Number(row.pending || 0).toLocaleString()}</td>
-                  <td className="px-8 py-6 text-sm text-green-600">Rs. {Number(row.collected || 0).toLocaleString()}</td>
-                  <td className="px-8 py-6 text-right">
+                  <td className="px-8 py-6 text-sm font-bold text-danger">{formatMoney(Number(row.pending || 0))}</td>
+                  <td className="px-8 py-6 text-sm text-green-600">{formatMoney(Number(row.collected || 0))}</td>
+                  <td className="px-8 py-6 text-end">
                     <button
                       type="button"
                       onClick={() => navigate(`/fees?campusId=${row.campusId}`)}

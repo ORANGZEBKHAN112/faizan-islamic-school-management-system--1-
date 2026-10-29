@@ -9,6 +9,7 @@ import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TableSkeleton from '../components/ui/TableSkeleton';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
+import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 
 export default function AttendancePage() {
@@ -122,7 +123,7 @@ export default function AttendancePage() {
     <div className="space-y-8 pb-12">
       <TranslatedPageHeader module="attendance" />
 
-      <div className="flex flex-wrap items-center gap-4 bg-white/50 dark:bg-slate-900/50 p-2 rounded-3xl border border-slate-100 dark:border-slate-800 backdrop-blur-md">
+      <div className="filter-bar">
            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">
             <Building className="w-4 h-4 text-slate-400" />
             <SearchableSelect
@@ -170,17 +171,11 @@ export default function AttendancePage() {
       {loading && <PageLoader label="Loading attendance data…" />}
       <AnimatePresence mode="wait">
         {!selectedClass ? (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center p-20 text-center space-y-4 bg-slate-50/50 dark:bg-slate-900/50 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[40px]"
-          >
-            <div className="w-20 h-20 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mb-4">
-              <Users className="w-10 h-10" />
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight uppercase">Select Class & Campus</h3>
-            <p className="max-w-xs text-slate-400 font-medium">Please select a campus and class from the filters above to mark or view attendance records.</p>
-          </motion.div>
+          <EmptyState
+            icon={Users}
+            title="Select class and campus"
+            description="Please select a campus and class from the filters above to mark or view attendance records."
+          />
         ) : (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -192,7 +187,7 @@ export default function AttendancePage() {
               <div className="flex items-center gap-4">
                 <button 
                   onClick={() => markAll('Present')}
-                  className="px-6 py-3 bg-green-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-green-500/20 hover:bg-green-600 transition-all"
+                  className="vibrant-btn-primary"
                 >
                   Mark All Present
                 </button>
@@ -201,11 +196,11 @@ export default function AttendancePage() {
                   <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-500">
                     Students: <span className="text-slate-900 dark:text-white">{filteredStudents.length}</span>
                   </div>
-                  <div className="px-4 py-2 bg-green-500/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-green-500">
+                  <div className="px-4 py-2 bg-success/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-success">
                     Present: <span className="text-green-600">{Object.values(attendanceRecords).filter(s => s === 'Present').length}</span>
                   </div>
-                  <div className="px-4 py-2 bg-rose-500/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-rose-500">
-                    Absent: <span className="text-rose-600">{Object.values(attendanceRecords).filter(s => s === 'Absent').length}</span>
+                  <div className="px-4 py-2 bg-danger/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-danger">
+                    Absent: <span className="text-danger">{Object.values(attendanceRecords).filter(s => s === 'Absent').length}</span>
                   </div>
                 </div>
               </div>
@@ -216,7 +211,7 @@ export default function AttendancePage() {
                   whileTap={{ scale: 0.95 }}
                   onClick={saveAttendance}
                   disabled={saving || filteredStudents.length === 0}
-                  className="w-full md:w-auto px-8 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="vibrant-btn-primary w-full md:w-auto"
                 >
                   {saving ? <Clock className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {saving ? 'Saving...' : 'Save Attendance'}
@@ -232,7 +227,7 @@ export default function AttendancePage() {
                 </div>
               ) : (
                <div className="overflow-x-auto">
-                <table className="w-full text-left">
+                <table className="w-full text-start">
                   <thead className="bg-slate-50/50 dark:bg-slate-800/50">
                     <tr className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
                       <th className="px-8 py-5">Roll #</th>
@@ -258,10 +253,10 @@ export default function AttendancePage() {
                           <td className="px-8 py-5 text-center">
                             <div className="flex items-center justify-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-2xl w-fit mx-auto border border-slate-100 dark:border-slate-800 shadow-sm">
                               {[
-                                { status: 'Present', icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10' },
-                                { status: 'Absent', icon: XCircle, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+                                { status: 'Present', icon: CheckCircle2, color: 'text-success', bg: 'bg-success/10' },
+                                { status: 'Absent', icon: XCircle, color: 'text-danger', bg: 'bg-danger/10' },
                                 { status: 'Leave', icon: FileText, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-                                { status: 'Late', icon: Clock, color: 'text-blue-500', bg: 'bg-blue-500/10' }
+                                { status: 'Late', icon: Clock, color: 'text-secondary', bg: 'bg-secondary/10' }
                               ].map((opt) => (
                                 <button
                                   key={opt.status}

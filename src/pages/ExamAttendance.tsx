@@ -130,14 +130,14 @@ export default function ExamAttendance() {
             onClick={() => setPersonTab('Student')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase ${personTab === 'Student' ? 'bg-white dark:bg-slate-900 text-primary shadow-sm' : 'text-slate-500'}`}
           >
-            <Users className="w-3.5 h-3.5 inline mr-1" /> Students
+            <Users className="w-3.5 h-3.5 inline me-1" /> Students
           </button>
           <button
             type="button"
             onClick={() => setPersonTab('Staff')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase ${personTab === 'Staff' ? 'bg-white dark:bg-slate-900 text-primary shadow-sm' : 'text-slate-500'}`}
           >
-            <Briefcase className="w-3.5 h-3.5 inline mr-1" /> Staff
+            <Briefcase className="w-3.5 h-3.5 inline me-1" /> Staff
           </button>
         </div>
       </div>
@@ -160,7 +160,7 @@ export default function ExamAttendance() {
           </div>
 
           <div className="vibrant-card overflow-hidden">
-            <table className="w-full text-left">
+            <table className="w-full text-start">
               <thead className="bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-400">
                 <tr>
                   <th className="px-8 py-4">{personTab === 'Student' ? 'Roll / Name' : 'Staff Name'}</th>

@@ -67,7 +67,7 @@ export default function BookStock() {
     <div className="space-y-6">
       <div className="flex flex-wrap gap-4 items-end">
         <div>
-          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Store</label>
+          <label className="text-[10px] font-black uppercase text-slate-400 ms-1">Store</label>
           <select className="vibrant-input mt-1" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
             {stores.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -82,7 +82,7 @@ export default function BookStock() {
         </select>
         <input type="number" className="vibrant-input w-28" placeholder="Qty" value={opening.quantity || ''} onChange={(e) => setOpening((o) => ({ ...o, quantity: Number(e.target.value) }))} />
         <input type="number" className="vibrant-input w-28" placeholder="Cost" value={opening.unitCost || ''} onChange={(e) => setOpening((o) => ({ ...o, unitCost: Number(e.target.value) }))} />
-        <button type="button" className="vibrant-btn" onClick={() => void postOpening()}>Post opening</button>
+        <button type="button" className="vibrant-btn-primary" onClick={() => void postOpening()}>Post opening</button>
         <button type="button" className="vibrant-btn-secondary" onClick={() => void quickGrn()}>GRN → central</button>
       </div>
 
@@ -90,21 +90,21 @@ export default function BookStock() {
         <table className="w-full text-sm">
           <thead className="text-[10px] font-black uppercase text-slate-400">
             <tr>
-              <th className="px-4 py-3 text-left">Book</th>
-              <th className="px-4 py-3 text-right">On hand</th>
-              <th className="px-4 py-3 text-right">Available</th>
-              <th className="px-4 py-3 text-right">In transit</th>
-              <th className="px-4 py-3 text-right">Avg cost</th>
+              <th className="px-4 py-3 text-start">Book</th>
+              <th className="px-4 py-3 text-end">On hand</th>
+              <th className="px-4 py-3 text-end">Available</th>
+              <th className="px-4 py-3 text-end">In transit</th>
+              <th className="px-4 py-3 text-end">Avg cost</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={String(r.bookId)} className="border-t border-slate-100 dark:border-slate-800">
                 <td className="px-4 py-3">{String(r.title)}</td>
-                <td className="px-4 py-3 text-right">{Number(r.onHand)}</td>
-                <td className="px-4 py-3 text-right">{Number(r.available)}</td>
-                <td className="px-4 py-3 text-right">{Number(r.inTransit)}</td>
-                <td className="px-4 py-3 text-right">{Number(r.avgCost).toFixed(2)}</td>
+                <td className="px-4 py-3 text-end">{Number(r.onHand)}</td>
+                <td className="px-4 py-3 text-end">{Number(r.available)}</td>
+                <td className="px-4 py-3 text-end">{Number(r.inTransit)}</td>
+                <td className="px-4 py-3 text-end">{Number(r.avgCost).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

@@ -50,7 +50,7 @@ export default function PublicAdmissionTrack() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6">
+    <div className="auth-shell min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6">
       <div className="max-w-lg mx-auto space-y-8">
         <div className="flex justify-end">
           <LanguageSwitcher compact />

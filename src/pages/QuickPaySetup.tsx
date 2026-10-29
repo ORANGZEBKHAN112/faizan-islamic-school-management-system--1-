@@ -187,7 +187,7 @@ export default function QuickPaySetup() {
                 <p className="text-[10px] text-slate-400">Auth: username + password HTTP headers</p>
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BPS Username</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">BPS Username</label>
                 <input
                   className="vibrant-input"
                   value={config?.bpsUsername || config?.merchantId || ''}
@@ -196,7 +196,7 @@ export default function QuickPaySetup() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BPS Password</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">BPS Password</label>
                 <input
                   type="password"
                   className="vibrant-input"
@@ -207,7 +207,7 @@ export default function QuickPaySetup() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Consumer Prefix (5 digits)</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Consumer Prefix (5 digits)</label>
                 <input
                   className="vibrant-input font-mono"
                   value={config?.consumerPrefix || '73130'}
@@ -219,7 +219,7 @@ export default function QuickPaySetup() {
                 <p className="text-[9px] text-slate-400">UAT/Live prefix from Kuickpay (e.g. 73130). Full consumer # = prefix + 13-digit serial (18 digits total).</p>
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Kuickpay charge (customer pays) PKR</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Kuickpay charge (customer pays) PKR</label>
                 <input
                   type="number"
                   min={0}
@@ -237,7 +237,7 @@ export default function QuickPaySetup() {
                 <p className="text-[9px] text-slate-400">Added to Bill Inquiry Amount_Within/After due date and to the payment total.</p>
               </div>
               <div className="space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Legacy Callback URL (optional)</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Legacy Callback URL (optional)</label>
                 <input 
                   className="vibrant-input"
                   value={config?.callbackUrl || ''}
@@ -318,14 +318,14 @@ export default function QuickPaySetup() {
               <button className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline">Reconcile All</button>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-start border-collapse">
                 <thead>
                   <tr className="bg-slate-50/30 dark:bg-slate-900/30 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100 dark:border-slate-800">
                     <th className="px-8 py-5">Date & Time</th>
                     <th className="px-8 py-5">Student ID</th>
                     <th className="px-8 py-5">Amount</th>
                     <th className="px-8 py-5">Status</th>
-                    <th className="px-8 py-5 text-right">Action</th>
+                    <th className="px-8 py-5 text-end">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -361,7 +361,7 @@ export default function QuickPaySetup() {
                           {t.status}
                         </span>
                       </td>
-                      <td className="px-8 py-6 text-right">
+                      <td className="px-8 py-6 text-end">
                         <motion.button 
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}

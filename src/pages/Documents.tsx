@@ -167,11 +167,11 @@ export default function Documents() {
       <div className="vibrant-card p-6">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="relative lg:col-span-2">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
               placeholder="Search student by name or roll number..."
-              className="vibrant-input pl-12"
+              className="vibrant-input ps-12"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -237,7 +237,7 @@ export default function Documents() {
                   key={student.id}
                   type="button"
                   onClick={() => setSelectedStudent(student)}
-                  className={`w-full p-5 flex items-center gap-4 text-left hover:bg-primary/5 transition-all ${isSelected ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
+                  className={`w-full p-5 flex items-center gap-4 text-start hover:bg-primary/5 transition-all ${isSelected ? 'bg-primary/10 ring-1 ring-primary/20' : ''}`}
                 >
                   <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center text-slate-400">
                     {student.profileImage ? (
@@ -254,7 +254,7 @@ export default function Documents() {
                     <p className="text-xs text-slate-500 font-mono">{student.rollNumber}</p>
                     <p className="text-xs text-slate-400">{studentClass?.className || student.className || 'Class not set'} {studentClass?.sectionName || student.sectionName || ''}</p>
                   </div>
-                  <div className="hidden md:block text-right text-xs text-slate-500">
+                  <div className="hidden md:block text-end text-xs text-slate-500">
                     <p>{campusMap[student.campusId]?.campusName || student.campusName || 'Campus not set'}</p>
                     <p>{student.status}</p>
                   </div>

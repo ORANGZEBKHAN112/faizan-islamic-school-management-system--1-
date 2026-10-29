@@ -92,14 +92,14 @@ export default function BookstoreDashboard() {
         <div className="vibrant-card p-4">
           <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Campus performance</h2>
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-[10px] uppercase text-slate-400"><th>Campus</th><th>Region</th><th className="text-right">Sale</th><th className="text-right">Collection</th></tr></thead>
+            <thead><tr className="text-start text-[10px] uppercase text-slate-400"><th>Campus</th><th>Region</th><th className="text-end">Sale</th><th className="text-end">Collection</th></tr></thead>
             <tbody>
               {(data?.campusPerformance || []).map((row) => (
                 <tr key={row.campusName} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="py-2">{row.campusName}</td>
                   <td>{row.region || '—'}</td>
-                  <td className="text-right">{money(row.sale)}</td>
-                  <td className="text-right">{money(row.collection)}</td>
+                  <td className="text-end">{money(row.sale)}</td>
+                  <td className="text-end">{money(row.collection)}</td>
                 </tr>
               ))}
             </tbody>
@@ -108,13 +108,13 @@ export default function BookstoreDashboard() {
         <div className="vibrant-card p-4">
           <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Region-wise inventory and collection</h2>
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-[10px] uppercase text-slate-400"><th>Region</th><th className="text-right">Inventory</th><th className="text-right">Collection</th></tr></thead>
+            <thead><tr className="text-start text-[10px] uppercase text-slate-400"><th>Region</th><th className="text-end">Inventory</th><th className="text-end">Collection</th></tr></thead>
             <tbody>
               {(data?.regions || []).map((row) => (
                 <tr key={row.region} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="py-2">{row.region}</td>
-                  <td className="text-right">{money(row.inventory)}</td>
-                  <td className="text-right">{money(row.collection)}</td>
+                  <td className="text-end">{money(row.inventory)}</td>
+                  <td className="text-end">{money(row.collection)}</td>
                 </tr>
               ))}
             </tbody>

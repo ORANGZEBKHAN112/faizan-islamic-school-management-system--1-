@@ -8,7 +8,10 @@ import PageLoader from '../components/ui/PageLoader';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
+import { useConfirm } from '../context/ConfirmContext';
 import { toTitleCase } from '../utils/titleCase';
+import { useI18n } from '../context/I18nContext';
+import { formatMoney } from '../utils/money';
 
 interface Expense {
   id: string;
@@ -20,6 +23,8 @@ interface Expense {
 }
 
 export default function Expenses() {
+  const { t } = useI18n();
+  const confirm = useConfirm();
   const { data: expenses, loading } = useCollection<Expense>('expenses');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,10 +79,15 @@ export default function Expenses() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this expense record?')) {
-      await dataService.delete('expenses', id);
-      toast.success('Expense deleted');
-    }
+    const ok = await confirm({
+      title: t('common.delete'),
+      message: 'Delete this expense record?',
+      confirmLabel: t('common.delete'),
+      variant: 'danger',
+    });
+    if (!ok) return;
+    await dataService.delete('expenses', id);
+    toast.success('Expense deleted');
   };
 
   const categories = ['Salaries', 'Utility Bills', 'Maintenance', 'Rent', 'Miscellaneous'];
@@ -112,7 +122,7 @@ export default function Expenses() {
       {/* Stats row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          {[
-          { label: 'Total Expenses', value: stats.total, icon: DollarSign, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+          { label: 'Total Expenses', value: stats.total, icon: DollarSign, color: 'text-danger', bg: 'bg-danger/10' },
           { label: 'This Month', value: stats.thisMonth, icon: Calendar, color: 'text-amber-500', bg: 'bg-amber-500/10' },
           { label: 'Total Records', value: stats.count, icon: Filter, color: 'text-primary', bg: 'bg-primary/10', isAmount: false }
         ].map((stat, i) => (
@@ -122,7 +132,7 @@ export default function Expenses() {
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
             <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-              {stat.isAmount === false ? stat.value : `Rs. ${stat.value.toLocaleString()}`}
+              {stat.isAmount === false ? stat.value : `${formatMoney(stat.value)}`}
             </h3>
           </div>
         ))}
@@ -130,14 +140,14 @@ export default function Expenses() {
 
       <div className="vibrant-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-[10px] text-slate-400 uppercase font-black tracking-widest">
                 <th className="px-8 py-5">Title / Description</th>
                 <th className="px-8 py-5">Category</th>
                 <th className="px-8 py-5">Amount</th>
                 <th className="px-8 py-5">Date</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -157,13 +167,13 @@ export default function Expenses() {
                         {exp.category}
                       </span>
                     </td>
-                    <td className="px-8 py-5 font-black text-rose-500 uppercase">
-                      Rs. {exp.amount.toLocaleString()}
+                    <td className="px-8 py-5 font-black text-danger uppercase">
+                      {formatMoney(exp.amount)}
                     </td>
                     <td className="px-8 py-5 text-xs font-bold text-slate-500">
                       {new Date(exp.date).toLocaleDateString()}
                     </td>
-                    <td className="px-8 py-5 text-right">
+                    <td className="px-8 py-5 text-end">
                       <div className="flex justify-end gap-2">
                         <PermissionGate module="expenses" action="update">
                           <button onClick={() => handleEdit(exp)} className="p-2 text-slate-400 hover:text-primary transition-colors">
@@ -171,7 +181,7 @@ export default function Expenses() {
                           </button>
                         </PermissionGate>
                         <PermissionGate module="expenses" action="delete">
-                          <button onClick={() => handleDelete(exp.id)} className="p-2 text-slate-400 hover:text-rose-500 transition-colors">
+                          <button onClick={() => handleDelete(exp.id)} className="icon-btn icon-btn-danger">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </PermissionGate>
@@ -188,14 +198,14 @@ export default function Expenses() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
              <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="vibrant-card max-w-lg w-full p-8 shadow-2xl relative"
             >
-              <button onClick={() => setIsModalOpen(false)} className="absolute top-6 right-6 text-slate-400 hover:text-rose-500 transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="absolute top-6 end-6 icon-btn icon-btn-danger">
                 <XCircle className="w-6 h-6" />
               </button>
               
@@ -206,7 +216,7 @@ export default function Expenses() {
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Title</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Title</label>
                     <input 
                       required
                       className="vibrant-input"
@@ -217,7 +227,7 @@ export default function Expenses() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Category</label>
                     <SearchableSelect
                       value={formData.category}
                       onChange={(category) => setFormData({ ...formData, category })}
@@ -226,7 +236,7 @@ export default function Expenses() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Amount</label>
                     <input 
                       required
                       type="number"
@@ -237,7 +247,7 @@ export default function Expenses() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Date</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Date</label>
                     <input 
                       required
                       type="date"
@@ -249,7 +259,7 @@ export default function Expenses() {
                 </div>
                 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Description</label>
                   <textarea 
                     className="vibrant-input min-h-[100px]"
                     value={formData.description}
@@ -263,13 +273,11 @@ export default function Expenses() {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200"
-                  >
-                    Cancel
-                  </button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</button>
                   <button
                     type="submit"
-                    className="flex-1 px-6 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 transition-all hover:bg-primary/90"
+                    className="vibrant-btn-primary flex-1"
                   >
                     {editingId ? 'Update Record' : 'Record Expense'}
                   </button>

@@ -12,6 +12,7 @@ import { PermissionGate } from '../context/PermissionContext';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
 import { gradeFromMarks } from '../utils/examGrades';
 import { EXAM_SUBJECT_CATALOG, emptySubjectDraft, sumSubjectTotals, type ExamSubjectDraft } from '../utils/examSubjects';
+import { useI18n } from '../context/I18nContext';
 
 const scopeUser = getStoredUser();
 
@@ -54,6 +55,7 @@ function assignRanks(values: Array<{ id: string; marks: number }>): Record<strin
 }
 
 export default function Exams() {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const [exams, setExams] = useState<Exam[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -359,7 +361,7 @@ export default function Exams() {
               <button
                 key={exam.id}
                 onClick={() => openResults(exam)}
-                className={`w-full text-left p-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selectedExam?.id === exam.id ? 'bg-primary/5 border-l-4 border-primary' : ''}`}
+                className={`w-full text-start p-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selectedExam?.id === exam.id ? 'bg-primary/5 border-l-4 border-primary' : ''}`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -391,7 +393,7 @@ export default function Exams() {
                   {selectedExam ? `Marks: ${selectedExam.title}` : 'Select an exam'}
                 </h3>
                 {selectedExam && (
-                  <p className="mt-1 inline-flex items-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40 px-3 py-1 text-sm font-black text-emerald-800 dark:text-emerald-200">
+                  <p className="mt-1 inline-flex items-center rounded-lg bg-success/10 px-3 py-1 text-sm font-black text-success">
                     Total Marks: {selectedExam.totalMarks}
                   </p>
                 )}
@@ -434,7 +436,7 @@ export default function Exams() {
                 <PermissionGate module="exams" action="update">
                   <button onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
                     <Save className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase">Save</span>
+                    <span className="text-[10px] font-black uppercase">{t('common.save')}</span>
                   </button>
                 </PermissionGate>
               </div>
@@ -444,12 +446,12 @@ export default function Exams() {
             <p className="p-8 text-center text-slate-400">Click an exam to enter marks</p>
           ) : (
             <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
-              <table className="w-full text-left">
+              <table className="w-full text-start">
                 <thead>
                   <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest sticky top-0">
                     <th className="px-6 py-4">Student</th>
                     <th className="px-6 py-4">
-                      <span className="rounded bg-emerald-100 dark:bg-emerald-900/50 px-2 py-1 text-emerald-800 dark:text-emerald-200">
+                      <span className="rounded bg-success/10 px-2 py-1 text-success">
                         Marks / {selectedExam.totalMarks}
                       </span>
                     </th>
@@ -510,7 +512,7 @@ export default function Exams() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto">
               <h3 className="text-2xl font-black mb-6">Schedule Exam</h3>
               <form onSubmit={handleCreateExam} className="space-y-4">
@@ -618,7 +620,7 @@ export default function Exams() {
                 <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Subjects &amp; Marks Setup</h4>
-                    <span className="rounded-lg bg-emerald-100 dark:bg-emerald-900/40 px-2 py-1 text-xs font-black text-emerald-800 dark:text-emerald-200">
+                    <span className="rounded-lg bg-success/10 px-2 py-1 text-xs font-black text-success">
                       Total: {subjectsTotal || 0}
                     </span>
                   </div>
@@ -704,7 +706,7 @@ export default function Exams() {
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">Create</button>
                 </div>
               </form>

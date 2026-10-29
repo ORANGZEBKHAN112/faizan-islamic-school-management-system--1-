@@ -152,7 +152,7 @@ export default function SearchableSelect({
   }, [filtered.length, highlightIndex]);
 
   const triggerClass = clsx(
-    'col-start-1 row-start-1 w-full min-w-0 text-left flex items-center justify-between gap-2 transition-all outline-none relative',
+    'col-start-1 row-start-1 w-full min-w-0 text-start flex items-center justify-between gap-2 transition-all outline-none relative',
     variant === 'default' && 'vibrant-select pr-10',
     variant === 'compact' && 'vibrant-input pr-10 py-2.5',
     variant === 'inline' && 'py-1.5 px-2 pr-8 text-sm font-semibold text-slate-800 dark:text-slate-200 bg-transparent border-none',
@@ -186,7 +186,7 @@ export default function SearchableSelect({
           {searchable && (
             <div className="p-2 border-b border-slate-100 dark:border-slate-800">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   ref={searchRef}
                   type="text"
@@ -196,7 +196,7 @@ export default function SearchableSelect({
                     setHighlightIndex(0);
                   }}
                   placeholder={searchPlaceholder}
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-primary/40"
+                  className="w-full ps-9 pr-3 py-2 text-sm rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-primary/40"
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
                       e.preventDefault();
@@ -242,7 +242,7 @@ export default function SearchableSelect({
                     onMouseEnter={() => setHighlightIndex(index)}
                     onClick={() => !option.disabled && selectValue(option.value)}
                     className={clsx(
-                      'w-full px-4 py-2.5 text-left text-sm flex items-center justify-between gap-2 transition-colors',
+                      'w-full px-4 py-2.5 text-start text-sm flex items-center justify-between gap-2 transition-colors',
                       option.disabled && 'opacity-40 cursor-not-allowed',
                       !option.disabled && 'cursor-pointer',
                       isHighlighted && 'bg-primary/10 text-primary',
@@ -301,7 +301,7 @@ export default function SearchableSelect({
           }
         }}
       >
-        <span className={clsx('min-w-0 flex-1 truncate text-left', !selected && 'text-slate-400 dark:text-slate-500')}>
+        <span className={clsx('min-w-0 flex-1 truncate text-start', !selected && 'text-slate-400 dark:text-slate-500')}>
           {displayLabel}
         </span>
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">

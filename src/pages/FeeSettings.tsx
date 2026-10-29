@@ -11,6 +11,7 @@ import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { deriveAcademicSession, normalizeSessionLabel } from '../utils/academicSession';
+import { useI18n } from '../context/I18nContext';
 
 const emptyForm = {
   tuitionFee: 0,
@@ -26,6 +27,7 @@ const emptyForm = {
 };
 
 export default function FeeSettings() {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const { canCreate } = usePermissions();
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -216,7 +218,7 @@ export default function FeeSettings() {
         </div>
         <div className="overflow-x-auto">
           <TableShell hint="Swipe to see all fee columns">
-            <table className="w-full min-w-[720px] text-left border-collapse table-sticky-head">
+            <table className="w-full min-w-[720px] text-start border-collapse table-sticky-head">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Academic Session</th>
@@ -225,7 +227,7 @@ export default function FeeSettings() {
                 <th className="px-8 py-5">Security</th>
                 <th className="px-8 py-5">Registration</th>
                 <th className="px-8 py-5">Last Updated</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -261,7 +263,7 @@ export default function FeeSettings() {
                     <td className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                       {row.lastUpdated ? new Date(row.lastUpdated).toLocaleDateString() : '—'}
                     </td>
-                    <td className="px-8 py-5 text-right">
+                    <td className="px-8 py-5 text-end">
                       <div className="flex items-center justify-end gap-2">
                         <PermissionGate module="fee-settings" action="update">
                           <motion.button
@@ -281,10 +283,10 @@ export default function FeeSettings() {
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.9 }}
                             onClick={() => openEdit(row)}
-                            className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all flex items-center gap-2"
+                            className="icon-btn"
                           >
                             <Edit2 className="w-4 h-4" />
-                            <span className="text-[10px] font-black uppercase tracking-widest">Edit</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest">{t('common.edit')}</span>
                           </motion.button>
                         </PermissionGate>
                       </div>
@@ -301,7 +303,7 @@ export default function FeeSettings() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -326,7 +328,7 @@ export default function FeeSettings() {
               </div>
               <form onSubmit={handleSubmit} className="p-10 space-y-6 bg-white dark:bg-slate-900">
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">
                     Academic Session (e.g. 2026-2027)
                   </label>
                   <input
@@ -340,7 +342,7 @@ export default function FeeSettings() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Monthly / Tuition Fee (Rs.)</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Monthly / Tuition Fee (Rs.)</label>
                   <input
                     type="number"
                     required
@@ -351,46 +353,46 @@ export default function FeeSettings() {
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Admission (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Admission (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.admissionFee} onChange={(e) => setFormData({ ...formData, admissionFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Security (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Security (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.securityFee} onChange={(e) => setFormData({ ...formData, securityFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registration (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Registration (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.registrationFee} onChange={(e) => setFormData({ ...formData, registrationFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Exam (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.examFee} onChange={(e) => setFormData({ ...formData, examFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Transport (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Transport (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.transportFee} onChange={(e) => setFormData({ ...formData, transportFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Summer Camp (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Summer Camp (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.summerCampFee} onChange={(e) => setFormData({ ...formData, summerCampFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Card (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">ID Card (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.idCardFee} onChange={(e) => setFormData({ ...formData, idCardFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Trip (Rs.)</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Trip (Rs.)</label>
                     <input type="number" className="vibrant-input" value={formData.tripFee} onChange={(e) => setFormData({ ...formData, tripFee: parseFloat(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Misc (Rs.)</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Misc (Rs.)</label>
                   <input type="number" className="vibrant-input" value={formData.miscFee} onChange={(e) => setFormData({ ...formData, miscFee: parseFloat(e.target.value) || 0 })} />
                 </div>
 
@@ -400,10 +402,8 @@ export default function FeeSettings() {
                     whileTap={{ scale: 0.98 }}
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    Cancel
-                  </motion.button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</motion.button>
                   <motion.button
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}

@@ -136,10 +136,10 @@ export default function BookPacks() {
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase text-slate-400">
             <tr>
-              <th className="text-left py-2">#</th>
-              <th className="text-left">Title</th>
-              <th className="text-left">Publisher</th>
-              <th className="text-right">Each student</th>
+              <th className="text-start py-2">#</th>
+              <th className="text-start">Title</th>
+              <th className="text-start">Publisher</th>
+              <th className="text-end">Each student</th>
             </tr>
           </thead>
           <tbody>
@@ -148,7 +148,7 @@ export default function BookPacks() {
                 <td className="py-2 text-slate-400">{index + 1}</td>
                 <td className="font-semibold">{item.title}</td>
                 <td>{item.publisher || '—'}</td>
-                <td className="text-right">{item.quantity} Piece{item.sharedStationery ? ' · copy' : ''}</td>
+                <td className="text-end">{item.quantity} Piece{item.sharedStationery ? ' · copy' : ''}</td>
               </tr>
             ))}
           </tbody>
@@ -176,7 +176,7 @@ export default function BookPacks() {
             <option key={b.id} value={b.id}>{b.title}</option>
           ))}
         </select>
-        <button type="button" className="vibrant-btn" onClick={() => void create()}>Create pack</button>
+        <button type="button" className="vibrant-btn-primary" onClick={() => void create()}>Create pack</button>
       </div>
 
       <div className="vibrant-card divide-y divide-slate-100 dark:divide-slate-800">
@@ -233,19 +233,19 @@ export default function BookPacks() {
             <table className="w-full text-sm">
               <thead className="text-[10px] uppercase text-slate-400">
                 <tr>
-                  <th className="text-left py-2">Book</th>
-                  <th className="text-right py-2">Required</th>
-                  <th className="text-right py-2">Available</th>
-                  <th className="text-right py-2">Shortage</th>
+                  <th className="text-start py-2">Book</th>
+                  <th className="text-end py-2">Required</th>
+                  <th className="text-end py-2">Available</th>
+                  <th className="text-end py-2">Shortage</th>
                 </tr>
               </thead>
               <tbody>
                 {(demand.books as Array<Record<string, unknown>>).map((b) => (
                   <tr key={String(b.bookId)} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="py-2">{String(b.title)}</td>
-                    <td className="text-right">{Number(b.requiredQuantity)}</td>
-                    <td className="text-right">{Number(b.availableStock)}</td>
-                    <td className={`text-right font-bold ${Number(b.shortage) > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                    <td className="text-end">{Number(b.requiredQuantity)}</td>
+                    <td className="text-end">{Number(b.availableStock)}</td>
+                    <td className={`text-end font-bold ${Number(b.shortage) > 0 ? 'text-danger' : 'text-success'}`}>
                       {Number(b.shortage)}
                     </td>
                   </tr>

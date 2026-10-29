@@ -8,6 +8,7 @@ import { feeVoucherTransactionType, paymentTransactionType } from '../../utils/f
 import { deriveAcademicSession } from '../../utils/academicSession';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatMoney } from '../../utils/money';
 
 type Mode = 'single' | 'custom' | 'ledger';
 
@@ -18,6 +19,7 @@ type StudentOpt = {
   rollNumber: string;
   fatherName?: string;
   campusName?: string;
+  status?: string;
 };
 
 function defaultDueDate(year: number, month: number): string {
@@ -98,7 +100,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       try {
         const rows = await dataService.getPaginated('students', {
           search: query.trim(),
-          status: 'Active',
+          ...(mode === 'ledger' ? {} : { status: 'Active' }),
           limit: 20,
           page: 1,
         });
@@ -113,7 +115,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [query]);
+  }, [query, mode]);
 
   useEffect(() => {
     if (mode !== 'ledger' || !studentId) {
@@ -238,7 +240,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       });
       toast.success(
         custom.paidAmount > 0 && custom.paidAmount < customTotal
-          ? `Partial voucher created for Rs. ${voucherAmount.toLocaleString()}`
+          ? `Partial voucher created for ${formatMoney(voucherAmount)}`
           : 'Custom voucher created'
       );
       onCreated?.();
@@ -257,7 +259,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
     doc.text('Student Fee Ledger', 14, 16);
     doc.setFontSize(10);
     doc.text(`${s.firstName || ''} · ${formatRollNumberForDisplay(String(s.rollNumber || ''))}`, 14, 24);
-    doc.text(`${s.campusName || ''} · Outstanding: Rs. ${Number(ledger.summary?.totalOutstanding || 0).toLocaleString()}`, 14, 30);
+    doc.text(`${s.campusName || ''} · Outstanding: ${formatMoney(Number(ledger.summary?.totalOutstanding || 0))}`, 14, 30);
     autoTable(doc, {
       startY: 36,
       head: [['Period', 'Txn Type', 'Fee Type', 'Amount', 'Paid', 'Balance', 'Status']],
@@ -320,11 +322,11 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       </div>
 
       <div>
-        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Find student</label>
+        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Find student</label>
         <div className="relative mb-3">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            className="vibrant-input pl-10"
+            className="vibrant-input ps-10"
             placeholder="Search by name, roll, or father name…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -337,7 +339,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
           searchPlaceholder="Filter results…"
           options={options.map((s) => ({
             value: s.id,
-            label: `${s.firstName} — ${formatRollNumberForDisplay(s.rollNumber)}${s.fatherName ? ` (${s.fatherName})` : ''}`,
+            label: `${s.firstName} — ${formatRollNumberForDisplay(s.rollNumber)}${s.fatherName ? ` (${s.fatherName})` : ''}${s.status && s.status !== 'Active' ? ` · ${s.status}` : ''}`,
           }))}
         />
         {selected && (
@@ -352,7 +354,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       {mode !== 'ledger' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Month</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Month</label>
             <SearchableSelect
               value={String(month)}
               onChange={(v) => setMonth(parseInt(v, 10))}
@@ -363,7 +365,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Year</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Year</label>
             <SearchableSelect
               value={String(year)}
               onChange={(v) => setYear(parseInt(v, 10))}
@@ -374,11 +376,11 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Due date</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Due date</label>
             <input type="date" className="vibrant-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Validity</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Validity</label>
             <input type="date" className="vibrant-input" value={validityDate} onChange={(e) => setValidityDate(e.target.value)} />
           </div>
         </div>
@@ -387,7 +389,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
       {mode === 'single' && (
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-[160px]">
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Session</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Session</label>
             <input className="vibrant-input" value={session} onChange={(e) => setSession(e.target.value)} />
           </div>
           <button
@@ -405,7 +407,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Pending month</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Pending month</label>
               <SearchableSelect
                 value={pendingMonthKey}
                 onChange={(key) => {
@@ -422,12 +424,12 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
               />
               {selectedPending && (
                 <p className="mt-1 text-xs text-slate-500">
-                  Selected balance: Rs. {selectedPending.balanceAmount.toLocaleString()}
+                  Selected balance: {formatMoney(selectedPending.balanceAmount)}
                 </p>
               )}
             </div>
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Total arrears (auto)</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Total arrears (auto)</label>
               <input
                 type="number"
                 min={0}
@@ -450,7 +452,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
               ['fineAmount', 'Fine'],
             ] as const).map(([key, label]) => (
               <div key={key}>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">{label}</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">{label}</label>
                 <input
                   type="number"
                   min={0}
@@ -461,7 +463,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
               </div>
             ))}
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Paid amount (partial OK)</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Paid amount (partial OK)</label>
               <input
                 type="number"
                 min={0}
@@ -474,7 +476,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Fee type</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Fee type</label>
               <SearchableSelect
                 value={custom.feeType}
                 onChange={(feeType) => setCustom({ ...custom, feeType })}
@@ -482,7 +484,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Description</label>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Description</label>
               <input
                 className="vibrant-input"
                 value={custom.description}
@@ -493,9 +495,9 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
             <div className="text-sm text-slate-700 dark:text-slate-200 space-y-1">
-              <p className="font-black">Total due: Rs. {customTotal.toLocaleString()}</p>
+              <p className="font-black">Total due: {formatMoney(customTotal)}</p>
               <p className="text-xs text-slate-500">
-                Voucher amount: Rs. {voucherAmount.toLocaleString()}
+                Voucher amount: {formatMoney(voucherAmount)}
                 {custom.paidAmount > 0 && custom.paidAmount < customTotal ? ' (partial payment)' : ''}
               </p>
             </div>
@@ -533,7 +535,7 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                 </div>
               </div>
               <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-900/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                       <th className="px-4 py-3">Period</th>
@@ -569,12 +571,12 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
                     {(ledger.transactions || []).map((t) => (
                       <div key={String(t.id)} className="text-xs text-slate-600 dark:text-slate-300 flex justify-between gap-4 border-b border-slate-100 dark:border-slate-800 py-2">
                         <span>
-                          <span className="font-black text-primary mr-2">
+                          <span className="font-black text-primary me-2">
                             {paymentTransactionType(t as { status?: string; paymentMethod?: string; amount?: number })}
                           </span>
                           {String(t.transactionDate)} · {String(t.paymentMethod || '—')} · {String(t.transactionRef || '')}
                         </span>
-                        <span className="font-black">Rs. {Number(t.amount || 0).toLocaleString()} · {String(t.status)}</span>
+                        <span className="font-black">{formatMoney(Number(t.amount || 0))} · {String(t.status)}</span>
                       </div>
                     ))}
                   </div>

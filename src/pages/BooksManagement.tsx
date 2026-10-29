@@ -8,6 +8,7 @@ import { dataService } from '../services/dataService';
 import { useConfirm } from '../context/ConfirmContext';
 import { CAMPUS_REGIONS } from '../utils/campusRegions';
 import { toTitleCase } from '../utils/titleCase';
+import { formatMoney } from '../utils/money';
 
 const STOCK_KEY = 'fiss_books_stock_v1';
 const MASTER_KEY = 'fiss_books_master_v1';
@@ -377,7 +378,7 @@ export default function BooksManagement() {
         </div>
         <form onSubmit={addRow} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Region</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Region</label>
             <SearchableSelect
               value={form.region}
               onChange={(region) => setForm({ ...form, region, campusId: '', title: '' })}
@@ -386,7 +387,7 @@ export default function BooksManagement() {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Campus</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Campus</label>
             <SearchableSelect
               value={form.campusId}
               onChange={(campusId) => setForm({ ...form, campusId, title: '' })}
@@ -395,7 +396,7 @@ export default function BooksManagement() {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Class</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Class</label>
             <SearchableSelect
               value={form.className}
               onChange={(className) => setForm({ ...form, className, title: '' })}
@@ -404,7 +405,7 @@ export default function BooksManagement() {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Book title</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Book title</label>
             <SearchableSelect
               value={form.title}
               onChange={selectTitle}
@@ -413,19 +414,19 @@ export default function BooksManagement() {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Previous stock</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Previous stock</label>
             <input type="number" min={0} className="vibrant-input" value={form.previousStock} onChange={(e) => setForm({ ...form, previousStock: Number(e.target.value) || 0 })} />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">New stock</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">New stock</label>
             <input type="number" min={0} className="vibrant-input" value={form.newStock} onChange={(e) => setForm({ ...form, newStock: Number(e.target.value) || 0 })} />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Sold quantity</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Sold quantity</label>
             <input type="number" min={0} className="vibrant-input" value={form.sold} onChange={(e) => setForm({ ...form, sold: Number(e.target.value) || 0 })} />
           </div>
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Book rate / unit price (Rs.)</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Book rate / unit price (Rs.)</label>
             <input type="number" min={0} className="vibrant-input" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) || 0 })} />
           </div>
           <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-2">
@@ -445,7 +446,7 @@ export default function BooksManagement() {
 
       <div className="vibrant-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-start text-sm">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-900/50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                 <th className="px-4 py-3">Region</th>
@@ -478,7 +479,7 @@ export default function BooksManagement() {
                     <td className="px-4 py-3 font-black">{r.total}</td>
                     <td className="px-4 py-3">{r.sold}</td>
                     <td className="px-4 py-3 font-black text-primary">{r.balance}</td>
-                    <td className="px-4 py-3">Rs. {r.salesAmount.toLocaleString()}</td>
+                    <td className="px-4 py-3">{formatMoney(r.salesAmount)}</td>
                     <td className="px-4 py-3">
                       <button type="button" onClick={() => removeRow(r.id)} className="p-2 text-slate-400 hover:text-danger">
                         <Trash2 className="w-4 h-4" />

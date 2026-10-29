@@ -5970,7 +5970,7 @@ async function startServer() {
           id, amount, status, payment_method AS paymentMethod,
           transaction_ref AS transactionRef,
           CONVERT(VARCHAR, transaction_date, 120) AS transactionDate,
-          fee_id AS feeId
+          voucher_id AS feeId
         FROM Transactions WHERE student_id = @studentId
         ORDER BY transaction_date DESC
       `);
@@ -8591,6 +8591,7 @@ async function startServer() {
             ISNULL(f.exam_fee, 0) AS examFee,
             ISNULL(f.transport_fee, 0) AS transportFee,
             ISNULL(f.misc_fee, 0) AS miscFee,
+            ISNULL(f.id_card_fee, 0) AS idCardFee,
             ISNULL(f.arrears, 0) AS arrears,
             ISNULL(f.discount_amount, 0) AS discountAmount,
             ISNULL(f.paid_amount, 0) AS paidAmount,

@@ -20,6 +20,8 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
 import { downloadFeeVoucherPdf, drawFeeVoucherPage, loadFeeVoucherPdfAssets } from '../utils/feeVoucherPdf';
 import SingleVoucherPanel from '../components/fees/SingleVoucherPanel';
+import { useI18n } from '../context/I18nContext';
+import { formatMoney } from '../utils/money';
 
 function defaultDueDate(year: number, month: number): string {
   return new Date(year, month - 1, 10).toISOString().split('T')[0];
@@ -34,6 +36,7 @@ const CLIENT_BULK_PDF_LIMIT = 50;
 const VOUCHERS_PAGE_SIZE = 50;
 
 export default function FeeManagement() {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const { canCreate } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -563,7 +566,7 @@ export default function FeeManagement() {
       const prevBal = Number(result.previousBalance ?? selectedVoucher.balanceAmount ?? 0);
       const nextBal = Number(result.balanceAmount ?? 0);
       toast.success(
-        `${adjustForm.adjustmentType === 'increase' ? 'Increased' : 'Decreased'} Rs. ${adjustForm.amount.toLocaleString()}: voucher ${prev.toLocaleString()} → ${next.toLocaleString()} | balance ${prevBal.toLocaleString()} → ${nextBal.toLocaleString()}`
+        `${adjustForm.adjustmentType === 'increase' ? 'Increased' : 'Decreased'} ${formatMoney(adjustForm.amount)}: voucher ${prev.toLocaleString()} → ${next.toLocaleString()} | balance ${prevBal.toLocaleString()} → ${nextBal.toLocaleString()}`
       );
       setIsAdjustOpen(false);
       await refreshVouchers();
@@ -643,7 +646,7 @@ export default function FeeManagement() {
     }
     if (!await confirm({
       title: 'Pay full year advance?',
-      message: `Pay Rs. ${total.toLocaleString()} for all ${unpaid.length} remaining month(s) in ${year}?`,
+      message: `Pay ${formatMoney(total)} for all ${unpaid.length} remaining month(s) in ${year}?`,
       confirmLabel: 'Pay advance',
     })) return;
     try {
@@ -900,7 +903,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-success/5 rounded-full blur-2xl group-hover:bg-success/10 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Collected</span>
-            <span className="text-3xl font-black text-success mt-1">Rs. {Number(feeStats.totalPaid || 0).toLocaleString()}</span>
+            <span className="text-3xl font-black text-success mt-1">{formatMoney(Number(feeStats.totalPaid || 0))}</span>
             <div className="flex items-center gap-2 mt-2">
               <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               <span className="text-[10px] font-medium text-success/60">Live Updates</span>
@@ -917,7 +920,7 @@ export default function FeeManagement() {
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-all" />
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outstanding</span>
-            <span className="text-3xl font-black text-accent mt-1">Rs. {Number(feeStats.totalOutstanding || 0).toLocaleString()}</span>
+            <span className="text-3xl font-black text-accent mt-1">{formatMoney(Number(feeStats.totalOutstanding || 0))}</span>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[10px] font-medium text-accent/60">Includes arrears</span>
             </div>
@@ -958,12 +961,12 @@ export default function FeeManagement() {
       </div>
 
       {/* Main Tabs */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 rounded-2xl w-fit">
+      <div className="segmented">
         <button
           onClick={() => setActiveTab('vouchers')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'vouchers' 
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700' 
+              ? 'segmented-item-active' 
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -974,9 +977,9 @@ export default function FeeManagement() {
         </button>
         <button
           onClick={() => setActiveTab('runs')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'runs'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              ? 'segmented-item-active'
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -988,9 +991,9 @@ export default function FeeManagement() {
         {canCreate('fees') && (
         <button
           onClick={() => setActiveTab('generate')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'generate' 
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700' 
+              ? 'segmented-item-active' 
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -1003,9 +1006,9 @@ export default function FeeManagement() {
         {canCreate('fees') && (
         <button
           onClick={() => setActiveTab('single')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'single'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              ? 'segmented-item-active'
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -1015,9 +1018,9 @@ export default function FeeManagement() {
         {canCreate('fees') && (
         <button
           onClick={() => setActiveTab('custom')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'custom'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              ? 'segmented-item-active'
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -1026,9 +1029,9 @@ export default function FeeManagement() {
         )}
         <button
           onClick={() => setActiveTab('ledger')}
-          className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+          className={`segmented-item ${
             activeTab === 'ledger'
-              ? 'bg-white dark:bg-slate-800 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+              ? 'segmented-item-active'
               : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
@@ -1067,7 +1070,7 @@ export default function FeeManagement() {
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Campus</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Campus</label>
                   {(!scopeUser || canPickCampus(scopeUser)) ? (
                     <SearchableSelect
                       className="w-full min-w-0"
@@ -1090,7 +1093,7 @@ export default function FeeManagement() {
                   )}
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Academic Session</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Academic Session</label>
                   <input
                     type="text"
                     className="vibrant-input font-black w-full min-w-0"
@@ -1101,7 +1104,7 @@ export default function FeeManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Month</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Month</label>
                   <SearchableSelect
                     value={String(generationParams.month)}
                     onChange={(month) => setGenerationParams({ ...generationParams, month: parseInt(month, 10) })}
@@ -1113,7 +1116,7 @@ export default function FeeManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Year</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Year</label>
                   <SearchableSelect
                     value={String(generationParams.year)}
                     onChange={(year) => setGenerationParams({ ...generationParams, year: parseInt(year, 10) })}
@@ -1122,7 +1125,7 @@ export default function FeeManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Due Date</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Due Date</label>
                   <input
                     type="date"
                     required
@@ -1132,7 +1135,7 @@ export default function FeeManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Voucher Validity Date</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Voucher Validity Date</label>
                   <input
                     type="date"
                     required
@@ -1144,7 +1147,7 @@ export default function FeeManagement() {
               </div>
 
               <div className="space-y-3">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Split by months (select one or more)</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Split by months (select one or more)</label>
                 <div className="flex flex-wrap gap-2">
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                     <button
@@ -1289,7 +1292,7 @@ export default function FeeManagement() {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-start border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                   <th className="px-8 py-4">Run Time</th>
@@ -1339,11 +1342,11 @@ export default function FeeManagement() {
         >
           <div className="p-8 border-b border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50/50 dark:bg-slate-900/50 overflow-visible">
             <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+              <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
               <input
                 type="text"
                 placeholder="Search by student name or roll..."
-                className="vibrant-input pl-12"
+                className="vibrant-input ps-12"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -1382,7 +1385,7 @@ export default function FeeManagement() {
           </div>
 
           <TableShell>
-            <table className="w-full min-w-[960px] text-left border-collapse table-sticky-head">
+            <table className="w-full min-w-[960px] text-start border-collapse table-sticky-head">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                   <th className="px-8 py-5">Voucher ID</th>
@@ -1393,7 +1396,7 @@ export default function FeeManagement() {
                   <th className="px-8 py-5">History</th>
                   <th className="px-8 py-5">Remaining</th>
                   <th className="px-8 py-5">Status</th>
-                  <th className="px-8 py-5 text-right">Actions</th>
+                  <th className="px-8 py-5 text-end">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1429,7 +1432,7 @@ export default function FeeManagement() {
                         )}
                       </td>
                       <td className="px-8 py-5 font-medium text-slate-900 dark:text-white">
-                        <div className="text-primary font-black">Rs. {getVoucherGrossPayable(voucher).toLocaleString()}</div>
+                        <div className="text-primary font-black">{formatMoney(getVoucherGrossPayable(voucher))}</div>
                         {(voucher.fineAmount || 0) > 0 && <div className="text-[9px] text-accent font-bold">+ Rs. {voucher.fineAmount} Fine</div>}
                         {(voucher.discountAmount || 0) > 0 && <div className="text-[9px] text-success font-bold">- Rs. {voucher.discountAmount} Disc</div>}
                       </td>
@@ -1442,7 +1445,7 @@ export default function FeeManagement() {
                         )}
                       </td>
                       <td className="px-8 py-5 font-black text-slate-900 dark:text-white">
-                        Rs. {getVoucherRemaining(voucher).toLocaleString()}
+                        {formatMoney(getVoucherRemaining(voucher))}
                       </td>
                       <td className="px-8 py-5">
                         {voucher.status === 'Paid' ? (
@@ -1450,7 +1453,7 @@ export default function FeeManagement() {
                             <CheckCircle className="w-3 h-3" /> Paid
                           </span>
                         ) : voucher.status === 'Partially Paid' ? (
-                          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-sky-500/10 text-sky-500">
+                          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest status-badge status-info">
                             <Clock className="w-3 h-3" /> Partial
                           </span>
                         ) : voucher.status === 'Pending' ? (
@@ -1463,7 +1466,7 @@ export default function FeeManagement() {
                           </span>
                         )}
                       </td>
-                      <td className="px-8 py-5 text-right">
+                      <td className="px-8 py-5 text-end">
                         <div className="flex items-center justify-end gap-2">
                           <PermissionGate module="fees" action="update">
                             <motion.button
@@ -1511,9 +1514,7 @@ export default function FeeManagement() {
                                   className="flex items-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all"
                                   title="Edit voucher"
                                 >
-                                  <Edit2 className="w-4 h-4" />
-                                  Edit
-                                </motion.button>
+                                  <Edit2 className="w-4 h-4" /> {t('common.edit')}</motion.button>
                               </PermissionGate>
                               <PermissionGate module="fees" action="update">
                                 <motion.button
@@ -1573,7 +1574,7 @@ export default function FeeManagement() {
 
       <AnimatePresence>
         {isStructureModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="vibrant-card w-full max-w-lg overflow-hidden border-none shadow-2xl">
               <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
                 <div className="flex items-center gap-4">
@@ -1589,7 +1590,7 @@ export default function FeeManagement() {
               <form onSubmit={handleAddStructure} className="p-10 space-y-8 bg-white dark:bg-slate-900">
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Campus</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Campus</label>
                     <SearchableSelect
                       required
                       value={structureForm.campusId}
@@ -1600,7 +1601,7 @@ export default function FeeManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Session</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Session</label>
                     <input
                       type="text"
                       required
@@ -1613,36 +1614,36 @@ export default function FeeManagement() {
                 </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tuition Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Tuition Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.tuitionFee} onChange={(e) => setStructureForm({ ...structureForm, tuitionFee: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Admission Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Admission Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.admissionFee} onChange={(e) => setStructureForm({ ...structureForm, admissionFee: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Security Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Security Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.securityFee} onChange={(e) => setStructureForm({ ...structureForm, securityFee: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registration Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Registration Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.registrationFee} onChange={(e) => setStructureForm({ ...structureForm, registrationFee: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Exam Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Exam Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.examFee} onChange={(e) => setStructureForm({ ...structureForm, examFee: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Transport Fee</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Transport Fee</label>
                     <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.transportFee} onChange={(e) => setStructureForm({ ...structureForm, transportFee: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Misc Fee</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Misc Fee</label>
                   <input type="number" required className="vibrant-input font-black text-primary" value={structureForm.miscFee} onChange={(e) => setStructureForm({ ...structureForm, miscFee: Number(e.target.value) })} />
                 </div>
                 <div className="flex gap-4 pt-10 border-t border-slate-100 dark:border-slate-800">
@@ -1651,10 +1652,8 @@ export default function FeeManagement() {
                     whileTap={{ scale: 0.98 }}
                     type="button" 
                     onClick={() => setIsStructureModalOpen(false)} 
-                    className="flex-1 px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    Cancel
-                  </motion.button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</motion.button>
                   <motion.button 
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
@@ -1670,7 +1669,7 @@ export default function FeeManagement() {
         )}
 
         {isPaymentModalOpen && selectedVoucher && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="vibrant-card w-full max-w-md overflow-hidden border-none shadow-2xl">
               <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-success/5">
                 <div className="flex items-center gap-4">
@@ -1687,7 +1686,7 @@ export default function FeeManagement() {
                 <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-700 space-y-4">
                   <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
                     <span className="text-slate-400">Voucher Total</span>
-                    <span className="text-slate-900 dark:text-white">Rs. {((selectedVoucher.amount || 0) + (selectedVoucher.arrears || 0)).toLocaleString()}</span>
+                    <span className="text-slate-900 dark:text-white">{formatMoney(((selectedVoucher.amount || 0) + (selectedVoucher.arrears || 0)))}</span>
                   </div>
                   {(selectedVoucher.paidAmount || 0) > 0 && (
                     <>
@@ -1708,7 +1707,7 @@ export default function FeeManagement() {
                                  <button
                                    type="button"
                                    onClick={() => handleReversePayment(i)}
-                                   className="text-[8px] font-black uppercase text-rose-500 hover:underline"
+                                   className="text-[8px] font-black uppercase text-danger hover:underline"
                                  >
                                    Reverse
                                  </button>
@@ -1729,7 +1728,7 @@ export default function FeeManagement() {
 
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Add Fine</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Add Fine</label>
                     <input 
                       type="number" 
                       className="vibrant-input font-black text-accent" 
@@ -1738,7 +1737,7 @@ export default function FeeManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Apply Discount</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Apply Discount</label>
                     <input 
                       type="number" 
                       className="vibrant-input font-black text-success" 
@@ -1749,7 +1748,7 @@ export default function FeeManagement() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Received Amount</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Received Amount</label>
                   <input 
                     type="number" 
                     required 
@@ -1781,7 +1780,7 @@ export default function FeeManagement() {
 
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Method</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Method</label>
                     <SearchableSelect
                       value={paymentForm.paymentMethod}
                       onChange={(paymentMethod) => setPaymentForm({ ...paymentForm, paymentMethod })}
@@ -1794,7 +1793,7 @@ export default function FeeManagement() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Transaction Ref #</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ms-1">Transaction Ref #</label>
                     <input 
                       type="text" 
                       placeholder="QP-XXXXXX"
@@ -1812,10 +1811,8 @@ export default function FeeManagement() {
                     whileTap={{ scale: 0.98 }}
                     type="button" 
                     onClick={() => setIsPaymentModalOpen(false)} 
-                    className="flex-1 px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    Cancel
-                  </motion.button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</motion.button>
                   <motion.button 
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
@@ -1831,7 +1828,7 @@ export default function FeeManagement() {
         )}
 
         {isExtraChargeOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="vibrant-card w-full max-w-md p-8 space-y-6">
               <h3 className="text-xl font-black uppercase">Extra Fee Charge</h3>
               <form onSubmit={handleExtraCharge} className="space-y-4">
@@ -1886,10 +1883,8 @@ export default function FeeManagement() {
                     type="button"
                     aria-label="Cancel"
                     onClick={() => setIsExtraChargeOpen(false)}
-                    className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    Cancel
-                  </button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase tracking-widest">
                     Create Charge
                   </button>
@@ -1902,7 +1897,7 @@ export default function FeeManagement() {
 
       <AnimatePresence>
         {isEditVoucherOpen && selectedVoucher && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black uppercase tracking-tight">Edit Voucher</h3>
@@ -1944,7 +1939,7 @@ export default function FeeManagement() {
                   </div>
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setIsEditVoucherOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase">Cancel</button>
+                  <button type="button" onClick={() => setIsEditVoucherOpen(false)} className="vibrant-btn-secondary flex-1">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Save Changes</button>
                 </div>
               </form>
@@ -1955,7 +1950,7 @@ export default function FeeManagement() {
 
       <AnimatePresence>
         {isAdjustOpen && selectedVoucher && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-md p-8">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black uppercase tracking-tight">Fee Adjustment</h3>
@@ -1963,13 +1958,13 @@ export default function FeeManagement() {
               </div>
               <p className="text-sm text-slate-500 mb-2">{selectedVoucher.studentName} · {formatRollNumberForDisplay(selectedVoucher.rollNumber)}</p>
               <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 text-[10px] font-black uppercase tracking-widest space-y-2">
-                <div className="flex justify-between"><span className="text-slate-400">Current voucher</span><span>Rs. {(selectedVoucher.amount || 0).toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Paid</span><span>Rs. {(selectedVoucher.paidAmount || 0).toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Balance</span><span>Rs. {(selectedVoucher.balanceAmount || 0).toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Current voucher</span><span>{formatMoney((selectedVoucher.amount || 0))}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Paid</span><span>{formatMoney((selectedVoucher.paidAmount || 0))}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Balance</span><span>{formatMoney((selectedVoucher.balanceAmount || 0))}</span></div>
                 <div className="flex justify-between text-primary pt-2 border-t border-slate-200 dark:border-slate-700">
                   <span>After this adjust</span>
                   <span>
-                    Rs. {Math.max(0, (selectedVoucher.amount || 0) + (adjustForm.adjustmentType === 'increase' ? adjustForm.amount : -adjustForm.amount)).toLocaleString()}
+                    {formatMoney(Math.max(0, (selectedVoucher.amount || 0) + (adjustForm.adjustmentType === 'increase' ? adjustForm.amount : -adjustForm.amount)))}
                   </span>
                 </div>
               </div>
@@ -2000,7 +1995,7 @@ export default function FeeManagement() {
                   <textarea required className="vibrant-input min-h-[80px]" value={adjustForm.reason} onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })} />
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setIsAdjustOpen(false)} className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-black uppercase">Cancel</button>
+                  <button type="button" onClick={() => setIsAdjustOpen(false)} className="vibrant-btn-secondary flex-1">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Apply Adjustment</button>
                 </div>
               </form>
@@ -2011,7 +2006,7 @@ export default function FeeManagement() {
 
       <AnimatePresence>
         {isAuditLogOpen && selectedVoucher && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal">
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -2039,7 +2034,7 @@ export default function FeeManagement() {
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-primary">{label}</p>
                             <p className="text-sm font-bold text-slate-900 dark:text-white mt-1">
-                              Rs. {Number(row.amount || 0).toLocaleString()}
+                              {formatMoney(Number(row.amount || 0))}
                               {row.previousAmount != null && row.newAmount != null && (
                                 <span className="text-slate-400 font-medium"> · voucher {Number(row.previousAmount).toLocaleString()} → {Number(row.newAmount).toLocaleString()}</span>
                               )}
@@ -2053,7 +2048,7 @@ export default function FeeManagement() {
                             )}
                             {row.reason && <p className="text-xs text-slate-600 dark:text-slate-300 mt-2">Reason: {row.reason}</p>}
                           </div>
-                          <div className="text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
+                          <div className="text-end text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
                             <div>{row.performedBy || '—'}</div>
                             <div className="mt-1">{row.performedOn ? new Date(row.performedOn).toLocaleString() : '—'}</div>
                           </div>

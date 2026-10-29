@@ -72,7 +72,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-500 overflow-hidden">
+    <div className="auth-shell min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-500 overflow-hidden">
       {/* Left Side - Branded hero */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-secondary via-secondary/90 to-primary/80" />
@@ -173,14 +173,14 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <FormField label={t('login.username')} htmlFor="username" required error={fieldErrors.username}>
               <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                <div className="absolute start-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <input
                   id="username"
                   type="text"
                   autoComplete="username"
-                  className={`vibrant-input pl-12 ${fieldErrors.username ? 'vibrant-input-error' : ''}`}
+                  className={`vibrant-input ps-12 ${fieldErrors.username ? 'vibrant-input-error' : ''}`}
                   value={username}
                   onChange={(e) => {
                     setUsername(e.target.value);
@@ -196,14 +196,14 @@ export default function Login() {
 
             <FormField label={t('login.password')} htmlFor="password" required error={fieldErrors.password}>
               <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+                <div className="absolute start-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <input
                   id="password"
                   type="password"
                   autoComplete="current-password"
-                  className={`vibrant-input pl-12 ${fieldErrors.password ? 'vibrant-input-error' : ''}`}
+                  className={`vibrant-input ps-12 ${fieldErrors.password ? 'vibrant-input-error' : ''}`}
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);

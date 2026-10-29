@@ -11,10 +11,12 @@ import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 import { isStudentRollUsername, suggestLoginUsername, staffUsernameFromRoll } from '../utils/username';
 import { toTitleCase } from '../utils/titleCase';
+import { useI18n } from '../context/I18nContext';
 
 const ROLES: UserRole[] = ['Super Admin', 'Admin', 'Principal', 'Teacher', 'Accountant', 'Kuickpay Admin'];
 
 export default function UserManagement() {
+  const { t } = useI18n();
   const [users, setUsers] = useState<User[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -207,11 +209,11 @@ export default function UserManagement() {
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800">
           <div className="relative max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
               placeholder="Search users..."
-              className="vibrant-input pl-12"
+              className="vibrant-input ps-12"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -219,7 +221,7 @@ export default function UserManagement() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Name</th>
@@ -227,7 +229,7 @@ export default function UserManagement() {
                 <th className="px-8 py-5">Role</th>
                 <th className="px-8 py-5">Campus</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -278,7 +280,7 @@ export default function UserManagement() {
                       {user.isActive ? 'Active' : 'Disabled'}
                     </span>
                   </td>
-                  <td className="px-8 py-5 text-right">
+                  <td className="px-8 py-5 text-end">
                     <PermissionGate module="users" action="update">
                       <button onClick={() => handleEdit(user)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-primary transition-colors">
                         <Edit2 className="w-4 h-4" />
@@ -304,7 +306,7 @@ export default function UserManagement() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-8">
                 <Shield className="w-6 h-6 text-primary" />
@@ -442,7 +444,7 @@ export default function UserManagement() {
                   <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Account active</span>
                 </label>
                 <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                  <button type="button" onClick={() => { setIsModalOpen(false); resetForm(); }} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">{editingId ? 'Update' : 'Create'}</button>
                 </div>
               </form>

@@ -95,11 +95,11 @@ export default function CourseOrders() {
             <table className="w-full text-sm">
               <thead className="text-[10px] uppercase text-slate-400">
                 <tr>
-                  <th className="text-left py-2">Region</th>
-                  <th className="text-left">Campus</th>
-                  <th className="text-left">Class</th>
-                  <th className="text-left">Title</th>
-                  <th className="text-right">Qty</th>
+                  <th className="text-start py-2">Region</th>
+                  <th className="text-start">Campus</th>
+                  <th className="text-start">Class</th>
+                  <th className="text-start">Title</th>
+                  <th className="text-end">Qty</th>
                 </tr>
               </thead>
               <tbody>
@@ -109,7 +109,7 @@ export default function CourseOrders() {
                     <td>{item.campusName}</td>
                     <td>{item.className}</td>
                     <td className="font-semibold">{item.title}</td>
-                    <td className="text-right">{item.quantity}</td>
+                    <td className="text-end">{item.quantity}</td>
                   </tr>
                 ))}
               </tbody>

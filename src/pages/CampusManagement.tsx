@@ -16,8 +16,10 @@ import { PermissionGate } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { CAMPUS_STATES, citiesForCampusRegion, regionsForCampusState, stateForCampusRegion } from '../utils/campusRegions';
 import { toTitleCase } from '../utils/titleCase';
+import { useI18n } from '../context/I18nContext';
 
 export default function CampusManagement() {
+  const { t } = useI18n();
   const confirm = useConfirm();
   const { data: campuses, loading, refresh: refreshCampuses } = useCollection<Campus>('campuses');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -174,11 +176,11 @@ export default function CampusManagement() {
       <div className="vibrant-card overflow-hidden">
         <div className="p-8 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="relative group max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-primary transition-colors" />
             <input
               type="text"
               placeholder="Search campuses..."
-              className="vibrant-input pl-12"
+              className="vibrant-input ps-12"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -191,14 +193,14 @@ export default function CampusManagement() {
           </div>
         ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-start border-collapse">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Code</th>
                 <th className="px-8 py-5">Campus Name</th>
                 <th className="px-8 py-5">Contact</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -230,22 +232,20 @@ export default function CampusManagement() {
                   <td className="px-8 py-5">
                     {campus?.isActive ? (
                       <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-success/10 text-success">
-                        <CheckCircle className="w-3 h-3" /> Active
-                      </span>
+                        <CheckCircle className="w-3 h-3" /> {t('common.active')}</span>
                     ) : (
                       <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-accent/10 text-accent">
-                        <XCircle className="w-3 h-3" /> Inactive
-                      </span>
+                        <XCircle className="w-3 h-3" /> {t('common.inactive')}</span>
                     )}
                   </td>
-                  <td className="px-8 py-5 text-right">
+                  <td className="px-8 py-5 text-end">
                     <div className="flex items-center justify-end gap-2">
                       <PermissionGate module="campuses" action="update">
                         <motion.button 
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => handleEdit(campus)}
-                          className="p-2.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
+                          className="icon-btn"
                         >
                           <Edit2 className="w-4 h-4" />
                         </motion.button>
@@ -255,7 +255,7 @@ export default function CampusManagement() {
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => handleDelete(campus?.id)}
-                          className="p-2.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-xl transition-all"
+                          className="icon-btn icon-btn-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </motion.button>
@@ -282,7 +282,7 @@ export default function CampusManagement() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 bg-slate-950/40 backdrop-blur-md">
+          <div className="app-modal app-modal-scroll">
             <div className="flex min-h-full items-start justify-center py-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -419,10 +419,8 @@ export default function CampusManagement() {
                     whileTap={{ scale: 0.98 }}
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    Cancel
-                  </motion.button>
+                    className="vibrant-btn-secondary flex-1"
+                  >{t('common.cancel')}</motion.button>
                   <motion.button
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}

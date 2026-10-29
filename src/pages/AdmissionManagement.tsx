@@ -17,6 +17,7 @@ import { formatRollNumberForDisplay } from '../utils/rollNumber';
 import { downloadFeeVoucherPdf } from '../utils/feeVoucherPdf';
 import { toTitleCase } from '../utils/titleCase';
 import { ADMISSION_REFERENCE_OPTIONS } from '../utils/admissionReference';
+import { formatMoney } from '../utils/money';
 
 type AdmissionVoucherPayload = {
   application: {
@@ -575,7 +576,7 @@ export default function AdmissionManagement() {
           <button
             key={s}
             onClick={() => setFilterStatus(filterStatus === s ? 'all' : s)}
-            className={`vibrant-card p-4 text-left transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''}`}
+            className={`vibrant-card p-4 text-start transition-all ${filterStatus === s ? 'ring-2 ring-primary' : ''}`}
           >
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{s}</p>
             <p className="text-2xl font-black mt-1">{applications.filter((a) => a.status === s).length}</p>
@@ -586,8 +587,8 @@ export default function AdmissionManagement() {
       <div className="vibrant-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input type="text" placeholder="Search applicants, CNIC..." className="vibrant-input pl-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Search className="absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input type="text" placeholder="Search applicants, CNIC..." className="vibrant-input ps-12" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
           <SearchableSelect
             className="min-w-[160px]"
@@ -608,7 +609,7 @@ export default function AdmissionManagement() {
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead>
               <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-8 py-5">Applicant</th>
@@ -616,14 +617,14 @@ export default function AdmissionManagement() {
                 <th className="px-8 py-5">Applied</th>
                 <th className="px-8 py-5">Test</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-end">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filtered.map((app) => (
                 <tr key={app.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                   <td className="px-8 py-5">
-                    <button type="button" onClick={() => setDetailTarget(app)} className="text-left group">
+                    <button type="button" onClick={() => setDetailTarget(app)} className="text-start group">
                       <p className="font-bold group-hover:text-primary transition-colors">{app.applicantName}</p>
                       <p className="text-xs text-slate-400">{app.fatherName} · {app.contactNumber}</p>
                       {app.trackingNo && (
@@ -664,7 +665,7 @@ export default function AdmissionManagement() {
                   <td className="px-8 py-5">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${statusColor(app.status)}`}>{app.status}</span>
                     {app.reviewMatchType && MATCH_LABELS[app.reviewMatchType] && (
-                      <span className={`ml-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${MATCH_LABELS[app.reviewMatchType].color}`}>
+                      <span className={`ms-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${MATCH_LABELS[app.reviewMatchType].color}`}>
                         {MATCH_LABELS[app.reviewMatchType].label}
                       </span>
                     )}
@@ -783,7 +784,7 @@ export default function AdmissionManagement() {
 
       <AnimatePresence>
         {reviewTarget && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-6">
                 <Users className="w-6 h-6 text-accent" />
@@ -806,9 +807,7 @@ export default function AdmissionManagement() {
                       type="button"
                       onClick={() => setEditingCnic(true)}
                       className="text-[10px] font-black uppercase text-primary hover:underline"
-                    >
-                      Edit
-                    </button>
+                    >{t('common.edit')}</button>
                   </div>
                 ) : (
                   <div className="flex gap-3">
@@ -846,19 +845,19 @@ export default function AdmissionManagement() {
                         {reviewCheck.message}
                       </p>
                       {reviewCheck.totalFamilyOutstanding > 0 && (
-                        <p className="mt-1 text-xs">Family outstanding: Rs. {reviewCheck.totalFamilyOutstanding.toLocaleString()}</p>
+                        <p className="mt-1 text-xs">Family outstanding: {formatMoney(reviewCheck.totalFamilyOutstanding)}</p>
                       )}
                     </div>
 
                     {reviewCheck.matchedStudents.length > 0 && (
                       <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
-                        <table className="w-full text-left text-sm">
+                        <table className="w-full text-start text-sm">
                           <thead>
                             <tr className="text-[10px] font-black uppercase text-slate-400 bg-slate-50/80">
                               <th className="px-4 py-3">Student</th>
                               <th className="px-4 py-3">Roll</th>
                               <th className="px-4 py-3">Status</th>
-                              <th className="px-4 py-3 text-right">Outstanding</th>
+                              <th className="px-4 py-3 text-end">Outstanding</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -867,7 +866,7 @@ export default function AdmissionManagement() {
                                 <td className="px-4 py-3 font-medium">
                                   {s.firstName}
                                   {s.nameScore >= 0.85 && (
-                                    <span className="ml-2 text-[9px] font-black uppercase text-danger">Name match</span>
+                                    <span className="ms-2 text-[9px] font-black uppercase text-danger">Name match</span>
                                   )}
                                 </td>
                                 <td className="px-4 py-3 font-mono text-xs">{s.rollNumber}</td>
@@ -876,8 +875,8 @@ export default function AdmissionManagement() {
                                     {s.status}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-right font-bold">
-                                  Rs. {s.unpaidBalance.toLocaleString()}
+                                <td className="px-4 py-3 text-end font-bold">
+                                  {formatMoney(s.unpaidBalance)}
                                   {s.unpaidMonths?.length > 0 && (
                                     <p className="text-[9px] text-slate-400 font-normal mt-1">
                                       {s.unpaidMonths.slice(0, 3).map((m) => m.label || `${m.month}/${m.year}`).join(', ')}
@@ -954,13 +953,13 @@ export default function AdmissionManagement() {
                                 <div key={line.label} className="flex justify-between">
                                   <span className="text-slate-500">{line.label}</span>
                                   <span className={`font-bold ${line.amount < 0 ? 'text-success' : ''}`}>
-                                    {line.amount < 0 ? '−' : ''}Rs. {Math.abs(line.amount).toLocaleString()}
+                                    {line.amount < 0 ? '−' : ''}{formatMoney(Math.abs(line.amount))}
                                   </span>
                                 </div>
                               ))}
                               <div className="flex justify-between pt-2 border-t border-primary/20 font-black text-primary">
                                 <span>Total due on enroll</span>
-                                <span>Rs. {reviewCheck.feePreview.totalDue.toLocaleString()}</span>
+                                <span>{formatMoney(reviewCheck.feePreview.totalDue)}</span>
                               </div>
                             </div>
                           </div>
@@ -971,7 +970,7 @@ export default function AdmissionManagement() {
                 )}
 
                 <div className="flex gap-4 pt-2">
-                  <button type="button" onClick={() => { setReviewTarget(null); setReviewCheck(null); setEditingCnic(false); }} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                  <button type="button" onClick={() => { setReviewTarget(null); setReviewCheck(null); setEditingCnic(false); }} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                   <button
                     type="button"
                     onClick={confirmReview}
@@ -986,7 +985,7 @@ export default function AdmissionManagement() {
           </motion.div>
         )}
         {approvalTarget && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-lg p-8">
               <div className="flex items-center gap-3 mb-6">
                 <CheckCircle className="w-6 h-6 text-primary" />
@@ -1015,7 +1014,7 @@ export default function AdmissionManagement() {
                   onChange={(e) => setApprovalForm((prev) => ({ ...prev, remarks: e.target.value }))}
                 />
                 <div className="flex gap-4 pt-2">
-                  <button type="button" onClick={() => setApprovalTarget(null)} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                  <button type="button" onClick={() => setApprovalTarget(null)} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">
                     {approvalTarget.status === 'Pending' ? 'Send Invite & Move Under Review' : 'Update Interview'}
                   </button>
@@ -1025,7 +1024,7 @@ export default function AdmissionManagement() {
           </motion.div>
         )}
         {isModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-6">
                 <UserPlus className="w-6 h-6 text-primary" />
@@ -1103,7 +1102,7 @@ export default function AdmissionManagement() {
                   onBlur={(e) => setFormData((prev) => ({ ...prev, address: toTitleCase(e.target.value) }))}
                 />
                 <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                   <button type="submit" className="flex-1 vibrant-btn-primary">Submit Application</button>
                 </div>
               </form>
@@ -1111,7 +1110,7 @@ export default function AdmissionManagement() {
           </motion.div>
         )}
         {rejectTarget && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-md p-8">
               <h3 className="text-xl font-black mb-4">Reject application</h3>
               <p className="text-sm text-slate-500 mb-4">{rejectTarget.applicantName}</p>
@@ -1124,14 +1123,14 @@ export default function AdmissionManagement() {
               />
               <textarea className="vibrant-input mt-4" rows={3} placeholder="Additional notes (optional)" value={rejectNotes} onChange={(e) => setRejectNotes(e.target.value)} />
               <div className="flex gap-4 mt-6">
-                <button type="button" onClick={() => setRejectTarget(null)} className="flex-1 vibrant-btn-secondary">Cancel</button>
+                <button type="button" onClick={() => setRejectTarget(null)} className="flex-1 vibrant-btn-secondary">{t('common.cancel')}</button>
                 <button type="button" onClick={confirmReject} className="flex-1 vibrant-btn-primary bg-danger">Confirm reject</button>
               </div>
             </motion.div>
           </motion.div>
         )}
         {detailTarget && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-2xl font-black">{detailTarget.applicantName}</h3>
@@ -1218,13 +1217,13 @@ export default function AdmissionManagement() {
                 </PermissionGate>
               </div>
 
-              <button type="button" onClick={() => setDetailTarget(null)} className="w-full vibrant-btn-secondary mt-6">Close</button>
+              <button type="button" onClick={() => setDetailTarget(null)} className="w-full vibrant-btn-secondary mt-6">{t('common.close')}</button>
             </motion.div>
           </motion.div>
         )}
 
         {voucherTarget && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="vibrant-card w-full max-w-lg p-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div>
@@ -1262,6 +1261,7 @@ export default function AdmissionManagement() {
                   v.examFee ? { label: 'Exam fee', amount: Number(v.examFee) } : null,
                   v.transportFee ? { label: 'Transport fee', amount: Number(v.transportFee) } : null,
                   v.miscFee ? { label: 'Registration / misc fee', amount: Number(v.miscFee) } : null,
+                  v.idCardFee ? { label: 'ID card charges', amount: Number(v.idCardFee) } : null,
                   v.arrears ? { label: 'Carried arrears', amount: Number(v.arrears) } : null,
                   v.discountAmount ? { label: 'Discount', amount: -Number(v.discountAmount) } : null,
                 ].filter(Boolean) as Array<{ label: string; amount: number }>;
@@ -1284,20 +1284,20 @@ export default function AdmissionManagement() {
                           {lines.map((line) => (
                             <tr key={line.label} className="border-b border-slate-50 dark:border-slate-800">
                               <td className="px-4 py-2.5 text-slate-600">{line.label}</td>
-                              <td className="px-4 py-2.5 text-right font-bold">Rs. {line.amount.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 text-end font-bold">{formatMoney(line.amount)}</td>
                             </tr>
                           ))}
                           <tr className="bg-slate-50/80 dark:bg-slate-800/40">
                             <td className="px-4 py-3 font-black">Total</td>
-                            <td className="px-4 py-3 text-right font-black">Rs. {total.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-end font-black">{formatMoney(total)}</td>
                           </tr>
                           <tr>
                             <td className="px-4 py-2.5 text-slate-600">Paid</td>
-                            <td className="px-4 py-2.5 text-right font-bold text-success">Rs. {paid.toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-end font-bold text-success">{formatMoney(paid)}</td>
                           </tr>
                           <tr>
                             <td className="px-4 py-2.5 font-black">Balance due</td>
-                            <td className="px-4 py-2.5 text-right font-black text-primary">Rs. {balance.toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-end font-black text-primary">{formatMoney(balance)}</td>
                           </tr>
                         </tbody>
                       </table>
@@ -1318,9 +1318,7 @@ export default function AdmissionManagement() {
                         type="button"
                         onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }}
                         className="vibrant-btn-secondary flex-1 py-3 rounded-2xl text-sm font-semibold"
-                      >
-                        Close
-                      </button>
+                      >{t('common.close')}</button>
                     </div>
                     <p className="text-[11px] text-slate-400 text-center">
                       Workflow: Generate voucher → Collect payment → Enroll (enabled only when Paid)
@@ -1334,7 +1332,7 @@ export default function AdmissionManagement() {
                   <p className="text-sm text-slate-500">
                     No payable admission amount found. Add campus fee structure in Fee Settings (tuition / admission / security), then generate again.
                   </p>
-                  <button type="button" onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }} className="w-full vibrant-btn-secondary">Close</button>
+                  <button type="button" onClick={() => { setVoucherTarget(null); setVoucherPayload(null); }} className="w-full vibrant-btn-secondary">{t('common.close')}</button>
                 </div>
               )}
             </motion.div>

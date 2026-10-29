@@ -7,6 +7,7 @@ import { useCollection } from '../hooks/useCollection';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import PageLoader from '../components/ui/PageLoader';
+import EmptyState from '../components/ui/EmptyState';
 import { PermissionGate } from '../context/PermissionContext';
 import { gradeFromMarks } from '../utils/examGrades';
 import { downloadExamProgressReport, downloadExamResultSheet } from '../utils/studentDocuments';
@@ -250,7 +251,7 @@ export default function MarksEntry() {
     <div className="space-y-8 pb-12">
       <TranslatedPageHeader module="marks-entry" />
 
-      <div className="flex flex-wrap items-center gap-4 bg-white/50 dark:bg-slate-900/50 p-2 rounded-3xl border border-slate-100 dark:border-slate-800">
+      <div className="filter-bar">
         <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-2xl">
           <Building className="w-4 h-4 text-slate-400" />
           <SearchableSelect
@@ -316,17 +317,17 @@ export default function MarksEntry() {
       {loading && <PageLoader label="Loading marks entry…" />}
 
       {!selectedExam ? (
-        <div className="flex flex-col items-center justify-center p-16 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[40px]">
-          <Users className="w-10 h-10 text-primary mb-4" />
-          <p className="font-black text-slate-700 dark:text-slate-200">Select campus, class, section, and exam</p>
-          <p className="text-sm text-slate-500 mt-1">Enter subject-wise marks when the exam has subjects configured.</p>
-        </div>
+        <EmptyState
+          icon={Users}
+          title="Select campus, class, section, and exam"
+          description="Enter subject-wise marks when the exam has subjects configured."
+        />
       ) : (
         <div className="vibrant-card overflow-hidden">
           <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-black uppercase tracking-widest text-sm">{selectedExam.title}</h3>
-              <p className="mt-2 inline-flex rounded-lg bg-emerald-100 dark:bg-emerald-900/40 px-3 py-1 text-sm font-black text-emerald-800 dark:text-emerald-200">
+              <p className="mt-2 inline-flex rounded-lg bg-success/10 px-3 py-1 text-sm font-black text-success">
                 Total Marks: {examTotalMarks}
                 {subjects.length ? ` · ${subjects.length} subjects` : ''}
               </p>
@@ -336,9 +337,9 @@ export default function MarksEntry() {
             </div>
             <div className="flex flex-wrap gap-2 items-center">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  className="vibrant-input pl-9 py-2 w-48"
+                  className="vibrant-input ps-9 py-2 w-48"
                   placeholder="Search students…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -403,19 +404,19 @@ export default function MarksEntry() {
             ) : examStudents.length === 0 ? (
               <p className="p-8 text-center text-slate-400">No students found for this class/section</p>
             ) : (
-              <table className="w-full text-left">
+              <table className="w-full text-start">
                 <thead>
                   <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest sticky top-0">
                     <th className="px-4 py-4">Student</th>
                     {subjects.map((sub) => (
                       <th key={sub.id} className="px-3 py-4 whitespace-nowrap">
                         <div>{sub.subjectName}</div>
-                        <div className="text-emerald-600 normal-case font-bold">/ {sub.totalMarks}</div>
+                        <div className="text-success normal-case font-bold">/ {sub.totalMarks}</div>
                       </th>
                     ))}
                     {!subjects.length && (
                       <th className="px-4 py-4">
-                        <span className="rounded bg-emerald-100 dark:bg-emerald-900/50 px-2 py-1 text-emerald-800 dark:text-emerald-200">
+                        <span className="rounded bg-success/10 px-2 py-1 text-success">
                           Marks / {examTotalMarks}
                         </span>
                       </th>

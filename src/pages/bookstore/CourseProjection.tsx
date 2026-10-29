@@ -105,12 +105,12 @@ export default function CourseProjection() {
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase tracking-widest text-slate-400">
             <tr>
-              <th className="p-3 text-left" />
-              <th className="p-3 text-left">Region</th>
-              <th className="p-3 text-left">Campus</th>
-              <th className="p-3 text-left">Class</th>
-              <th className="p-3 text-left">Title</th>
-              <th className="p-3 text-right">Qty</th>
+              <th className="p-3 text-start" />
+              <th className="p-3 text-start">Region</th>
+              <th className="p-3 text-start">Campus</th>
+              <th className="p-3 text-start">Class</th>
+              <th className="p-3 text-start">Title</th>
+              <th className="p-3 text-end">Qty</th>
             </tr>
           </thead>
           <tbody>
@@ -121,7 +121,7 @@ export default function CourseProjection() {
                 <td className="p-3">{row.campusName}</td>
                 <td className="p-3">{row.className}</td>
                 <td className="p-3 font-semibold">{row.title}</td>
-                <td className="p-3 text-right">{row.quantity}</td>
+                <td className="p-3 text-end">{row.quantity}</td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td className="p-6 text-slate-400" colSpan={6}>No projection for this session yet.</td></tr>}

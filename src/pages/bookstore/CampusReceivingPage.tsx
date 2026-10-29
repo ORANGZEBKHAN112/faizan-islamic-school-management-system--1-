@@ -66,10 +66,10 @@ export default function CampusReceivingPage() {
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase text-slate-400">
               <tr>
-                <th className="text-left py-2">Title</th>
-                <th className="text-right">Dispatched</th>
-                <th className="text-right">Received</th>
-                <th className="text-right">Difference</th>
+                <th className="text-start py-2">Title</th>
+                <th className="text-end">Dispatched</th>
+                <th className="text-end">Received</th>
+                <th className="text-end">Difference</th>
                 <th />
               </tr>
             </thead>
@@ -81,8 +81,8 @@ export default function CampusReceivingPage() {
                 return (
                   <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="py-2 font-semibold">{item.title}</td>
-                    <td className="text-right">{item.qty_dispatched}</td>
-                    <td className="text-right">
+                    <td className="text-end">{item.qty_dispatched}</td>
+                    <td className="text-end">
                       {verified ? item.qty_received : (
                         <input
                           type="number"
@@ -93,9 +93,9 @@ export default function CampusReceivingPage() {
                         />
                       )}
                     </td>
-                    <td className={`text-right font-bold ${difference !== 0 ? 'text-amber-600' : ''}`}>{difference}</td>
-                    <td className="text-right">
-                      {verified ? <span className="text-[10px] uppercase font-black text-emerald-600">Verified</span> : (
+                    <td className={`text-end font-bold ${difference !== 0 ? 'text-amber-600' : ''}`}>{difference}</td>
+                    <td className="text-end">
+                      {verified ? <span className="text-[10px] uppercase font-black text-success">Verified</span> : (
                         <button type="button" className="vibrant-btn-primary" onClick={() => void verify(item)}>Verify</button>
                       )}
                     </td>

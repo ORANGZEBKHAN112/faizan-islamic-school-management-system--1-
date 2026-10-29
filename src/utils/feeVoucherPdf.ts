@@ -116,12 +116,44 @@ function fieldRow(doc: jsPDF, x: number, y: number, w: number, label: string, va
   }
 }
 
+/** Original billed amount. Paid vouchers keep this figure even when balance is 0. */
+function voucherBillAmount(voucher: Fee): number {
+  const gross =
+    Number(voucher.amount || 0) +
+    Number(voucher.arrears || 0) +
+    Number(voucher.fineAmount || 0) -
+    Number(voucher.discountAmount || 0);
+  if (gross > 0) return gross;
+  const paid = Number(voucher.paidAmount || 0);
+  if (paid > 0) return paid;
+  return Math.max(
+    0,
+    Number(voucher.tuitionFee || 0) +
+      Number(voucher.admissionFee || 0) +
+      Number(voucher.securityFee || 0) +
+      Number(voucher.registrationFee || 0) +
+      Number(voucher.examFee || 0) +
+      Number(voucher.transportFee || 0) +
+      Number(voucher.miscFee || 0) +
+      Number(voucher.idCardFee || 0) +
+      Number(voucher.summerCampFee || 0) +
+      Number(voucher.tripFee || 0),
+  );
+}
+
+function isVoucherPaid(voucher: Fee): boolean {
+  return voucher.status === 'Paid';
+}
+
 function buildFeeHeads(voucher: Fee): Array<{ label: string; months: string; amount: number }> {
   const monthHint = voucher.month ? '1' : '—';
+  const tuition =
+    Number(voucher.tuitionFee || 0) ||
+    (voucher.feeType === 'Monthly' || !voucher.feeType ? Number(voucher.amount || 0) : 0);
   const heads: Array<{ label: string; months: string; amount: number }> = [
-    { label: 'Tuition Fee', months: monthHint, amount: Number(voucher.tuitionFee || 0) || (voucher.feeType === 'Monthly' ? Number(voucher.amount || 0) : 0) },
-    { label: 'Admission Fee', months: voucher.admissionFee ? '1' : '—', amount: Number(voucher.admissionFee || 0) },
-    { label: 'ID Card Charges', months: voucher.idCardFee ? '1' : '—', amount: Number(voucher.idCardFee || 0) },
+    { label: 'Tuition Fee', months: monthHint, amount: tuition },
+    { label: 'Admission Fee', months: '1', amount: Number(voucher.admissionFee || 0) },
+    { label: 'ID Card Charges', months: '1', amount: Number(voucher.idCardFee || 0) },
   ];
   const extras: Array<[string, number]> = [
     ['Security Fee', Number(voucher.securityFee || 0)],
@@ -140,8 +172,32 @@ function buildFeeHeads(voucher: Fee): Array<{ label: string; months: string; amo
   if ((voucher.discountAmount || 0) > 0) {
     heads.push({ label: 'Discount', months: '—', amount: -Number(voucher.discountAmount || 0) });
   }
-  // Keep design-like rows even when zero for the first three
-  return heads.filter((h, i) => i < 3 || h.amount !== 0).slice(0, 8);
+  const visible = heads.filter((h) => h.amount !== 0).slice(0, 8);
+  if (visible.length > 0) return visible;
+  const bill = voucherBillAmount(voucher);
+  if (bill <= 0) return [];
+  return [{ label: voucher.feeType || 'Fee', months: monthHint, amount: bill }];
+}
+
+function drawPaidStamp(doc: jsPDF, cx: number, cy: number, paidOn?: string | null) {
+  const boxW = 46;
+  const boxH = paidOn ? 18 : 14;
+  doc.setDrawColor(185, 28, 28);
+  doc.setTextColor(185, 28, 28);
+  doc.setLineWidth(1.15);
+  doc.roundedRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 2, 2, 'S');
+  doc.setLineWidth(0.35);
+  doc.roundedRect(cx - boxW / 2 + 1.6, cy - boxH / 2 + 1.4, boxW - 3.2, boxH - 2.8, 1.4, 1.4, 'S');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('PAID', cx, cy - (paidOn ? 1.2 : 0.2), { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.text('ALREADY PAID', cx, cy + (paidOn ? 3.4 : 4.2), { align: 'center' });
+  if (paidOn) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.text(formatDateParts(paidOn), cx, cy + 7, { align: 'center' });
+  }
 }
 
 function drawCopy(
@@ -202,10 +258,12 @@ function drawCopy(
   // Only print a valid 18-digit Kuickpay consumer number (banks reject shorter IDs).
   const kuickDigits = String(voucher.kuickpayConsumerNumber || '').replace(/\D/g, '');
   const kuickId = kuickDigits.length === 18 ? kuickDigits : 'NOT ASSIGNED — open Kuickpay Setup';
-  const feeBalance = voucherOutstandingPayable(voucher);
+  const paid = isVoucherPaid(voucher);
+  const billed = voucherBillAmount(voucher);
+  const feeBalance = paid ? billed : voucherOutstandingPayable(voucher);
   const payable = feeBalance;
   const kuickCharge = normalizeKuickpayCustomerCharge(assets.kuickpayCustomerCharge);
-  const kuickPayTotal = kuickpayPayableTotal(voucher, kuickCharge);
+  const kuickPayTotal = paid ? billed : kuickpayPayableTotal(voucher, kuickCharge);
 
   // KuickPay ID box
   doc.setDrawColor(...TEAL);
@@ -224,27 +282,27 @@ function drawCopy(
   y += 10;
 
   // Kuick Pay Amount (split box) — fee balance + admin-configured Kuickpay charge
-  const amountBoxH = kuickCharge > 0 && feeBalance > 0 ? 11 : 8;
+  const amountBoxH = !paid && kuickCharge > 0 && feeBalance > 0 ? 11 : 8;
   doc.setDrawColor(...TEAL);
   doc.roundedRect(x, y, w, amountBoxH, 0.5, 0.5, 'S');
+  const amountLabelW = 38;
   doc.setFillColor(...TEAL);
-  doc.rect(x, y, 38, amountBoxH, 'F');
-  doc.line(x + w * 0.55, y, x + w * 0.55, y + amountBoxH);
+  doc.rect(x, y, amountLabelW, amountBoxH, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text('Kuick Pay Amount', x + 19, y + (amountBoxH > 8 ? 4.2 : 5.2), { align: 'center' });
+  doc.text('Kuick Pay Amount', x + amountLabelW / 2, y + (amountBoxH > 8 ? 4.2 : 5.2), { align: 'center' });
   doc.setTextColor(...TEAL_DARK);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text(String(Math.round(kuickPayTotal)), x + w * 0.55 + 2, y + (amountBoxH > 8 ? 4.5 : 5.4));
-  if (kuickCharge > 0 && feeBalance > 0) {
+  doc.text(String(Math.round(kuickPayTotal)), x + amountLabelW + 2, y + (amountBoxH > 8 ? 4.5 : 5.4));
+  if (!paid && kuickCharge > 0 && feeBalance > 0) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(...GREY);
     doc.text(
       `Fee Rs. ${Math.round(feeBalance)} + Kuickpay Rs. ${Math.round(kuickCharge)}`,
-      x + w * 0.55 + 2,
+      x + amountLabelW + 2,
       y + 9,
     );
   }
@@ -313,10 +371,9 @@ function drawCopy(
   const heads = buildFeeHeads(voucher);
   const rowH = 6.2;
   const colHeads = [
-    { title: 'Head/s of\nAccount/s', width: w * 0.42 },
-    { title: 'Rs.', width: w * 0.14 },
-    { title: 'Moth/s', width: w * 0.16 },
-    { title: 'Amount', width: w * 0.28 },
+    { title: 'Head/s of\nAccount/s', width: w * 0.56 },
+    { title: 'Month/s', width: w * 0.18 },
+    { title: 'Amount', width: w * 0.26 },
   ];
   doc.setFillColor(...TEAL);
   doc.rect(x, y, w, 9, 'F');
@@ -340,23 +397,14 @@ function drawCopy(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.text(head.label, x + 1.5, y + 4);
-    // dashed value cells
-    let vx = x + colHeads[0].width;
-    for (let i = 1; i < 4; i++) {
-      const cellW = colHeads[i].width;
-      dashedLine(doc, vx + 1, y + 4.5, vx + cellW - 1);
-      if (i === 2) {
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...TEAL_DARK);
-        doc.text(head.months, vx + cellW / 2, y + 3.8, { align: 'center' });
-      }
-      if (i === 3) {
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...TEAL_DARK);
-        doc.text(head.amount ? String(Math.round(head.amount)) : '—', vx + cellW / 2, y + 3.8, { align: 'center' });
-      }
-      vx += cellW;
-    }
+    const monthX = x + colHeads[0].width;
+    const amountX = monthX + colHeads[1].width;
+    dashedLine(doc, monthX + 1, y + 4.5, monthX + colHeads[1].width - 1);
+    dashedLine(doc, amountX + 1, y + 4.5, amountX + colHeads[2].width - 1);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...TEAL_DARK);
+    doc.text(head.months, monthX + colHeads[1].width / 2, y + 3.8, { align: 'center' });
+    doc.text(String(Math.round(head.amount)), amountX + colHeads[2].width / 2, y + 3.8, { align: 'center' });
     doc.setDrawColor(...TEAL);
     doc.line(x, y + rowH, right, y + rowH);
     y += rowH;
@@ -382,11 +430,11 @@ function drawCopy(
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text('Amount Payable within Due Date:', x + 2, y + 5.2);
+  doc.text(paid ? 'Amount Paid:' : 'Amount Payable within Due Date:', x + 2, y + 5.2);
   doc.text('Rs.', x + w * 0.62 + 5, y + 5.2, { align: 'center' });
   doc.setTextColor(...TEAL_DARK);
   doc.setFontSize(10);
-  doc.text(String(Math.round(payable)).padStart(4, '0'), x + w * 0.62 + 12, y + 5.5);
+  doc.text(String(Math.round(payable)), x + w * 0.62 + 12, y + 5.5);
   y += barH + 5;
 
   doc.setFont('helvetica', 'bold');
@@ -409,6 +457,10 @@ function drawCopy(
     doc.setTextColor(...TEAL_DARK);
     doc.text('Note: Pay via KuickPay at affiliate banks. Fees not accepted after expiry.', x, y + 3, { maxWidth: w });
     y += 10;
+  }
+
+  if (paid) {
+    drawPaidStamp(doc, x + w * 0.72, Math.min(y + 8, 272), voucher.paymentDate);
   }
 
   doc.setFont('helvetica', 'bold');

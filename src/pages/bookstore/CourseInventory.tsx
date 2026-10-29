@@ -36,12 +36,12 @@ export default function CourseInventory() {
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase text-slate-400">
             <tr>
-              <th className="p-3 text-left">Region</th>
-              <th className="p-3 text-left">Campus</th>
-              <th className="p-3 text-left">Class</th>
-              <th className="p-3 text-left">Title</th>
-              <th className="p-3 text-right">Available</th>
-              <th className="p-3 text-right">Damaged</th>
+              <th className="p-3 text-start">Region</th>
+              <th className="p-3 text-start">Campus</th>
+              <th className="p-3 text-start">Class</th>
+              <th className="p-3 text-start">Title</th>
+              <th className="p-3 text-end">Available</th>
+              <th className="p-3 text-end">Damaged</th>
             </tr>
           </thead>
           <tbody>
@@ -51,8 +51,8 @@ export default function CourseInventory() {
                 <td className="p-3">{row.campusName}</td>
                 <td className="p-3">{row.className}</td>
                 <td className="p-3 font-semibold">{row.title}</td>
-                <td className="p-3 text-right">{row.on_hand}</td>
-                <td className="p-3 text-right">{row.damaged}</td>
+                <td className="p-3 text-end">{row.on_hand}</td>
+                <td className="p-3 text-end">{row.damaged}</td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td className="p-6 text-slate-400" colSpan={6}>No class stock yet. Verify a campus receipt to create balances.</td></tr>}
