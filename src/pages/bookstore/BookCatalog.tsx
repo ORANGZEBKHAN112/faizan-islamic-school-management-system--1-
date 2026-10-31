@@ -25,7 +25,7 @@ export default function BookCatalog() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await bookstoreService.fetchBooks({ search, limit: 200, activeOnly: false });
+      const res = await bookstoreService.fetchBooks({ search, limit: 500, activeOnly: false });
       setRows(res.data || []);
     } catch (err: unknown) {
       const ax = err as { response?: { status?: number; data?: { message?: string; code?: string } } };

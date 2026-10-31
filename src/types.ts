@@ -91,6 +91,8 @@ export interface Student {
   sectionName?: string;
   session?: string;
   status: 'Active' | 'Pending' | 'Left' | 'Graduated';
+  courseIssueStatus?: string | null;
+  courseIssuedSession?: string | null;
   outstandingFees: number;
   campusType?: string;
   profileImage?: string;

@@ -24,6 +24,9 @@ type Voucher = {
   issue_status: string;
   due_date?: string;
   stock_alert?: string | null;
+  kuickpay_consumer_number?: string | null;
+  kuickpayCharge?: number;
+  studentCourseStatus?: string | null;
   items: VoucherItem[];
 };
 
@@ -67,7 +70,9 @@ export default function CourseVouchers() {
       return;
     }
     const timer = setTimeout(() => {
-      dataService.getPaginated('students', { search, limit: 8, page: 1, status: 'Active' }).then((r) => setStudents(r.data as Student[]));
+      const params: { search: string; limit: number; page: number; status?: string } = { search, limit: 8, page: 1 };
+      if (form.kind === 'existing') params.status = 'Active';
+      dataService.getPaginated('students', params).then((r) => setStudents(r.data as Student[]));
     }, 300);
     return () => clearTimeout(timer);
   }, [search, form.kind]);
@@ -137,8 +142,10 @@ export default function CourseVouchers() {
           <button type="button" className={form.mode === 'custom' ? 'vibrant-btn-primary' : 'vibrant-btn-secondary'} onClick={() => setForm((f) => ({ ...f, mode: 'custom' }))}>Customize</button>
         </div>
         <p className="text-xs text-slate-500">
-          {form.mode === 'full'
-            ? 'Full course issues every title in the class pack.'
+          {form.kind === 'bulk'
+            ? 'Bulk admission creates one voucher for every enrolled admission in this class that does not already have an open course voucher.'
+            : form.mode === 'full'
+            ? 'Full course issues every title in the class pack, in the client course-list order.'
             : 'Customize issues only the titles on this voucher, so a partial set cannot be treated as a full course.'}
         </p>
         <div className="grid md:grid-cols-4 gap-3">
@@ -209,7 +216,18 @@ export default function CourseVouchers() {
                 <p className="text-xs text-slate-500">
                   Admission {voucher.admissionNo || '—'} · {voucher.className} · {voucher.campusName} · {voucher.kind} · {voucher.mode === 'full' ? 'Full course' : 'Customize'}
                 </p>
-                <p className="text-xs text-slate-500">Due {voucher.due_date ? String(voucher.due_date).slice(0, 10) : '—'} · {voucher.payment_status} · {voucher.issue_status === 'issued' ? 'Course issued' : 'Not issued'}</p>
+                <p className="text-xs text-slate-500">Due {voucher.due_date ? String(voucher.due_date).slice(0, 10) : '—'} · {voucher.payment_status} · {voucher.issue_status === 'issued' ? 'Course issued' : 'Not issued'}{voucher.studentCourseStatus === 'issued' ? ' · student status updated' : ''}</p>
+                {voucher.kuickpay_consumer_number && (
+                  <p className="text-xs font-bold text-primary mt-1">
+                    KuickPay ID {voucher.kuickpay_consumer_number}
+                    {voucher.payment_status !== 'paid' && (
+                      <>
+                        {' · bank collects '}
+                        {money(Math.max(0, Number(voucher.total) - Number(voucher.paid_amount)) + Number(voucher.kuickpayCharge || 0))}
+                      </>
+                    )}
+                  </p>
+                )}
                 {voucher.stock_alert && <p className="text-xs text-amber-600 mt-1">{voucher.stock_alert}</p>}
               </div>
               <div className="text-end">

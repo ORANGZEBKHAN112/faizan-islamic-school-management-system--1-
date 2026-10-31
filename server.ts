@@ -2953,6 +2953,8 @@ async function startServer() {
           cl.section_name AS sectionName,
           s.outstanding_fees AS outstandingFees,
           s.profile_image AS profileImage,
+          s.course_issue_status AS courseIssueStatus,
+          s.course_issued_session AS courseIssuedSession,
           'Physical Campus' AS campusType
         ${baseFrom}
         ORDER BY s.student_name ASC
@@ -5020,7 +5022,11 @@ async function startServer() {
       }
 
       const fee = await findFeeByConsumerNumber(pool, consumerNumber);
-      if (!fee) return res.json(inquiryError("01", "Consumer number not found"));
+      if (!fee) {
+        const course = await findCourseVoucherByConsumerNumber(pool, consumerNumber);
+        if (!course) return res.json(inquiryError("01", "Consumer number not found"));
+        return res.json(buildInquirySuccess(courseVoucherBill(course), consumerNumber, kuickpayCustomerChargePkr(cfg)));
+      }
 
       res.json(buildInquirySuccess(fee, consumerNumber, kuickpayCustomerChargePkr(cfg)));
     } catch (err) {
@@ -5069,7 +5075,21 @@ async function startServer() {
       }
 
       const fee = await findFeeByConsumerNumber(pool, consumerNumber);
-      if (!fee) return res.json(paymentError("01", "Voucher number does not exist"));
+      if (!fee) {
+        const course = await findCourseVoucherByConsumerNumber(pool, consumerNumber);
+        if (!course) return res.json(paymentError("01", "Voucher number does not exist"));
+        const courseResult = await applyCourseKuickpayPayment(pool, {
+          voucher: course,
+          consumerNumber,
+          amount,
+          tranAuthId,
+          tranDate,
+          tranTime,
+          bankMnemonic,
+          reserved,
+        });
+        return res.json(courseResult);
+      }
 
       const result = await applyKuickpayPayment(pool, {
         fee,

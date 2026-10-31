@@ -713,6 +713,11 @@ export default function StudentManagement() {
                     }`}>
                       {student.status}
                     </span>
+                    {student.courseIssueStatus === 'issued' && (
+                      <span className="mt-1 block px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary/10 text-primary">
+                        Course issued{student.courseIssuedSession ? ` · ${student.courseIssuedSession}` : ''}
+                      </span>
+                    )}
                   </td>
                   <td className="px-8 py-5 text-end">
                     <div className="flex items-center justify-end gap-2">

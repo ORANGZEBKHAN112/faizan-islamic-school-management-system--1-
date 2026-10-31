@@ -7,6 +7,7 @@ import { BookPricingError, assertValidSessionLabel, resolveBookPricesForSession 
 import {
   computeEnrollmentDemand,
   createStockReservation,
+  assertCourseCounterSaleBlocked,
   executeBookSale,
   quotePackForStore,
   releaseStockReservation,
@@ -253,7 +254,9 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       const pool = getPool();
       if (!pool) return res.status(503).json({ message: "Database unavailable" });
       await ensureBookCatalog(pool);
-      const { page, limit, offset } = parsePage(req);
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 500));
+      const offset = (page - 1) * limit;
       const search = String(req.query.search || "").trim();
       const activeOnly = req.query.activeOnly !== "0";
       let where = "WHERE 1=1";
@@ -788,6 +791,8 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
         return res.status(400).json({ message: "packId+studentId or lines required" });
       }
 
+      await assertCourseCounterSaleBlocked(pool, lines.map((line) => line.bookId));
+
       const result = await createStockReservation(pool, {
         storeId,
         studentId: studentId ? String(studentId) : null,
@@ -800,6 +805,8 @@ export function registerBookstoreRoutes(app: Express, deps: BookstoreRouteDeps):
       });
       res.status(result.duplicate ? 200 : 201).json(result);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not permitted/i.test(msg)) return res.status(409).json({ message: msg });
       sendServerError(res, err, "Error creating reservation");
     }
   });

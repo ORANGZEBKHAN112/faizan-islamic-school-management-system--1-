@@ -126,6 +126,7 @@ export async function ensureCourseSellingSchema(pool: ConnectionPool): Promise<v
        issued_at DATETIME2 NULL,
        issued_by NVARCHAR(50) NULL,
        stock_alert NVARCHAR(500) NULL,
+       kuickpay_consumer_number NVARCHAR(18) NULL,
        status NVARCHAR(20) NOT NULL DEFAULT 'open',
        created_by NVARCHAR(50) NULL,
        created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
@@ -210,6 +211,17 @@ export async function ensureCourseSellingSchema(pool: ConnectionPool): Promise<v
        line_count INT NOT NULL,
        loaded_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
      )`,
+    `IF COL_LENGTH('CourseVouchers', 'kuickpay_consumer_number') IS NULL
+      ALTER TABLE CourseVouchers ADD kuickpay_consumer_number NVARCHAR(18) NULL`,
+    `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_CourseVouchers_kuickpay_cn' AND object_id = OBJECT_ID('CourseVouchers'))
+      CREATE UNIQUE INDEX UX_CourseVouchers_kuickpay_cn ON CourseVouchers(kuickpay_consumer_number)
+      WHERE kuickpay_consumer_number IS NOT NULL`,
+    `IF COL_LENGTH('Students', 'course_issue_status') IS NULL
+      ALTER TABLE Students ADD course_issue_status NVARCHAR(20) NULL`,
+    `IF COL_LENGTH('Students', 'course_issued_session') IS NULL
+      ALTER TABLE Students ADD course_issued_session NVARCHAR(30) NULL`,
+    `IF COL_LENGTH('BookPackItems', 'sort_order') IS NULL
+      ALTER TABLE BookPackItems ADD sort_order INT NOT NULL CONSTRAINT DF_BookPackItems_sort DEFAULT 0`,
   ];
 
   for (const q of batches) {

@@ -4,6 +4,16 @@ import sql from "mssql";
 import { nextSequence, postInventoryMovement } from "./ledger.js";
 import { assertValidSessionLabel, resolveBookPricesForSession } from "./pricing.js";
 import { buildReconciliationPipeline, type PipelineTotals } from "./reconciliationMath.js";
+import { loadCourseTitleOrder } from "./courseMaster.js";
+import {
+  classifyKuickpayDuplicate,
+  ensureCourseKuickpayConsumerNumber,
+  isValidKuickpayConsumerNumber,
+  kuickpayCustomerChargePkr,
+  loadKuickpayConfig,
+  outstandingPayable,
+  paymentError,
+} from "../kuickpayBps.js";
 
 export class CourseFlowError extends Error {
   status: number;
@@ -16,6 +26,21 @@ export class CourseFlowError extends Error {
 }
 
 type LinePrice = { unitCost: number; sellingPrice: number };
+
+async function sortByCourseMaster<T extends Record<string, unknown>>(pool: ConnectionPool, rows: T[]): Promise<T[]> {
+  const classIds = rows.map((row) => String(row.class_id || row.classId || "")).filter(Boolean);
+  const order = await loadCourseTitleOrder(pool, classIds);
+  return [...rows].sort((a, b) => {
+    const campus = String(a.campusName || a.campus_name || "").localeCompare(String(b.campusName || b.campus_name || ""));
+    if (campus) return campus;
+    const cls = String(a.className || a.class_name || "").localeCompare(String(b.className || b.class_name || ""));
+    if (cls) return cls;
+    const ka = order.get(`${a.class_id || a.classId}|${a.book_id || a.bookId}`) ?? 100000;
+    const kb = order.get(`${b.class_id || b.classId}|${b.book_id || b.bookId}`) ?? 100000;
+    if (ka !== kb) return ka - kb;
+    return String(a.title || "").localeCompare(String(b.title || ""));
+  });
+}
 
 async function pricesOrZero(pool: ConnectionPool, academicSession: string, bookIds: string[]): Promise<Map<string, LinePrice>> {
   const session = assertValidSessionLabel(academicSession);
@@ -177,7 +202,7 @@ export async function listProjections(pool: ConnectionPool, academicSession?: st
     ${where}
     ORDER BY cp.region, cp.campus_name, cl.class_name, bc.title
   `);
-  return rows.recordset;
+  return sortByCourseMaster(pool, rows.recordset);
 }
 
 export async function createPurchaseOrder(
@@ -189,18 +214,20 @@ export async function createPurchaseOrder(
   const req = pool.request();
   ids.forEach((id, i) => req.input(`id${i}`, id));
   const lines = await req.query(`
-    SELECT p.*, bc.title
+    SELECT p.*, bc.title, cl.class_name, cp.campus_name
     FROM CourseProjections p
     JOIN BookCatalog bc ON bc.id = p.book_id
+    JOIN Classes cl ON cl.id = p.class_id
+    JOIN Campuses cp ON cp.id = p.campus_id
     WHERE p.id IN (${ids.map((_, i) => `@id${i}`).join(",")})
-    ORDER BY bc.title
   `);
   if (lines.recordset.length === 0) throw new CourseFlowError(404, "NOT_FOUND", "Projection lines not found");
-  const session = String(lines.recordset[0].academic_session);
-  if (lines.recordset.some((r) => String(r.academic_session) !== session)) {
+  const orderedLines = await sortByCourseMaster(pool, lines.recordset);
+  const session = String(orderedLines[0].academic_session);
+  if (orderedLines.some((r) => String(r.academic_session) !== session)) {
     throw new CourseFlowError(400, "MIXED_SESSION", "All lines must belong to the same academic session");
   }
-  const bookIds = lines.recordset.map((r) => String(r.book_id));
+  const bookIds = orderedLines.map((r) => String(r.book_id));
   const prices = await pricesOrZero(pool, session, bookIds);
   const seq = await nextSequence(pool, "course-po");
   const year = session.slice(0, 4);
@@ -220,7 +247,7 @@ export async function createPurchaseOrder(
         VALUES (@id, @orderNo, @session, CAST(GETUTCDATE() AS DATE), 'sent', @notes, @by)
       `);
     let order = 0;
-    for (const line of lines.recordset) {
+    for (const line of orderedLines) {
       const price = prices.get(String(line.book_id)) || { unitCost: 0, sellingPrice: 0 };
       await tx.request()
         .input("id", crypto.randomUUID())
@@ -326,7 +353,7 @@ export async function postWarehouseDispatch(
       `);
     const receivingByCampus = new Map<string, string>();
     let sort = 0;
-    const ordered = [...lines].sort((a, b) => String(byId.get(a.poItemId)?.title || "").localeCompare(String(byId.get(b.poItemId)?.title || "")));
+    const ordered = [...lines].sort((a, b) => num(byId.get(a.poItemId)?.sort_order) - num(byId.get(b.poItemId)?.sort_order));
     for (const line of ordered) {
       const src = byId.get(line.poItemId)!;
       const itemId = crypto.randomUUID();
@@ -509,12 +536,20 @@ async function resolveVoucherLines(
       FROM BookPackItems i
       JOIN BookCatalog bc ON bc.id = i.book_id
       WHERE i.pack_id = @packId
-      ORDER BY bc.title
     `);
     if (items.recordset.length === 0) throw new CourseFlowError(400, "EMPTY_PACK", "Class pack has no titles");
+    const order = await loadCourseTitleOrder(pool, [input.classId]);
+    const lines = items.recordset
+      .map((r) => ({ bookId: String(r.bookId), quantity: num(r.quantity), title: String(r.title || "") }))
+      .sort((a, b) => {
+        const ka = order.get(`${input.classId}|${a.bookId}`) ?? 100000;
+        const kb = order.get(`${input.classId}|${b.bookId}`) ?? 100000;
+        if (ka !== kb) return ka - kb;
+        return a.title.localeCompare(b.title);
+      });
     return {
       packId: input.packId,
-      lines: items.recordset.map((r) => ({ bookId: String(r.bookId), quantity: num(r.quantity) })),
+      lines: lines.map((line) => ({ bookId: line.bookId, quantity: line.quantity })),
     };
   }
   const raw = (input.items || []).filter((it) => it.bookId && num(it.quantity) > 0);
@@ -524,8 +559,14 @@ async function resolveVoucherLines(
   const titles = await req.query(`
     SELECT id, title FROM BookCatalog WHERE id IN (${raw.map((_, i) => `@b${i}`).join(",")})
   `);
-  const order = new Map(titles.recordset.map((r) => [String(r.id), String(r.title)]));
-  const lines = [...raw].sort((a, b) => String(order.get(a.bookId) || "").localeCompare(String(order.get(b.bookId) || "")));
+  const titleOf = new Map(titles.recordset.map((r) => [String(r.id), String(r.title)]));
+  const order = await loadCourseTitleOrder(pool, [input.classId]);
+  const lines = [...raw].sort((a, b) => {
+    const ka = order.get(`${input.classId}|${a.bookId}`) ?? 100000;
+    const kb = order.get(`${input.classId}|${b.bookId}`) ?? 100000;
+    if (ka !== kb) return ka - kb;
+    return String(titleOf.get(a.bookId) || "").localeCompare(String(titleOf.get(b.bookId) || ""));
+  });
   return { packId: null, lines };
 }
 
@@ -666,7 +707,12 @@ export async function createCourseVouchers(
       .query(`
         SELECT s.id
         FROM Students s
-        WHERE s.campus_id = @campusId AND s.class_id = @classId AND s.status = 'Active'
+        WHERE s.campus_id = @campusId AND s.class_id = @classId AND s.status IN ('Active', 'Pending')
+          AND EXISTS (
+            SELECT 1 FROM AdmissionApplications a
+            WHERE a.status = 'Enrolled'
+              AND (a.student_id = s.id OR a.linked_student_id = s.id)
+          )
           AND NOT EXISTS (
             SELECT 1 FROM CourseVouchers v
             WHERE v.student_id = s.id AND v.academic_session = @session AND v.status = 'open'
@@ -675,7 +721,7 @@ export async function createCourseVouchers(
       `);
     students = rows.recordset;
     if (students.length === 0) {
-      throw new CourseFlowError(400, "NO_STUDENTS", "No active students without an open course voucher");
+      throw new CourseFlowError(400, "NO_STUDENTS", "No enrolled admissions in this class without an open course voucher");
     }
   } else {
     if (!input.studentId) throw new CourseFlowError(400, "NO_STUDENT", "Student is required");
@@ -684,7 +730,16 @@ export async function createCourseVouchers(
     `);
     const s = student.recordset[0];
     if (!s) throw new CourseFlowError(404, "NO_STUDENT", "Student not found");
-    if (String(s.status) !== "Active") throw new CourseFlowError(400, "INACTIVE", "Student is not active");
+    const studentStatus = String(s.status);
+    if (input.kind === "existing" && studentStatus !== "Active") {
+      throw new CourseFlowError(400, "INACTIVE", "Existing-student vouchers are for active students");
+    }
+    if (input.kind === "individual" && studentStatus !== "Active" && studentStatus !== "Pending") {
+      throw new CourseFlowError(400, "INACTIVE", "Student must be active or a pending admission");
+    }
+    if (input.kind !== "existing" && input.kind !== "individual" && studentStatus !== "Active") {
+      throw new CourseFlowError(400, "INACTIVE", "Student is not active");
+    }
     if (String(s.campus_id) !== input.campusId || String(s.class_id) !== input.classId) {
       throw new CourseFlowError(400, "STUDENT_MISMATCH", "Student campus or class does not match the voucher");
     }
@@ -728,6 +783,9 @@ export async function createCourseVouchers(
     await tx.rollback();
     throw e;
   }
+  for (const voucher of created) {
+    await ensureCourseKuickpayConsumerNumber(pool, voucher.id);
+  }
   return { count: created.length, vouchers: created, stockAlert: alert };
 }
 
@@ -740,7 +798,9 @@ export async function listCourseVouchers(pool: ConnectionPool, campusId?: string
   }
   const rows = await req.query(`
     SELECT v.*, s.student_name AS studentName, s.admission_no AS admissionNo,
-           cp.campus_name AS campusName, cl.class_name AS className
+           s.course_issue_status AS studentCourseStatus,
+           cp.campus_name AS campusName, cl.class_name AS className,
+           ISNULL((SELECT TOP 1 kuickpay_customer_charge FROM QuickPayConfig), 0) AS kuickpayCharge
     FROM CourseVouchers v
     JOIN Students s ON s.id = v.student_id
     JOIN Campuses cp ON cp.id = v.campus_id
@@ -748,6 +808,17 @@ export async function listCourseVouchers(pool: ConnectionPool, campusId?: string
     ${where}
     ORDER BY v.created_at DESC
   `);
+  let filled = 0;
+  for (const voucher of rows.recordset) {
+    if (filled >= 40) break;
+    if (String(voucher.status) !== "open" || String(voucher.payment_status) === "paid") continue;
+    if (isValidKuickpayConsumerNumber(voucher.kuickpay_consumer_number)) continue;
+    const cn = await ensureCourseKuickpayConsumerNumber(pool, String(voucher.id));
+    if (cn) {
+      voucher.kuickpay_consumer_number = cn;
+      filled += 1;
+    }
+  }
   const items = await pool.request().query(`
     SELECT i.*, bc.title
     FROM CourseVoucherItems i
@@ -800,6 +871,114 @@ export async function recordVoucherPayment(
   return { paymentStatus: status, paidAmount: status === "paid" ? total : paid };
 }
 
+export function courseVoucherBill(row: Record<string, unknown>): Record<string, unknown> {
+  const total = num(row.total);
+  const paid = num(row.paid_amount ?? row.paidAmount);
+  const paymentStatus = String(row.payment_status ?? row.paymentStatus ?? "");
+  const open = String(row.status || "open") === "open";
+  const isPaid = paymentStatus === "paid";
+  const dueRaw = row.due_date ?? row.dueDate;
+  const dueDate = dueRaw ? new Date(String(dueRaw)) : new Date();
+  const month = Number.isNaN(dueDate.getTime()) ? new Date().getUTCMonth() + 1 : dueDate.getUTCMonth() + 1;
+  const year = Number.isNaN(dueDate.getTime()) ? new Date().getUTCFullYear() : dueDate.getUTCFullYear();
+  return {
+    id: row.id,
+    student_id: row.student_id ?? row.studentId,
+    amount: total,
+    balance_amount: isPaid ? 0 : Math.max(0, total - paid),
+    paid_amount: paid,
+    arrears: 0,
+    fine_amount: 0,
+    discount_amount: 0,
+    status: !open ? "Cancelled" : isPaid ? "Paid" : "Unpaid",
+    due_date: dueRaw,
+    month,
+    year,
+    studentName: row.studentName,
+    studentContact: row.studentContact,
+    payment_date: row.paid_at ?? row.paidAt,
+    transaction_ref: row.payment_ref ?? row.paymentRef,
+  };
+}
+
+export async function findCourseVoucherByConsumerNumber(pool: ConnectionPool, consumerNumber: string) {
+  const cn = String(consumerNumber || "").replace(/\D/g, "");
+  if (!cn) return null;
+  const result = await pool.request().input("cn", cn).query(`
+    SELECT TOP 1
+      v.*,
+      s.student_name AS studentName,
+      s.father_mobile AS studentContact
+    FROM CourseVouchers v
+    JOIN Students s ON s.id = v.student_id
+    WHERE v.kuickpay_consumer_number = @cn
+  `);
+  return result.recordset[0] || null;
+}
+
+export async function applyCourseKuickpayPayment(
+  pool: ConnectionPool,
+  opts: {
+    voucher: Record<string, unknown>;
+    consumerNumber: string;
+    amount: number;
+    tranAuthId: string;
+    tranDate: string;
+    tranTime: string;
+    bankMnemonic: string;
+    reserved?: string;
+  }
+) {
+  const bill = courseVoucherBill(opts.voucher);
+  const cfg = await loadKuickpayConfig(pool);
+  const charge = kuickpayCustomerChargePkr(cfg);
+  const base = outstandingPayable(bill);
+  const expected = base + (charge > 0 ? charge : 0);
+  const dup = await classifyKuickpayDuplicate(pool, opts.consumerNumber, opts.tranAuthId, opts.amount, opts.tranDate);
+  if (dup === "exact") return paymentError("03", "Duplicate transaction");
+  if (dup === "mismatch") return paymentError("04", "Transaction auth already used with different amount or date");
+  if (String(bill.status) === "Cancelled") return paymentError("02", "Voucher is blocked or expired");
+  if (String(bill.status) === "Paid" || base <= 0) return paymentError("04", "Voucher already paid");
+  if (!(opts.amount > 0)) return paymentError("04", "Invalid transaction amount");
+  if (Math.abs(opts.amount - expected) > 0.009) {
+    return paymentError("04", `Partial payment not supported; full amount required (${expected.toFixed(2)})`);
+  }
+  await recordVoucherPayment(pool, {
+    voucherId: String(opts.voucher.id),
+    amount: base,
+    method: "KuickPay",
+    transactionRef: opts.tranAuthId,
+  });
+  await pool.request()
+    .input("id", crypto.randomUUID())
+    .input("fee_id", String(opts.voucher.id))
+    .input("student_id", String(opts.voucher.student_id))
+    .input("consumer_number", opts.consumerNumber)
+    .input("tran_auth_id", opts.tranAuthId)
+    .input("amount", opts.amount)
+    .input("tran_date", opts.tranDate)
+    .input("tran_time", opts.tranTime || null)
+    .input("bank_mnemonic", opts.bankMnemonic || null)
+    .input("reserved", opts.reserved || null)
+    .query(`
+      INSERT INTO KuickpayPaymentLog (
+        id, fee_id, student_id, consumer_number, tran_auth_id, amount,
+        tran_date, tran_time, bank_mnemonic, reserved, created_at
+      ) VALUES (
+        @id, @fee_id, @student_id, @consumer_number, @tran_auth_id, @amount,
+        @tran_date, @tran_time, @bank_mnemonic, @reserved, GETDATE()
+      )
+    `);
+  const receipt = String(Date.now()).slice(-20).padStart(20, "0");
+  return {
+    response_Code: "00",
+    Identification_Parameter: receipt,
+    Reserved: String(opts.reserved || "").slice(0, 200),
+    status: "Paid",
+    balanceAmount: 0,
+  };
+}
+
 export async function markCourseVoucherPaidById(
   pool: ConnectionPool,
   voucherId: string,
@@ -838,7 +1017,7 @@ export async function issueCourseVoucher(pool: ConnectionPool, voucherId: string
     FROM CourseVoucherItems i
     JOIN BookCatalog bc ON bc.id = i.book_id
     WHERE i.voucher_id = @id
-    ORDER BY bc.title
+    ORDER BY i.sort_order, bc.title
   `);
   if (items.recordset.length === 0) throw new CourseFlowError(400, "NO_LINES", "Voucher has no titles");
   const tx = new sql.Transaction(pool);
@@ -882,6 +1061,14 @@ export async function issueCourseVoucher(pool: ConnectionPool, voucherId: string
       SET issue_status = 'issued', issued_at = SYSUTCDATETIME(), issued_by = @by
       WHERE id = @id
     `);
+    await tx.request()
+      .input("studentId", voucher.student_id)
+      .input("session", voucher.academic_session)
+      .query(`
+        UPDATE Students
+        SET course_issue_status = 'issued', course_issued_session = @session
+        WHERE id = @studentId
+      `);
     await tx.commit();
   } catch (e) {
     await tx.rollback();
@@ -1028,11 +1215,14 @@ export async function approveStockAdjustment(
 
 export async function listAdjustments(pool: ConnectionPool) {
   const rows = await pool.request().query(`
-    SELECT a.*, bc.title, cp.campus_name AS campusName, cl.class_name AS className
+    SELECT a.*, bc.title, cp.campus_name AS campusName, cl.class_name AS className,
+           ru.username AS requestedByName, au.username AS approvedByName
     FROM CourseStockAdjustments a
     JOIN BookCatalog bc ON bc.id = a.book_id
     JOIN Campuses cp ON cp.id = a.campus_id
     JOIN Classes cl ON cl.id = a.class_id
+    LEFT JOIN Users ru ON ru.id = a.requested_by
+    LEFT JOIN Users au ON au.id = a.approved_by
     ORDER BY a.created_at DESC
   `);
   return rows.recordset;
@@ -1054,7 +1244,7 @@ export async function listClassInventory(pool: ConnectionPool, campusId?: string
     ${where}
     ORDER BY cp.region, cp.campus_name, cl.class_name, bc.title
   `);
-  return rows.recordset;
+  return sortByCourseMaster(pool, rows.recordset);
 }
 
 export async function listStockHistory(pool: ConnectionPool, bookId: string, campusId?: string) {
@@ -1223,12 +1413,22 @@ export async function courseDashboard(pool: ConnectionPool, campusId?: string) {
   `);
   const byCampus = await bind().query(`
     SELECT cp.campus_name AS campusName, cp.region,
-           COALESCE(SUM(v.total), 0) AS sale,
-           COALESCE(SUM(v.paid_amount), 0) AS collection
+           COALESCE(sale.sale, 0) AS sale,
+           COALESCE(sale.collection, 0) AS collection,
+           COALESCE(inv.inventory, 0) AS inventory
     FROM Campuses cp
-    LEFT JOIN CourseVouchers v ON v.campus_id = cp.id AND v.status = 'open'
+    LEFT JOIN (
+      SELECT campus_id, SUM(total) AS sale, SUM(paid_amount) AS collection
+      FROM CourseVouchers
+      WHERE status = 'open'
+      GROUP BY campus_id
+    ) sale ON sale.campus_id = cp.id
+    LEFT JOIN (
+      SELECT campus_id, SUM(on_hand) AS inventory
+      FROM CourseClassBalances
+      GROUP BY campus_id
+    ) inv ON inv.campus_id = cp.id
     WHERE cp.isActive = 1 ${campusId ? "AND cp.id = @campusId" : ""}
-    GROUP BY cp.campus_name, cp.region
     ORDER BY cp.region, cp.campus_name
   `);
   const byRegion = await bind().query(`
@@ -1382,6 +1582,7 @@ export async function reportInventory(pool: ConnectionPool) {
 export async function reportSales(pool: ConnectionPool) {
   const rows = await pool.request().query(`
     SELECT cp.campus_name AS campusName, cp.region, cl.class_name AS className, bc.title,
+           v.class_id, vi.book_id,
            SUM(vi.quantity) AS quantity,
            SUM(vi.line_total) AS amount,
            SUM(CASE WHEN v.payment_status = 'paid' THEN vi.line_total ELSE 0 END) AS collected,
@@ -1392,17 +1593,18 @@ export async function reportSales(pool: ConnectionPool) {
     JOIN Campuses cp ON cp.id = v.campus_id
     JOIN Classes cl ON cl.id = v.class_id
     JOIN BookCatalog bc ON bc.id = vi.book_id
-    GROUP BY cp.region, cp.campus_name, cl.class_name, bc.title
-    ORDER BY cp.region, cp.campus_name, cl.class_name, bc.title
+    GROUP BY cp.region, cp.campus_name, cl.class_name, bc.title, v.class_id, vi.book_id
   `);
-  return rows.recordset;
+  return sortByCourseMaster(pool, rows.recordset);
 }
 
 export async function reportIssuance(pool: ConnectionPool) {
   const rows = await pool.request().query(`
     SELECT v.voucher_no AS voucherNo, s.student_name AS studentName, s.admission_no AS admissionNo,
            cl.class_name AS className, cp.campus_name AS campusName, bc.title, vi.quantity, vi.line_total AS amount,
-           v.payment_status AS paymentStatus, v.issue_status AS issueStatus, ci.issued_at AS issueDate, ci.issued_by AS issuedBy
+           v.class_id, vi.book_id,
+           v.payment_status AS paymentStatus, v.issue_status AS issueStatus, ci.issued_at AS issueDate,
+           COALESCE(u.username, ci.issued_by) AS issuedBy
     FROM CourseVoucherItems vi
     JOIN CourseVouchers v ON v.id = vi.voucher_id
     JOIN Students s ON s.id = v.student_id
@@ -1410,9 +1612,9 @@ export async function reportIssuance(pool: ConnectionPool) {
     JOIN Campuses cp ON cp.id = v.campus_id
     JOIN BookCatalog bc ON bc.id = vi.book_id
     LEFT JOIN CourseIssues ci ON ci.voucher_id = v.id
-    ORDER BY bc.title, s.student_name
+    LEFT JOIN Users u ON u.id = ci.issued_by
   `);
-  return rows.recordset;
+  return sortByCourseMaster(pool, rows.recordset);
 }
 
 export async function reportProjection(pool: ConnectionPool) {

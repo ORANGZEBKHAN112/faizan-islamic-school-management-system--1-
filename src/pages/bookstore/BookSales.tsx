@@ -237,7 +237,9 @@ export default function BookSales() {
   };
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6">
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">Course titles are sold from Vouchers. Payment is recorded there, and stock is deducted only when the course is issued. This counter is for titles that are not on the course list.</p>
+      <div className="grid lg:grid-cols-2 gap-6">
       <div className="space-y-4">
         <div className="vibrant-card p-4 space-y-3">
           <label className="text-[10px] font-black uppercase text-slate-400 ms-1">Campus store</label>
@@ -380,6 +382,7 @@ export default function BookSales() {
           ))}
         </div>
       </div>
+    </div>
     </div>
   );
 }

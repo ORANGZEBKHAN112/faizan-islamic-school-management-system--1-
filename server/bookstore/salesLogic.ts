@@ -12,6 +12,36 @@ import {
 
 export type SaleLineInput = { bookId: string; quantity: number; packId?: string | null };
 
+/** Course titles leave stock only when a paid course voucher is issued. */
+export async function assertCourseCounterSaleBlocked(pool: ConnectionPool, bookIds: string[]) {
+  const ids = [...new Set(bookIds.map(String).filter(Boolean))];
+  if (ids.length === 0) return;
+  const request = pool.request();
+  ids.forEach((id, i) => request.input(`b${i}`, id));
+  const rows = await request.query(`
+    SELECT DISTINCT bc.title
+    FROM BookCatalog bc
+    WHERE bc.id IN (${ids.map((_, i) => `@b${i}`).join(", ")})
+      AND (
+        EXISTS (
+          SELECT 1 FROM BookPackItems i
+          JOIN BookPacks p ON p.id = i.pack_id
+          WHERE i.book_id = bc.id AND p.name LIKE N'Full course%'
+        )
+        OR EXISTS (
+          SELECT 1 FROM CourseMasterLines ml
+          WHERE UPPER(LTRIM(RTRIM(ml.title))) = UPPER(LTRIM(RTRIM(bc.title)))
+        )
+      )
+  `);
+  if (rows.recordset.length > 0) {
+    const titles = rows.recordset.slice(0, 4).map((row) => String(row.title)).join(", ");
+    throw new Error(
+      `Course title sale is not permitted at the counter (${titles}). Create a course voucher and issue it after payment.`
+    );
+  }
+}
+
 export async function resolveStudentForSale(
   pool: ConnectionPool,
   studentId: string
@@ -229,6 +259,8 @@ export async function executeBookSale(
   } else {
     throw new Error("packId or items required");
   }
+
+  await assertCourseCounterSaleBlocked(pool, rawLines.map((line) => line.bookId));
 
   const pricedLines = await buildPricedLines(pool, session, rawLines);
   const subtotal = pricedLines.reduce((s, l) => s + l.lineTotal, 0);

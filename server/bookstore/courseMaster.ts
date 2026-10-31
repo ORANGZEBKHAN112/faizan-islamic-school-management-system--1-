@@ -39,6 +39,46 @@ export function canonicalCourseGrade(className: string): string | null {
   return null;
 }
 
+/** classId|bookId → Excel course-list position, so PO, dispatch, voucher, and reports share one title order. */
+export async function loadCourseTitleOrder(pool: ConnectionPool, classIds: string[]): Promise<Map<string, number>> {
+  const unique = [...new Set(classIds.map(String).filter(Boolean))];
+  const map = new Map<string, number>();
+  if (unique.length === 0) return map;
+  const classReq = pool.request();
+  unique.forEach((id, i) => classReq.input(`c${i}`, id));
+  const classes = await classReq.query(`
+    SELECT cl.id, cl.class_name AS className, cp.region
+    FROM Classes cl
+    JOIN Campuses cp ON cp.id = cl.campus_id
+    WHERE cl.id IN (${unique.map((_, i) => `@c${i}`).join(", ")})
+  `);
+  const lines = await pool.request().query(`
+    SELECT region_name AS regionName, class_name AS className, title, sort_order AS sortOrder
+    FROM CourseMasterLines
+  `);
+  const books = await pool.request().query(`SELECT id, title FROM BookCatalog`);
+  const byTitle = new Map<string, string>();
+  for (const book of books.recordset) {
+    byTitle.set(String(book.title || "").trim().toUpperCase(), String(book.id));
+  }
+  for (const cls of classes.recordset) {
+    const grade = canonicalCourseGrade(String(cls.className || ""));
+    const region = courseRegionForCampus(cls.region);
+    if (!grade) continue;
+    for (const line of lines.recordset) {
+      if (String(line.className) !== grade) continue;
+      if (region && String(line.regionName) !== region) continue;
+      const bookId = byTitle.get(String(line.title || "").trim().toUpperCase());
+      if (!bookId) continue;
+      const key = `${cls.id}|${bookId}`;
+      const sort = Number(line.sortOrder);
+      const prev = map.get(key);
+      if (prev == null || sort < prev) map.set(key, sort);
+    }
+  }
+  return map;
+}
+
 export function courseRegionForCampus(region?: string | null): string | null {
   const r = String(region || "").toLowerCase();
   if (!r) return null;
@@ -57,6 +97,43 @@ export function courseRegionForCampus(region?: string | null): string | null {
   return null;
 }
 
+/** Put every Excel title into BookCatalog so the Titles screen shows the working file, not only class sets. */
+async function syncCourseTitlesIntoCatalog(
+  pool: ConnectionPool,
+  lines: Array<{ title: string; publisher: string | null }>
+) {
+  const existing = await pool.request().query(`
+    SELECT UPPER(LTRIM(RTRIM(title))) AS title FROM BookCatalog
+  `);
+  const have = new Set(existing.recordset.map((row) => String(row.title || "")));
+  const pending = new Map<string, { title: string; publisher: string | null }>();
+  for (const line of lines) {
+    const title = String(line.title || "").trim();
+    const key = title.toUpperCase();
+    if (!key || have.has(key) || pending.has(key)) continue;
+    pending.set(key, { title, publisher: line.publisher ? String(line.publisher) : null });
+  }
+  if (pending.size === 0) return;
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    for (const item of pending.values()) {
+      await tx.request()
+        .input("id", crypto.randomUUID())
+        .input("title", item.title)
+        .input("publisher", item.publisher)
+        .query(`
+          INSERT INTO BookCatalog (id, title, publisher, is_active)
+          VALUES (@id, @title, @publisher, 1)
+        `);
+    }
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
+}
+
 export async function seedCourseMaster(pool: ConnectionPool): Promise<void> {
   const existing = await pool.request().input("source", SOURCE).query(`
     SELECT line_count AS lineCount FROM CourseMasterMeta WHERE source_name = @source
@@ -65,36 +142,37 @@ export async function seedCourseMaster(pool: ConnectionPool): Promise<void> {
   const lines = seed.regions.flatMap((region) =>
     region.classes.flatMap((cls) => cls.items.map((item) => ({ region: region.name, grade: cls.grade, ...item })))
   );
-  if (Number(existing.recordset[0]?.lineCount) === lines.length) return;
-
-  const tx = new sql.Transaction(pool);
-  await tx.begin();
-  try {
-    await tx.request().query(`DELETE FROM CourseMasterLines`);
-    for (const line of lines) {
-      await tx.request()
-        .input("id", crypto.randomUUID())
-        .input("region", line.region)
-        .input("className", line.grade)
-        .input("title", line.title)
-        .input("publisher", line.publisher)
-        .input("qty", line.quantity)
-        .input("sort", line.sort)
-        .input("shared", line.sharedStationery ? 1 : 0)
-        .query(`
-          INSERT INTO CourseMasterLines (id, region_name, class_name, title, publisher, quantity, sort_order, shared_stationery)
-          VALUES (@id, @region, @className, @title, @publisher, @qty, @sort, @shared)
-        `);
+  if (Number(existing.recordset[0]?.lineCount) !== lines.length) {
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+    try {
+      await tx.request().query(`DELETE FROM CourseMasterLines`);
+      for (const line of lines) {
+        await tx.request()
+          .input("id", crypto.randomUUID())
+          .input("region", line.region)
+          .input("className", line.grade)
+          .input("title", line.title)
+          .input("publisher", line.publisher)
+          .input("qty", line.quantity)
+          .input("sort", line.sort)
+          .input("shared", line.sharedStationery ? 1 : 0)
+          .query(`
+            INSERT INTO CourseMasterLines (id, region_name, class_name, title, publisher, quantity, sort_order, shared_stationery)
+            VALUES (@id, @region, @className, @title, @publisher, @qty, @sort, @shared)
+          `);
+      }
+      await tx.request().input("source", SOURCE).input("count", lines.length).query(`
+        DELETE FROM CourseMasterMeta;
+        INSERT INTO CourseMasterMeta (source_name, line_count) VALUES (@source, @count);
+      `);
+      await tx.commit();
+    } catch (err) {
+      await tx.rollback();
+      throw err;
     }
-    await tx.request().input("source", SOURCE).input("count", lines.length).query(`
-      DELETE FROM CourseMasterMeta;
-      INSERT INTO CourseMasterMeta (source_name, line_count) VALUES (@source, @count);
-    `);
-    await tx.commit();
-  } catch (err) {
-    await tx.rollback();
-    throw err;
   }
+  await syncCourseTitlesIntoCatalog(pool, lines);
 }
 
 export async function listCourseMaster(pool: ConnectionPool) {
@@ -217,10 +295,11 @@ export async function applyCourseMasterToCampus(
         missingGrades.push(grade);
         continue;
       }
-      const bookIds: Array<{ bookId: string; quantity: number }> = [];
-      for (const line of lines) {
+      const bookIds: Array<{ bookId: string; quantity: number; sort: number }> = [];
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
         const bookId = await ensureBook(tx, line.title, line.publisher, bookCache);
-        bookIds.push({ bookId, quantity: line.quantity });
+        bookIds.push({ bookId, quantity: line.quantity, sort: i });
       }
       for (const target of targets) {
         const packName = `Full course · ${grade}`;
@@ -256,9 +335,10 @@ export async function applyCourseMasterToCampus(
             .input("packId", packId)
             .input("bookId", item.bookId)
             .input("qty", item.quantity)
+            .input("sort", item.sort)
             .query(`
-              INSERT INTO BookPackItems (id, pack_id, book_id, quantity)
-              VALUES (@id, @packId, @bookId, @qty)
+              INSERT INTO BookPackItems (id, pack_id, book_id, quantity, sort_order)
+              VALUES (@id, @packId, @bookId, @qty, @sort)
             `);
         }
         packs += 1;

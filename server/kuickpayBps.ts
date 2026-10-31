@@ -566,3 +566,55 @@ export async function backfillKuickpayConsumerNumbers(
 
   return { assigned, failed, scanned };
 }
+
+/** Same 18-digit sequence as fee vouchers, stored on the course voucher. */
+export async function ensureCourseKuickpayConsumerNumber(
+  pool: ConnectionPool,
+  voucherId: string
+): Promise<string | null> {
+  const existing = await pool.request()
+    .input("id", voucherId)
+    .query(`SELECT kuickpay_consumer_number AS cn FROM CourseVouchers WHERE id = @id`);
+  if (!existing.recordset[0]) return null;
+  const current = existing.recordset[0].cn;
+  if (isValidKuickpayConsumerNumber(current)) return String(current).replace(/\D/g, "");
+
+  const cfg = await loadKuickpayConfig(pool);
+  const prefix = normalizePrefix(cfg?.consumer_prefix);
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const seqResult = await pool.request().query(`
+      IF NOT EXISTS (SELECT 1 FROM QuickPayConfig)
+      BEGIN
+        INSERT INTO QuickPayConfig (id, merchant_id, api_key, callback_url, mode, isEnabled, consumer_prefix, next_consumer_seq)
+        VALUES (CONVERT(NVARCHAR(50), NEWID()), '', '', '', 'Sandbox', 0, '73130', 1);
+      END
+      UPDATE TOP (1) QuickPayConfig
+      SET next_consumer_seq = ISNULL(next_consumer_seq, 1) + 1
+      OUTPUT DELETED.next_consumer_seq AS usedSeq
+    `);
+    let seq = Number(seqResult.recordset[0]?.usedSeq || 1);
+    if (!Number.isFinite(seq) || seq < 1) seq = 1;
+    const consumer = `${prefix}${String(seq).padStart(13, "0")}`;
+    try {
+      const saved = await pool.request()
+        .input("id", voucherId)
+        .input("cn", consumer)
+        .query(`
+          UPDATE CourseVouchers
+          SET kuickpay_consumer_number = @cn
+          WHERE id = @id
+            AND NOT EXISTS (SELECT 1 FROM Fees WHERE kuickpay_consumer_number = @cn)
+            AND NOT EXISTS (
+              SELECT 1 FROM CourseVouchers WHERE kuickpay_consumer_number = @cn AND id <> @id
+            );
+          SELECT kuickpay_consumer_number AS cn FROM CourseVouchers WHERE id = @id
+        `);
+      const cn = saved.recordset[0]?.cn;
+      if (isValidKuickpayConsumerNumber(cn)) return String(cn).replace(/\D/g, "");
+    } catch (err) {
+      console.warn("Course Kuickpay consumer assign retry:", err instanceof Error ? err.message : String(err));
+    }
+  }
+  return null;
+}

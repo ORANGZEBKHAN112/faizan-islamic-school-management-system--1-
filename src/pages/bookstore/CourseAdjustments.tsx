@@ -17,6 +17,8 @@ type Adjustment = {
   reason: string;
   status: string;
   requested_by?: string;
+  requestedByName?: string;
+  approvedByName?: string;
   approved_by?: string;
 };
 
@@ -115,7 +117,7 @@ export default function CourseAdjustments() {
                 <td className="p-3">{row.adj_type}</td>
                 <td className="p-3 text-end">{row.quantity}</td>
                 <td className="p-3">{row.reason}</td>
-                <td className="p-3 text-xs text-slate-500">{row.status} · by {row.requested_by || '—'} · approved {row.approved_by || '—'}</td>
+                <td className="p-3 text-xs text-slate-500">{row.status} · by {row.requestedByName || row.requested_by || '—'} · approved {row.approvedByName || row.approved_by || '—'}</td>
                 <td className="p-3 text-end">
                   {row.status === 'pending' && (
                     <button type="button" className="vibrant-btn-primary" onClick={() => void approve(row.id)}>Approve</button>
