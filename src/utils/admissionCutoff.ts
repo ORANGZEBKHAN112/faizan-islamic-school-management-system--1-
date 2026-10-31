@@ -1,18 +1,32 @@
 /**
- * Admission billing month cut-off (#33):
- * Days 1–16 count in the calendar month of admission.
- * Days 17+ roll into the next month.
+ * Admission billing month cut-off.
+ * Days 1–18 count in the calendar month of admission.
+ * After the 18th, the student and fees count in the next month.
  */
-export function admissionStatsMonthYear(admissionDate: Date | string): { month: number; year: number } {
-  const d = admissionDate instanceof Date ? admissionDate : new Date(admissionDate);
-  if (Number.isNaN(d.getTime())) {
-    const now = new Date();
-    return { month: now.getMonth() + 1, year: now.getFullYear() };
+const ADMISSION_BILLING_CUTOFF_DAY = 18;
+
+function calendarDate(value: Date | string): Date {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return new Date();
+    const utcMidnight =
+      value.getUTCHours() === 0 &&
+      value.getUTCMinutes() === 0 &&
+      value.getUTCSeconds() === 0 &&
+      value.getUTCMilliseconds() === 0;
+    if (utcMidnight) return new Date(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+    return value;
   }
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value).trim());
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+export function admissionStatsMonthYear(admissionDate: Date | string): { month: number; year: number } {
+  const d = calendarDate(admissionDate);
   let month = d.getMonth() + 1;
   let year = d.getFullYear();
-  const day = d.getDate();
-  if (day >= 17) {
+  if (d.getDate() > ADMISSION_BILLING_CUTOFF_DAY) {
     month += 1;
     if (month > 12) {
       month = 1;

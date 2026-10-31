@@ -40,6 +40,7 @@ import {
   normalizeCnic,
   createEnrollmentFeeVoucher,
   parseIncludedFeeHeads,
+  repairAdmissionVoucherSchedule,
   type AdmissionReviewResult,
 } from "./server/admissionReview.js";
 import {
@@ -56,7 +57,7 @@ import {
   pickUniqueLoginUsername,
   normalizeStaffUsernames,
 } from "./server/userLogin.js";
-import { admissionCountsInPeriod } from "./server/admissionCutoff.js";
+import { admissionCountsInPeriod, formatCalendarDate } from "./server/admissionCutoff.js";
 import {
   authFromHeaders,
   applyKuickpayPayment,
@@ -5019,9 +5020,7 @@ async function startServer() {
       }
 
       const fee = await findFeeByConsumerNumber(pool, consumerNumber);
-      if (!fee) {
-        return res.json(inquiryError("01", "Consumer number not found"));
-      }
+      if (!fee) return res.json(inquiryError("01", "Consumer number not found"));
 
       res.json(buildInquirySuccess(fee, consumerNumber, kuickpayCustomerChargePkr(cfg)));
     } catch (err) {
@@ -5070,9 +5069,7 @@ async function startServer() {
       }
 
       const fee = await findFeeByConsumerNumber(pool, consumerNumber);
-      if (!fee) {
-        return res.json(paymentError("01", "Voucher number does not exist"));
-      }
+      if (!fee) return res.json(paymentError("01", "Voucher number does not exist"));
 
       const result = await applyKuickpayPayment(pool, {
         fee,
@@ -8552,7 +8549,7 @@ async function startServer() {
   });
 
   /** Load admission fee voucher for Approved or Enrolled applications (#31/#32). */
-  async function loadAdmissionVoucherPayload(applicationId: string) {
+  async function loadAdmissionVoucherPayload(applicationId: string, options?: { repair?: boolean }) {
     const appResult = await pool!.request().input("id", applicationId).query(`
       SELECT a.id, a.status, a.student_id AS studentId, a.class_id AS classId,
              a.applicant_name AS applicantName, a.father_name AS fatherName,
@@ -8572,7 +8569,8 @@ async function startServer() {
              a.address AS address,
              c.campus_name AS campusName,
              cl.class_name AS className,
-             s.admission_no AS rollNumber
+             s.admission_no AS rollNumber,
+             CONVERT(VARCHAR(10), s.admission_date, 23) AS admissionDate
       FROM AdmissionApplications a
       LEFT JOIN Campuses c ON c.id = a.campus_id
       LEFT JOIN Classes cl ON cl.id = a.class_id
@@ -8588,13 +8586,15 @@ async function startServer() {
       return { error: { status: 400, message: "Assign a class before generating an admission voucher" } as const };
     }
 
-    let voucher = null;
-    if (application.studentId) {
+    const selectAdmissionVoucher = async (studentId: string) => {
       const existing = await pool!.request()
-        .input("studentId", application.studentId)
+        .input("studentId", studentId)
         .query(`
           SELECT TOP 1
-            f.id, f.student_id AS studentId, f.amount, f.month, f.year, f.status, f.due_date AS dueDate,
+            f.id, f.student_id AS studentId, f.amount, f.month, f.year, f.status,
+            CONVERT(VARCHAR(10), f.due_date, 23) AS dueDate,
+            CONVERT(VARCHAR(10), f.validity_date, 23) AS validityDate,
+            f.kuickpay_consumer_number AS kuickpayConsumerNumber,
             f.fee_type AS feeType, f.months_label AS monthsLabel,
             ISNULL(f.tuition_fee, 0) AS tuitionFee,
             ISNULL(f.admission_fee, 0) AS admissionFee,
@@ -8604,6 +8604,8 @@ async function startServer() {
             ISNULL(f.transport_fee, 0) AS transportFee,
             ISNULL(f.misc_fee, 0) AS miscFee,
             ISNULL(f.id_card_fee, 0) AS idCardFee,
+            ISNULL(f.summer_camp_fee, 0) AS summerCampFee,
+            ISNULL(f.trip_fee, 0) AS tripFee,
             ISNULL(f.arrears, 0) AS arrears,
             ISNULL(f.discount_amount, 0) AS discountAmount,
             ISNULL(f.paid_amount, 0) AS paidAmount,
@@ -8618,7 +8620,16 @@ async function startServer() {
             )
           ORDER BY f.created_at DESC
         `);
-      voucher = existing.recordset[0] || null;
+      return existing.recordset[0] || null;
+    };
+
+    let voucher = null;
+    if (application.studentId) {
+      voucher = await selectAdmissionVoucher(application.studentId);
+      if (voucher && options?.repair !== false) {
+        const changed = await repairAdmissionVoucherSchedule(pool!, voucher, application.admissionDate);
+        if (changed) voucher = await selectAdmissionVoucher(application.studentId);
+      }
     }
 
     return { application, voucher };
@@ -8627,7 +8638,7 @@ async function startServer() {
   /** Create/reactivate student for an Approved application without marking Enrolled (#32). */
   async function ensureAdmissionStudentRecord(app: Record<string, unknown>) {
     const fatherCnic = normalizeCnic(String(app.father_cnic || app.fatherCnic || ""));
-    const admissionDate = new Date().toISOString().split("T")[0];
+    const admissionDate = formatCalendarDate(new Date());
     let studentId: string;
     let rollNumber: string;
     let reactivated = false;
@@ -8780,7 +8791,11 @@ async function startServer() {
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
 
-      let loaded = await loadAdmissionVoucherPayload(req.params.id);
+      const requestedDue = typeof req.body?.dueDate === "string" ? req.body.dueDate.slice(0, 10) : "";
+      const requestedValidity = typeof req.body?.validityDate === "string" ? req.body.validityDate.slice(0, 10) : "";
+      const savingDates = Boolean(requestedDue && requestedValidity);
+
+      let loaded = await loadAdmissionVoucherPayload(req.params.id, { repair: !savingDates });
       if ("error" in loaded && loaded.error) {
         return res.status(loaded.error.status).json({ message: loaded.error.message });
       }
@@ -8820,6 +8835,8 @@ async function startServer() {
           siblingDiscountPercent: Number(loaded.application.siblingDiscountPercent) || 0,
           carryArrears: loaded.application.reviewMatchType === "re_enrollment" ? carryArrears : 0,
           includedHeads: parseIncludedFeeHeads(loaded.application.includedFeeHeads),
+          dueDate: typeof req.body?.dueDate === "string" ? req.body.dueDate : undefined,
+          validityDate: typeof req.body?.validityDate === "string" ? req.body.validityDate : undefined,
         });
         if (!createdVoucher.feeId) {
           return res.status(400).json({
@@ -8836,6 +8853,39 @@ async function startServer() {
         const refreshed = await loadAdmissionVoucherPayload(req.params.id);
         voucher = refreshed.voucher;
         created = true;
+      }
+
+      if (
+        voucher
+        && requestedDue
+        && requestedValidity
+        && voucher.status !== "Paid"
+        && Number(voucher.paidAmount || 0) <= 0
+        && (requestedDue !== String(voucher.dueDate || "").slice(0, 10) || requestedValidity !== String(voucher.validityDate || "").slice(0, 10))
+      ) {
+        const updated = await pool.request()
+          .input("id", voucher.id)
+          .input("due_date", requestedDue)
+          .input("validity_date", requestedValidity)
+          .query(`
+            UPDATE Fees
+            SET due_date = @due_date, validity_date = @validity_date
+            OUTPUT CONVERT(VARCHAR(10), inserted.due_date, 23) AS dueDate,
+                   CONVERT(VARCHAR(10), inserted.validity_date, 23) AS validityDate
+            WHERE id = @id AND status <> 'Paid' AND ISNULL(paid_amount, 0) = 0
+          `);
+        const savedDates = updated.recordset[0];
+        if (!savedDates) {
+          return res.status(409).json({ message: "Paid vouchers cannot change due date or expiry date" });
+        }
+        const refreshed = await loadAdmissionVoucherPayload(req.params.id, { repair: false });
+        if (!("error" in refreshed && refreshed.error) && refreshed.voucher) {
+          voucher = {
+            ...refreshed.voucher,
+            dueDate: savedDates.dueDate,
+            validityDate: savedDates.validityDate,
+          };
+        }
       }
 
       res.json({

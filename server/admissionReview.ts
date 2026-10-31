@@ -1,6 +1,7 @@
 import type sql from "mssql";
 import crypto from "crypto";
-import { ensureKuickpayConsumerNumber } from "./kuickpayBps.js";
+import { admissionBillingPeriod, formatCalendarDate } from "./admissionCutoff.js";
+import { ensureKuickpayConsumerNumber, isValidKuickpayConsumerNumber } from "./kuickpayBps.js";
 
 export type AdmissionMatchType = "new" | "re_enrollment" | "sibling" | "duplicate_active" | "duplicate_application";
 
@@ -693,6 +694,78 @@ export async function runAdmissionCnicReview(
   };
 }
 
+const ADMISSION_MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function admissionMonthsLabel(month: number, year: number): string {
+  return `${ADMISSION_MONTH_NAMES[month] || month} ${year}`;
+}
+
+function dateOnly(value: unknown): string {
+  if (!value) return "";
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value));
+  return match ? match[1] : "";
+}
+
+/** Fill billing month, due date, expiry, and Kuickpay ID on an unpaid admission voucher. */
+export async function repairAdmissionVoucherSchedule(
+  pool: sql.ConnectionPool,
+  voucher: {
+    id: string;
+    month: number;
+    year: number;
+    status?: string | null;
+    paidAmount?: number | null;
+    dueDate?: string | null;
+    validityDate?: string | null;
+    monthsLabel?: string | null;
+    kuickpayConsumerNumber?: string | null;
+  },
+  admissionDate?: string | null,
+): Promise<boolean> {
+  let changed = false;
+  const unpaid = voucher.status !== "Paid" && Number(voucher.paidAmount || 0) <= 0;
+  if (unpaid) {
+    const basis = admissionDate || `${voucher.year}-${String(voucher.month).padStart(2, "0")}-01`;
+    const period = admissionBillingPeriod(basis);
+    const due = dateOnly(voucher.dueDate);
+    const validity = dateOnly(voucher.validityDate);
+    const monthOff = Number(voucher.month) !== period.month || Number(voucher.year) !== period.year;
+    const automaticDue = formatCalendarDate(new Date(Number(voucher.year), Number(voucher.month) - 1, 10));
+    const automaticValidity = formatCalendarDate(new Date(Number(voucher.year), Number(voucher.month), 0));
+    const dueIsAutomatic = !due || due === automaticDue;
+    const validityIsAutomatic = !validity || validity === automaticValidity;
+    if (monthOff || !due || !validity) {
+      const month = monthOff ? period.month : Number(voucher.month);
+      const year = monthOff ? period.year : Number(voucher.year);
+      const nextDue = !due || (monthOff && dueIsAutomatic) ? period.dueDate : due;
+      const nextValidity = !validity || (monthOff && validityIsAutomatic) ? period.validityDate : validity;
+      await pool.request()
+        .input("id", voucher.id)
+        .input("month", month)
+        .input("year", year)
+        .input("due_date", nextDue)
+        .input("validity_date", nextValidity)
+        .input("months_label", admissionMonthsLabel(month, year))
+        .query(`
+          UPDATE Fees
+          SET month = @month,
+              year = @year,
+              due_date = @due_date,
+              validity_date = @validity_date,
+              months_label = @months_label
+          WHERE id = @id
+        `);
+      changed = true;
+    }
+  }
+
+  if (!isValidKuickpayConsumerNumber(voucher.kuickpayConsumerNumber)) {
+    const assigned = await ensureKuickpayConsumerNumber(pool, voucher.id);
+    if (assigned) changed = true;
+  }
+  return changed;
+}
+
 export async function createEnrollmentFeeVoucher(
   pool: sql.ConnectionPool,
   studentId: string,
@@ -704,6 +777,8 @@ export async function createEnrollmentFeeVoucher(
     siblingDiscountPercent?: number;
     carryArrears?: number;
     includedHeads?: Record<string, boolean>;
+    dueDate?: string;
+    validityDate?: string;
   },
 ): Promise<{ feeId: string | null; totalDue: number; reason?: string }> {
   const feeStructure = await fetchClassFeeStructure(pool, classId);
@@ -728,10 +803,14 @@ export async function createEnrollmentFeeVoucher(
     .query(`SELECT c.campus_name AS campusName FROM Classes cl LEFT JOIN Campuses c ON c.id = cl.campus_id WHERE cl.id = @classId`);
   const campusName = campusResult.recordset[0]?.campusName || null;
 
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  const dueDate = new Date(year, month - 1, 10).toISOString().split("T")[0];
+  const admissionDateResult = await pool.request()
+    .input("studentId", studentId)
+    .query(`SELECT CONVERT(VARCHAR(10), admission_date, 23) AS admissionDate FROM Students WHERE id = @studentId`);
+  const period = admissionBillingPeriod(admissionDateResult.recordset[0]?.admissionDate || new Date());
+  const month = period.month;
+  const year = period.year;
+  const dueDate = dateOnly(options.dueDate) || period.dueDate;
+  const validityDate = dateOnly(options.validityDate) || period.validityDate;
   const feeId = crypto.randomUUID();
   // Store GROSS amount; discount_amount is applied separately (UI: amount + arrears - discount).
   // Previously amount was net-of-discount, so a Rs. 500 discount was subtracted twice (#48).
@@ -744,6 +823,7 @@ export async function createEnrollmentFeeVoucher(
     .input("month", month)
     .input("year", year)
     .input("due_date", dueDate)
+    .input("validity_date", validityDate)
     .input("fee_type", "Admission")
     .input("tuition_fee", preview.tuitionFee)
     .input("admission_fee", preview.admissionFee)
@@ -759,15 +839,15 @@ export async function createEnrollmentFeeVoucher(
     .input("discount_amount", preview.totalDiscount)
     .input("balance_amount", preview.totalDue)
     .input("campus_name_snapshot", campusName)
-    .input("months_label", `Admission — ${month}/${year}`)
+    .input("months_label", admissionMonthsLabel(month, year))
     .query(`
       INSERT INTO Fees (
-        id, student_id, amount, month, year, status, due_date, fee_type,
+        id, student_id, amount, month, year, status, due_date, validity_date, fee_type,
         tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee, id_card_fee,
         summer_camp_fee, trip_fee,
         arrears, discount_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
       ) VALUES (
-        @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
+        @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @validity_date, @fee_type,
         @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee, @id_card_fee,
         @summer_camp_fee, @trip_fee,
         @arrears, @discount_amount, @balance_amount, 0, @campus_name_snapshot, @months_label

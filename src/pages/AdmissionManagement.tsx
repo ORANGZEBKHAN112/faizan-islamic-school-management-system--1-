@@ -132,6 +132,9 @@ export default function AdmissionManagement() {
   const [voucherTarget, setVoucherTarget] = useState<AdmissionApplication | null>(null);
   const [voucherPayload, setVoucherPayload] = useState<AdmissionVoucherPayload | null>(null);
   const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherDueDate, setVoucherDueDate] = useState('');
+  const [voucherValidityDate, setVoucherValidityDate] = useState('');
+  const [savingVoucherDates, setSavingVoucherDates] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewCheck, setReviewCheck] = useState<AdmissionReviewCheckResult | null>(null);
   const [reviewForm, setReviewForm] = useState({
@@ -554,16 +557,37 @@ export default function AdmissionManagement() {
       return;
     }
     const { application, voucher } = voucherPayload;
+    const dueOnVoucher = voucher.dueDate ? String(voucher.dueDate).slice(0, 10) : '';
+    const expiryOnVoucher = voucher.validityDate ? String(voucher.validityDate).slice(0, 10) : '';
+    let printable = voucher;
+    if (voucher.status !== 'Paid' && voucherDueDate && voucherValidityDate && (voucherDueDate !== dueOnVoucher || voucherValidityDate !== expiryOnVoucher)) {
+      if (voucherValidityDate < voucherDueDate) {
+        toast.error('Expiry date must be on or after the due date');
+        return;
+      }
+      const saved = await dataService.generateAdmissionVoucher(application.id, {
+        dueDate: voucherDueDate,
+        validityDate: voucherValidityDate,
+      });
+      if (!saved.voucher) {
+        toast.error('Could not save due date and expiry date');
+        return;
+      }
+      printable = { ...saved.voucher, dueDate: voucherDueDate, validityDate: voucherValidityDate };
+      setVoucherPayload({ application: saved.application, voucher: printable });
+    }
     try {
       const kuickpayCustomerCharge = await dataService.fetchKuickpayCustomerCharge();
       await downloadFeeVoucherPdf(
         {
-          ...voucher,
-          studentName: application.applicantName || voucher.studentName,
-          fatherName: application.fatherName || voucher.fatherName,
-          rollNumber: application.rollNumber || voucher.rollNumber,
-          className: application.className || voucher.className,
-          campusName: application.campusName || voucher.campusName,
+          ...printable,
+          dueDate: voucherDueDate || printable.dueDate,
+          validityDate: voucherValidityDate || printable.validityDate,
+          studentName: application.applicantName || printable.studentName,
+          fatherName: application.fatherName || printable.fatherName,
+          rollNumber: application.rollNumber || printable.rollNumber,
+          className: application.className || printable.className,
+          campusName: application.campusName || printable.campusName,
         },
         {
           campusName: application.campusName || voucher.campusName,
@@ -574,6 +598,38 @@ export default function AdmissionManagement() {
       toast.success('Admission voucher downloaded');
     } catch {
       toast.error('Failed to generate admission voucher PDF');
+    }
+  };
+
+  useEffect(() => {
+    const voucher = voucherPayload?.voucher;
+    setVoucherDueDate(voucher?.dueDate ? String(voucher.dueDate).slice(0, 10) : '');
+    setVoucherValidityDate(voucher?.validityDate ? String(voucher.validityDate).slice(0, 10) : '');
+  }, [voucherPayload]);
+
+  const saveAdmissionVoucherDates = async () => {
+    const voucher = voucherPayload?.voucher;
+    if (!voucher) return;
+    if (!voucherDueDate || !voucherValidityDate) {
+      toast.error('Set both the due date and the expiry date');
+      return;
+    }
+    if (voucherValidityDate < voucherDueDate) {
+      toast.error('Expiry date must be on or after the due date');
+      return;
+    }
+    setSavingVoucherDates(true);
+    try {
+      const saved = await dataService.generateAdmissionVoucher(voucherPayload!.application.id, {
+        dueDate: voucherDueDate,
+        validityDate: voucherValidityDate,
+      });
+      setVoucherPayload({ application: saved.application, voucher: saved.voucher });
+      toast.success('Due date and expiry date saved');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not save voucher dates'));
+    } finally {
+      setSavingVoucherDates(false);
     }
   };
 
@@ -1359,8 +1415,37 @@ export default function AdmissionManagement() {
                       <div><p className="text-[10px] font-black text-slate-400 uppercase">Roll</p><p className="font-bold">{formatRollNumberForDisplay(appInfo.rollNumber)}</p></div>
                       <div><p className="text-[10px] font-black text-slate-400 uppercase">Class</p><p className="font-bold">{appInfo.className || '—'}</p></div>
                       <div><p className="text-[10px] font-black text-slate-400 uppercase">Campus</p><p className="font-bold">{appInfo.campusName || v.campusName || '—'}</p></div>
-                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Due</p><p className="font-bold">{v.dueDate ? String(v.dueDate).slice(0, 10) : '—'}</p></div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase">Kuickpay ID</p>
+                        <p className="font-bold font-mono text-xs break-all">{v.kuickpayConsumerNumber || 'Not assigned'}</p>
+                      </div>
                     </div>
+                    <p className="text-xs text-slate-500">Admissions after the 18th are billed in the next month. Due date defaults to the 10th, and expiry to the last day of that month.</p>
+                    {status === 'Paid' ? (
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div><p className="text-[10px] font-black text-slate-400 uppercase">Due</p><p className="font-bold">{voucherDueDate || '—'}</p></div>
+                        <div><p className="text-[10px] font-black text-slate-400 uppercase">Expiry</p><p className="font-bold">{voucherValidityDate || '—'}</p></div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block text-sm">
+                          <span className="text-[10px] font-black text-slate-400 uppercase">Due date</span>
+                          <input type="date" className="vibrant-input mt-1" value={voucherDueDate} onChange={(e) => setVoucherDueDate(e.target.value)} />
+                        </label>
+                        <label className="block text-sm">
+                          <span className="text-[10px] font-black text-slate-400 uppercase">Expiry date</span>
+                          <input type="date" className="vibrant-input mt-1" value={voucherValidityDate} onChange={(e) => setVoucherValidityDate(e.target.value)} />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => void saveAdmissionVoucherDates()}
+                          disabled={savingVoucherDates}
+                          className="vibrant-btn-secondary sm:col-span-2 py-2.5 rounded-2xl text-sm font-semibold"
+                        >
+                          {savingVoucherDates ? 'Saving…' : 'Save due and expiry'}
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
                       <table className="w-full text-sm">
                         <tbody>

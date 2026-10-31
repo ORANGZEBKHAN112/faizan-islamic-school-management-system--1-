@@ -81,12 +81,10 @@ function amountInWords(amount: number): string {
 
 function formatDateParts(raw?: string | null): string {
   if (!raw) return '— — —';
+  const m = String(raw).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]} - ${m[2]} - ${m[1]}`;
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) {
-    const m = String(raw).match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (m) return `${m[3]} - ${m[2]} - ${m[1]}`;
-    return String(raw);
-  }
+  if (Number.isNaN(d.getTime())) return String(raw);
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();

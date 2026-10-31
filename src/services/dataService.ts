@@ -446,8 +446,8 @@ export const dataService = {
     };
   },
 
-  async generateAdmissionVoucher(id: string) {
-    const response = await api.post(`/admissions/${id}/admission-voucher`);
+  async generateAdmissionVoucher(id: string, dates?: { dueDate?: string; validityDate?: string }) {
+    const response = await api.post(`/admissions/${id}/admission-voucher`, dates || {});
     this.invalidateCollection('fees');
     this.invalidateCollection('feevouchers');
     return response.data as {
