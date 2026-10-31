@@ -346,6 +346,9 @@ CREATE TABLE Exams (
     region NVARCHAR(100) NULL,
     exam_date DATE,
     total_marks DECIMAL(18, 2) DEFAULT 100,
+    status NVARCHAR(20) NULL,
+    academic_session NVARCHAR(20) NULL,
+    weight_percent DECIMAL(5, 2) NULL,
     created_on DATETIME DEFAULT GETDATE(),
     CONSTRAINT FK_Exams_Classes FOREIGN KEY (class_id) REFERENCES Classes(id),
     CONSTRAINT FK_Exams_Campuses FOREIGN KEY (campus_id) REFERENCES Campuses(id)
@@ -359,6 +362,8 @@ CREATE TABLE ExamResults (
     obtained_marks DECIMAL(18, 2) DEFAULT 0,
     grade NVARCHAR(10),
     remarks NVARCHAR(255),
+    result_status NVARCHAR(20) NULL,
+    held_reason NVARCHAR(120) NULL,
     recorded_on DATETIME DEFAULT GETDATE(),
     CONSTRAINT FK_ExamResults_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id),
     CONSTRAINT FK_ExamResults_Students FOREIGN KEY (student_id) REFERENCES Students(id),
@@ -373,6 +378,10 @@ CREATE TABLE ExamSubjects (
     total_marks DECIMAL(18, 2) DEFAULT 100,
     passing_marks DECIMAL(18, 2) DEFAULT 33,
     sort_order INT DEFAULT 0,
+    exam_date DATE NULL,
+    start_time NVARCHAR(8) NULL,
+    component NVARCHAR(20) NULL,
+    grading_mode NVARCHAR(20) NULL,
     CONSTRAINT FK_ExamSubjects_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id)
 );
 CREATE INDEX IX_ExamSubjects_exam ON ExamSubjects(exam_id, sort_order);

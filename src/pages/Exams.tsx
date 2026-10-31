@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, ClipboardList, Save, Trash2, GraduationCap, Download } from 'lucide-react';
-import { downloadExamProgressReport, downloadExamResultSheet } from '../utils/studentDocuments';
-import { Exam, ExamResult, Campus, Class, Student } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Plus, ClipboardList, Trash2, GraduationCap, Download, Lock, Unlock, Send } from 'lucide-react';
+import { downloadExamDateSheet, downloadExamReportCards } from '../utils/studentDocuments';
+import { Exam, Campus, Class, ExamReport, ExamMeritRow, ExamCumulative } from '../types';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -10,8 +10,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import TranslatedPageHeader from '../components/TranslatedPageHeader';
 import { PermissionGate } from '../context/PermissionContext';
 import { canPickCampus, defaultCampusFilter, getStoredUser } from '../utils/campusScope';
-import { gradeFromMarks } from '../utils/examGrades';
-import { EXAM_SUBJECT_CATALOG, emptySubjectDraft, sumSubjectTotals, type ExamSubjectDraft } from '../utils/examSubjects';
+import { EXAM_COMPONENTS, EXAM_SUBJECT_CATALOG, currentAcademicSession, defaultExamWeight, emptySubjectDraft, sumSubjectTotals, type ExamSubjectDraft } from '../utils/examSubjects';
 import { useI18n } from '../context/I18nContext';
 
 const scopeUser = getStoredUser();
@@ -39,31 +38,17 @@ function classMatchesLevel(className: string, level: string): boolean {
   return inferEducationLevel(className) === level;
 }
 
-function assignRanks(values: Array<{ id: string; marks: number }>): Record<string, number> {
-  const sorted = [...values].sort((a, b) => b.marks - a.marks);
-  const ranks: Record<string, number> = {};
-  let rank = 0;
-  let prev = Number.NaN;
-  sorted.forEach((row, idx) => {
-    if (row.marks !== prev) {
-      rank = idx + 1;
-      prev = row.marks;
-    }
-    ranks[row.id] = rank;
-  });
-  return ranks;
-}
-
 export default function Exams() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [exams, setExams] = useState<Exam[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
-  const [sectionFilter, setSectionFilter] = useState('all');
-  const [results, setResults] = useState<Record<string, { obtainedMarks: number; grade: string; remarks: string }>>({});
+  const [report, setReport] = useState<ExamReport | null>(null);
+  const [merit, setMerit] = useState<ExamMeritRow[] | null>(null);
+  const [cumulative, setCumulative] = useState<ExamCumulative | null>(null);
+  const [deskLoading, setDeskLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [scheduleMode, setScheduleMode] = useState<'region' | 'campus'>('region');
   const [subjectPick, setSubjectPick] = useState('');
@@ -78,6 +63,8 @@ export default function Exams() {
     classId: '',
     examDate: new Date().toISOString().split('T')[0],
     totalMarks: 100,
+    academicSession: currentAcademicSession(),
+    weightPercent: defaultExamWeight('Monthly'),
   });
 
   const subjectsTotal = sumSubjectTotals(subjects);
@@ -102,27 +89,6 @@ export default function Exams() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!selectedExam?.classId) {
-      setStudents([]);
-      return;
-    }
-    setSectionFilter('all');
-    (async () => {
-      try {
-        const rows = await dataService.getPaginated('students', {
-          classId: selectedExam.classId,
-          status: 'Active',
-          limit: 500,
-          page: 1,
-        });
-        setStudents(rows.data);
-      } catch {
-        setStudents([]);
-      }
-    })();
-  }, [selectedExam?.classId]);
-
   const campusClasses = classes.filter((c) => !formData.campusId || c.campusId === formData.campusId);
   const distinctClassNames: string[] = Array.from(
     new Set<string>(
@@ -146,58 +112,34 @@ export default function Exams() {
     )
   ).sort();
 
-  const examClass = classes.find((c) => c.id === selectedExam?.classId);
-  const educationLevel = inferEducationLevel(selectedExam?.className || examClass?.className);
-  const showRanks = educationLevel !== 'Pre-Primary';
-
-  const sectionOptions = useMemo(() => {
-    const set = new Set<string>();
-    students.forEach((s) => {
-      const sec = (s as Student & { sectionName?: string }).sectionName || examClass?.sectionName || '';
-      if (sec) set.add(sec);
-    });
-    if (examClass?.sectionName) set.add(examClass.sectionName);
-    return Array.from(set).sort();
-  }, [students, examClass]);
-
-  const examStudents = selectedExam
-    ? students.filter((s) => {
-        if (s.classId !== selectedExam.classId || s.status !== 'Active') return false;
-        if (sectionFilter === 'all') return true;
-        const sec = (s as Student & { sectionName?: string }).sectionName || examClass?.sectionName || '';
-        return sec === sectionFilter;
-      })
-    : [];
-
-  const classRanks = useMemo(() => {
-    if (!showRanks) return {} as Record<string, number>;
-    return assignRanks(
-      students
-        .filter((s) => s.classId === selectedExam?.classId && s.status === 'Active')
-        .map((s) => ({ id: s.id, marks: results[s.id]?.obtainedMarks ?? 0 }))
-    );
-  }, [students, results, selectedExam?.classId, showRanks]);
-
-  const sectionRanks = useMemo(() => {
-    if (!showRanks) return {} as Record<string, number>;
-    return assignRanks(examStudents.map((s) => ({ id: s.id, marks: results[s.id]?.obtainedMarks ?? 0 })));
-  }, [examStudents, results, showRanks]);
-
-  const openResults = async (exam: Exam) => {
+  const openExam = async (exam: Exam) => {
     setSelectedExam(exam);
+    setMerit(null);
+    setCumulative(null);
+    setDeskLoading(true);
     try {
-      const existing: ExamResult[] = await dataService.getAll('exam-results', { examId: exam.id });
-      const map: Record<string, { obtainedMarks: number; grade: string; remarks: string }> = {};
-      existing.forEach((r) => {
-        map[r.studentId] = {
-          obtainedMarks: r.obtainedMarks,
-          grade: r.grade || '',
-          remarks: r.remarks || '',
-        };
-      });
-      setResults(map);
-    } catch {
-      setResults({});
+      setReport(await dataService.fetchExamReport(exam.id));
+    } catch (err) {
+      console.error(err);
+      setReport(null);
+      toast.error('Failed to load exam desk');
+    } finally {
+      setDeskLoading(false);
+    }
+  };
+
+  const changeStatus = async (action: 'lock' | 'publish' | 'reopen') => {
+    if (!selectedExam) return;
+    try {
+      await dataService.setExamStatus(selectedExam.id, action);
+      toast.success(action === 'lock' ? 'Exam locked' : action === 'publish' ? 'Result published' : 'Exam reopened');
+      const data = await dataService.getAll('exams');
+      setExams(data);
+      const updated = (data as Exam[]).find((exam) => exam.id === selectedExam.id);
+      if (updated) await openExam(updated);
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || 'Could not update exam status');
     }
   };
 
@@ -216,7 +158,15 @@ export default function Exams() {
       subjectName: s.subjectName,
       totalMarks: Number(s.totalMarks) || 0,
       passingMarks: Number(s.passingMarks) || 0,
+      examDate: s.examDate || undefined,
+      startTime: s.startTime || undefined,
+      component: s.component,
+      gradingMode: s.component === 'Hifz' ? 'Hifz' : 'Marks',
     }));
+    const scheduleFields = {
+      academicSession: formData.academicSession,
+      weightPercent: Number(formData.weightPercent) || 0,
+    };
     try {
       if (scheduleMode === 'region') {
         if (!formData.region || !formData.educationLevel) {
@@ -241,6 +191,7 @@ export default function Exams() {
             examDate: formData.examDate,
             totalMarks,
             subjects: subjectPayload,
+            ...scheduleFields,
           });
           created += result.createdCount || 0;
           if (result.skipped?.length) skipped.push(...result.skipped);
@@ -262,6 +213,7 @@ export default function Exams() {
           examDate: formData.examDate,
           totalMarks,
           subjects: subjectPayload,
+          ...scheduleFields,
         });
         toast.success('Exam created');
       }
@@ -277,24 +229,6 @@ export default function Exams() {
     }
   };
 
-  const saveResults = async () => {
-    if (!selectedExam) return;
-    const payload = examStudents.map((s) => ({
-      studentId: s.id,
-      obtainedMarks: results[s.id]?.obtainedMarks ?? 0,
-      grade: results[s.id]?.grade || undefined,
-      remarks: results[s.id]?.remarks || undefined,
-    }));
-    try {
-      await dataService.saveExamResults(selectedExam.id, payload);
-      toast.success('Results saved');
-    } catch (err) {
-      console.error(err);
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg || 'Failed to save results');
-    }
-  };
-
   const handleDeleteExam = async (id: string) => {
     if (!await confirm({
       title: 'Delete exam?',
@@ -305,7 +239,12 @@ export default function Exams() {
     try {
       await dataService.deleteExam(id);
       toast.success('Exam deleted');
-      if (selectedExam?.id === id) setSelectedExam(null);
+      if (selectedExam?.id === id) {
+        setSelectedExam(null);
+        setReport(null);
+        setMerit(null);
+        setCumulative(null);
+      }
       await loadExams();
     } catch (err) {
       console.error(err);
@@ -313,26 +252,7 @@ export default function Exams() {
     }
   };
 
-  const downloadProgress = () => {
-    if (!selectedExam) return;
-    const rows = examStudents.map((s) => ({
-      studentName: s.firstName,
-      rollNumber: s.rollNumber,
-      obtainedMarks: results[s.id]?.obtainedMarks ?? 0,
-      grade: results[s.id]?.grade,
-      classRank: showRanks ? classRanks[s.id] ?? null : null,
-      sectionRank: showRanks ? sectionRanks[s.id] ?? null : null,
-    }));
-    downloadExamProgressReport(
-      selectedExam.title,
-      selectedExam.className || '',
-      sectionFilter === 'all' ? (examClass?.sectionName || '') : sectionFilter,
-      educationLevel,
-      selectedExam.totalMarks,
-      rows
-    );
-    toast.success('Progress report downloaded');
-  };
+  const examStatus = selectedExam?.status || 'Draft';
 
   return (
     <div className="space-y-8 pb-12">
@@ -360,14 +280,14 @@ export default function Exams() {
             ) : exams.map((exam) => (
               <button
                 key={exam.id}
-                onClick={() => openResults(exam)}
+                onClick={() => openExam(exam)}
                 className={`w-full text-start p-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${selectedExam?.id === exam.id ? 'bg-primary/5 border-l-4 border-primary' : ''}`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-black text-slate-900 dark:text-white">{exam.title}</p>
                     <p className="text-xs text-slate-500 mt-1">{exam.className} · {exam.campusName}{exam.region ? ` · ${exam.region}` : ''}</p>
-                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-2">{exam.examType} · {exam.examDate || 'TBD'} · {inferEducationLevel(exam.className)}</p>
+                    <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-2">{exam.examType} · {exam.status || 'Draft'} · {exam.examDate || 'TBD'} · {inferEducationLevel(exam.className)}</p>
                   </div>
                   <PermissionGate module="exams" action="delete">
                     <button
@@ -385,126 +305,163 @@ export default function Exams() {
         </div>
 
         <div className="vibrant-card overflow-hidden">
-          <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-6 border-b border-slate-100 dark:border-slate-800 space-y-4">
             <div className="flex items-center gap-3">
               <GraduationCap className="w-5 h-5 text-primary" />
               <div>
                 <h3 className="font-black uppercase tracking-widest text-sm">
-                  {selectedExam ? `Marks: ${selectedExam.title}` : 'Select an exam'}
+                  {selectedExam ? selectedExam.title : 'Exam desk'}
                 </h3>
                 {selectedExam && (
-                  <p className="mt-1 inline-flex items-center rounded-lg bg-success/10 px-3 py-1 text-sm font-black text-success">
-                    Total Marks: {selectedExam.totalMarks}
+                  <p className="text-xs text-slate-500 mt-1">
+                    {examStatus} · weight {selectedExam.weightPercent ?? '—'}% · {selectedExam.academicSession || 'No session'}
                   </p>
                 )}
               </div>
             </div>
             {selectedExam && (
               <div className="flex flex-wrap gap-2">
-                {sectionOptions.length > 0 && (
-                  <SearchableSelect
-                    className="min-w-[140px]"
-                    value={sectionFilter}
-                    onChange={setSectionFilter}
-                    options={[
-                      { value: 'all', label: 'All sections' },
-                      ...sectionOptions.map((s) => ({ value: s, label: `Section ${s}` })),
-                    ]}
-                  />
-                )}
-                <button
-                  onClick={() => {
-                    const rows = examStudents.map((s) => ({
-                      studentName: s.firstName,
-                      rollNumber: s.rollNumber,
-                      obtainedMarks: results[s.id]?.obtainedMarks ?? 0,
-                      grade: results[s.id]?.grade,
-                      totalMarks: selectedExam.totalMarks,
-                    }));
-                    downloadExamResultSheet(selectedExam.title, selectedExam.className || '', rows);
-                    toast.success('Result sheet downloaded');
-                  }}
-                  className="vibrant-btn-secondary flex items-center gap-2 py-2 px-4"
-                >
-                  <Download className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase">Results PDF</span>
-                </button>
-                <button onClick={downloadProgress} className="vibrant-btn-secondary flex items-center gap-2 py-2 px-4">
-                  <Download className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase">Progress PDF</span>
-                </button>
                 <PermissionGate module="exams" action="update">
-                  <button onClick={saveResults} className="vibrant-btn-primary flex items-center gap-2 py-2 px-4">
-                    <Save className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase">{t('common.save')}</span>
-                  </button>
+                  {examStatus === 'Draft' && (
+                    <button type="button" onClick={() => changeStatus('lock')} className="vibrant-btn-secondary flex items-center gap-2 py-2 px-3">
+                      <Lock className="w-4 h-4" /> Lock
+                    </button>
+                  )}
+                  {examStatus !== 'Published' && (
+                    <button type="button" onClick={() => changeStatus('publish')} className="vibrant-btn-primary flex items-center gap-2 py-2 px-3">
+                      <Send className="w-4 h-4" /> Publish
+                    </button>
+                  )}
+                  {examStatus !== 'Draft' && (
+                    <button type="button" onClick={() => changeStatus('reopen')} className="vibrant-btn-secondary flex items-center gap-2 py-2 px-3">
+                      <Unlock className="w-4 h-4" /> Reopen
+                    </button>
+                  )}
                 </PermissionGate>
+                <button
+                  type="button"
+                  className="vibrant-btn-secondary flex items-center gap-2 py-2 px-3"
+                  onClick={() => {
+                    if (!report) return;
+                    downloadExamDateSheet(report);
+                    toast.success('Date sheet downloaded');
+                  }}
+                >
+                  <Download className="w-4 h-4" /> Date sheet
+                </button>
+                <button
+                  type="button"
+                  className="vibrant-btn-secondary flex items-center gap-2 py-2 px-3"
+                  onClick={() => {
+                    if (!report || !downloadExamReportCards(report)) return toast.error('Save marks before downloading report cards');
+                    toast.success('Report cards downloaded');
+                  }}
+                >
+                  <Download className="w-4 h-4" /> Report cards
+                </button>
+                <button
+                  type="button"
+                  className="vibrant-btn-secondary py-2 px-3"
+                  onClick={async () => {
+                    if (!selectedExam.className) return;
+                    try {
+                      const data = await dataService.fetchExamMerit({
+                        title: selectedExam.title,
+                        className: selectedExam.className,
+                        region: selectedExam.region || undefined,
+                      });
+                      setMerit(data.rows);
+                    } catch (err) {
+                      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                      toast.error(msg || 'Could not load region merit');
+                    }
+                  }}
+                >
+                  Region merit
+                </button>
+                <button
+                  type="button"
+                  className="vibrant-btn-secondary py-2 px-3"
+                  onClick={async () => {
+                    try {
+                      const data = await dataService.fetchExamCumulative({
+                        classId: selectedExam.classId,
+                        session: selectedExam.academicSession || undefined,
+                      });
+                      setCumulative(data);
+                    } catch (err) {
+                      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                      toast.error(msg || 'Could not load term total');
+                    }
+                  }}
+                >
+                  Term total
+                </button>
               </div>
             )}
           </div>
           {!selectedExam ? (
-            <p className="p-8 text-center text-slate-400">Click an exam to enter marks</p>
+            <p className="p-8 text-center text-slate-400">Select an exam to see the date sheet, pass rate, and publish controls. Marks are entered on Marks Entry.</p>
+          ) : deskLoading ? (
+            <p className="p-8 text-center text-slate-400">Loading exam desk…</p>
           ) : (
-            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
-              <table className="w-full text-start">
-                <thead>
-                  <tr className="bg-slate-50/80 text-slate-400 text-[10px] font-black uppercase tracking-widest sticky top-0">
-                    <th className="px-6 py-4">Student</th>
-                    <th className="px-6 py-4">
-                      <span className="rounded bg-success/10 px-2 py-1 text-success">
-                        Marks / {selectedExam.totalMarks}
-                      </span>
-                    </th>
-                    <th className="px-6 py-4">Grade</th>
-                    {showRanks && <th className="px-6 py-4">Class Rank</th>}
-                    {showRanks && <th className="px-6 py-4">Section Rank</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {examStudents.map((s) => (
-                    <tr key={s.id}>
-                      <td className="px-6 py-3">
-                        <p className="font-bold text-sm">{s.firstName}</p>
-                        <p className="text-xs text-slate-400">{s.rollNumber}</p>
-                      </td>
-                      <td className="px-6 py-3">
-                        <input
-                          type="number"
-                          min={0}
-                          max={selectedExam.totalMarks}
-                          className="vibrant-input w-24 py-2"
-                          value={results[s.id]?.obtainedMarks ?? ''}
-                          onChange={(e) => {
-                            const obtained = parseFloat(e.target.value) || 0;
-                            const grade = gradeFromMarks(obtained, selectedExam.totalMarks);
-                            setResults({
-                              ...results,
-                              [s.id]: { ...results[s.id], obtainedMarks: obtained, grade, remarks: results[s.id]?.remarks || '' },
-                            });
-                          }}
-                        />
-                      </td>
-                      <td className="px-6 py-3">
-                        <input
-                          className="vibrant-input w-20 py-2"
-                          placeholder="A+"
-                          value={results[s.id]?.grade ?? ''}
-                          onChange={(e) => setResults({
-                            ...results,
-                            [s.id]: { obtainedMarks: results[s.id]?.obtainedMarks ?? 0, grade: e.target.value, remarks: results[s.id]?.remarks || '' },
-                          })}
-                        />
-                      </td>
-                      {showRanks && (
-                        <td className="px-6 py-3 font-black text-primary">{classRanks[s.id] ?? '—'}</td>
-                      )}
-                      {showRanks && (
-                        <td className="px-6 py-3 font-black">{sectionRanks[s.id] ?? '—'}</td>
-                      )}
-                    </tr>
+            <div className="p-6 space-y-5 max-h-[560px] overflow-y-auto">
+              {report && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 p-3">
+                    <p className="text-lg font-black text-emerald-700">{report.summary.pass}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400">Pass</p>
+                  </div>
+                  <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/40 p-3">
+                    <p className="text-lg font-black text-rose-700">{report.summary.fail}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400">Fail</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-100 dark:bg-slate-800 p-3">
+                    <p className="text-lg font-black">{report.summary.absent}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400">Absent</p>
+                  </div>
+                  <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 p-3">
+                    <p className="text-lg font-black text-amber-700">{report.summary.average}%</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400">Average</p>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-slate-500">Enter subject marks on Marks Entry. A student fails if any paper is below its passing marks. An exam-day absence is saved as Absent and is left out of the rank. Publishing holds the result when a fee voucher is still unpaid.</p>
+              {report && report.subjectStats.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Subject pass rate</p>
+                  {report.subjectStats.map((subject) => (
+                    <div key={subject.subjectId} className="flex items-center justify-between text-sm">
+                      <span>{subject.subjectName}</span>
+                      <span className="font-bold">{subject.passPercent}% pass · avg {subject.average}</span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
+              {merit && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Region merit</p>
+                  {merit.length === 0 ? <p className="text-sm text-slate-400">No saved results for this paper yet.</p> : merit.slice(0, 12).map((row) => (
+                    <div key={`${row.campusName}-${row.rollNumber}`} className="flex justify-between text-sm gap-3">
+                      <span>{row.rank ?? '—'} · {row.studentName}</span>
+                      <span className="text-slate-500">{row.campusName} · {row.percentage}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {cumulative && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Weighted total · {cumulative.exams.map((exam) => `${exam.examType} ${exam.weightPercent}%`).join(', ') || 'no exams'}
+                  </p>
+                  {cumulative.students.slice(0, 12).map((row) => (
+                    <div key={row.studentId} className="flex justify-between text-sm">
+                      <span>{row.studentName}</span>
+                      <span className="font-bold">{row.weightedPercentage}% · {row.grade}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -513,16 +470,20 @@ export default function Exams() {
       <AnimatePresence>
         {isModalOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="app-modal">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto">
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="vibrant-card w-full max-w-3xl p-8 max-h-[90vh] overflow-y-auto">
               <h3 className="text-2xl font-black mb-6">Schedule Exam</h3>
               <form onSubmit={handleCreateExam} className="space-y-4">
                 <input className="vibrant-input" placeholder="Exam title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
                 <SearchableSelect
                   value={formData.examType}
-                  onChange={(examType) => setFormData({ ...formData, examType })}
+                  onChange={(examType) => setFormData({ ...formData, examType, weightPercent: defaultExamWeight(examType) })}
                   searchPlaceholder="Search type…"
                   options={['Monthly', 'Midterm', 'Final', 'Quiz'].map((t) => ({ value: t, label: t }))}
                 />
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="vibrant-input" placeholder="Session 2026-2027" value={formData.academicSession} onChange={(e) => setFormData({ ...formData, academicSession: e.target.value })} />
+                  <input type="number" min={0} max={100} className="vibrant-input" placeholder="Weight %" value={formData.weightPercent} onChange={(e) => setFormData({ ...formData, weightPercent: Number(e.target.value) })} />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -643,7 +604,14 @@ export default function Exams() {
                         if (subjects.some((s) => s.subjectName === subjectPick)) {
                           return toast.error('Subject already added');
                         }
-                        setSubjects((prev) => [...prev, emptySubjectDraft(subjectPick)]);
+                        const hifz = /hifz|nazra/i.test(subjectPick);
+                        setSubjects((prev) => [...prev, {
+                          ...emptySubjectDraft(subjectPick),
+                          component: hifz ? 'Hifz' : 'Written',
+                          gradingMode: hifz ? 'Hifz' : 'Marks',
+                          totalMarks: hifz ? 30 : 100,
+                          passingMarks: hifz ? 15 : 33,
+                        }]);
                         setSubjectPick('');
                       }}
                     >
@@ -655,49 +623,69 @@ export default function Exams() {
                   ) : (
                     <div className="space-y-2">
                       {subjects.map((s, idx) => (
-                        <div key={`${s.subjectName}-${idx}`} className="grid grid-cols-12 gap-2 items-end">
-                          <div className="col-span-4">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Subject</label>
-                            <input className="vibrant-input py-2" value={s.subjectName} readOnly />
+                        <div key={`${s.subjectName}-${idx}`} className="rounded-xl border border-slate-100 dark:border-slate-800 p-3 space-y-2">
+                          <div className="grid grid-cols-12 gap-2 items-end">
+                            <div className="col-span-4">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Subject</label>
+                              <input className="vibrant-input py-2" value={s.subjectName} readOnly />
+                            </div>
+                            <div className="col-span-3">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">{s.component === 'Hifz' ? 'Paras' : 'Total marks'}</label>
+                              <input
+                                type="number"
+                                min={1}
+                                className="vibrant-input py-2 font-black"
+                                value={s.totalMarks}
+                                onChange={(e) => {
+                                  const totalMarks = Number(e.target.value) || 0;
+                                  setSubjects((prev) => prev.map((row, i) => i === idx ? {
+                                    ...row,
+                                    totalMarks,
+                                    passingMarks: row.passingMarks > totalMarks ? totalMarks : row.passingMarks,
+                                  } : row));
+                                }}
+                              />
+                            </div>
+                            <div className="col-span-3">
+                              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Passing</label>
+                              <input
+                                type="number"
+                                min={0}
+                                className="vibrant-input py-2"
+                                value={s.passingMarks}
+                                onChange={(e) => {
+                                  const passingMarks = Number(e.target.value) || 0;
+                                  setSubjects((prev) => prev.map((row, i) => i === idx ? { ...row, passingMarks } : row));
+                                }}
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <button
+                                type="button"
+                                className="w-full vibrant-btn-secondary py-2 text-danger"
+                                onClick={() => setSubjects((prev) => prev.filter((_, i) => i !== idx))}
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
-                          <div className="col-span-3">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Total marks</label>
-                            <input
-                              type="number"
-                              min={1}
-                              className="vibrant-input py-2 font-black"
-                              value={s.totalMarks}
+                          <div className="grid grid-cols-12 gap-2">
+                            <input type="date" className="vibrant-input py-2 col-span-4" value={s.examDate} onChange={(e) => setSubjects((prev) => prev.map((row, i) => i === idx ? { ...row, examDate: e.target.value } : row))} />
+                            <input type="time" className="vibrant-input py-2 col-span-3" value={s.startTime} onChange={(e) => setSubjects((prev) => prev.map((row, i) => i === idx ? { ...row, startTime: e.target.value } : row))} />
+                            <select
+                              className="vibrant-input py-2 col-span-5"
+                              value={s.component}
                               onChange={(e) => {
-                                const totalMarks = Number(e.target.value) || 0;
+                                const component = e.target.value as ExamSubjectDraft['component'];
                                 setSubjects((prev) => prev.map((row, i) => i === idx ? {
                                   ...row,
-                                  totalMarks,
-                                  passingMarks: row.passingMarks > totalMarks ? totalMarks : row.passingMarks,
+                                  component,
+                                  gradingMode: component === 'Hifz' ? 'Hifz' : 'Marks',
                                 } : row));
                               }}
-                            />
-                          </div>
-                          <div className="col-span-3">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Passing marks</label>
-                            <input
-                              type="number"
-                              min={0}
-                              className="vibrant-input py-2"
-                              value={s.passingMarks}
-                              onChange={(e) => {
-                                const passingMarks = Number(e.target.value) || 0;
-                                setSubjects((prev) => prev.map((row, i) => i === idx ? { ...row, passingMarks } : row));
-                              }}
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <button
-                              type="button"
-                              className="w-full vibrant-btn-secondary py-2 text-danger"
-                              onClick={() => setSubjects((prev) => prev.filter((_, i) => i !== idx))}
                             >
-                              Remove
-                            </button>
+                              {EXAM_COMPONENTS.map((component) => <option key={component} value={component}>{component}</option>)}
+                            </select>
                           </div>
                         </div>
                       ))}

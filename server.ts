@@ -292,28 +292,67 @@ function gradeFromMarks(obtained: number, total: number): string {
   return "";
 }
 
+const EXAM_COMPONENTS = new Set(["Written", "Practical", "Oral", "Hifz"]);
+
 type ExamSubjectInput = {
   subjectName?: string;
   name?: string;
   totalMarks?: number;
   passingMarks?: number;
+  examDate?: string | null;
+  startTime?: string | null;
+  component?: string;
+  gradingMode?: string;
 };
 
-function normalizeExamSubjects(raw: unknown): Array<{ subjectName: string; totalMarks: number; passingMarks: number }> {
+type NormalizedExamSubject = {
+  subjectName: string;
+  totalMarks: number;
+  passingMarks: number;
+  examDate: string | null;
+  startTime: string | null;
+  component: string;
+  gradingMode: string;
+};
+
+function normalizeExamSubjects(raw: unknown): NormalizedExamSubject[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((s: ExamSubjectInput) => ({
-      subjectName: String(s.subjectName || s.name || "").trim(),
-      totalMarks: Math.max(0, Number(s.totalMarks) || 0),
-      passingMarks: Math.max(0, Number(s.passingMarks) || 0),
-    }))
+    .map((s: ExamSubjectInput) => {
+      const requested = String(s.component || "").trim();
+      const component = EXAM_COMPONENTS.has(requested) ? requested : "Written";
+      const gradingMode = component === "Hifz" || s.gradingMode === "Hifz" ? "Hifz" : "Marks";
+      const totalMarks = Math.max(0, Number(s.totalMarks) || 0);
+      return {
+        subjectName: String(s.subjectName || s.name || "").trim(),
+        totalMarks,
+        passingMarks: Math.max(0, Number(s.passingMarks) || 0),
+        examDate: s.examDate ? String(s.examDate).slice(0, 10) : null,
+        startTime: s.startTime ? String(s.startTime).slice(0, 8) : null,
+        component: gradingMode === "Hifz" ? "Hifz" : component,
+        gradingMode,
+      };
+    })
     .filter((s) => s.subjectName.length > 0 && s.totalMarks > 0);
 }
 
-async function insertExamSubjects(
-  examId: string,
-  subjects: Array<{ subjectName: string; totalMarks: number; passingMarks: number }>
-): Promise<number> {
+function evaluateExamOutcome(input: {
+  absent: boolean;
+  withheld: boolean;
+  obtained: number;
+  total: number;
+  subjects: Array<{ obtained: number; passing: number }>;
+}): { grade: string | null; resultStatus: "Pass" | "Fail" | "Absent" | "Withheld" } {
+  if (input.absent) return { grade: "AB", resultStatus: "Absent" };
+  const subjectFail = input.subjects.length > 0 && input.subjects.some((s) => s.obtained < s.passing);
+  const percentFail = input.subjects.length === 0 && input.total > 0 && (input.obtained / input.total) * 100 < 50;
+  const failed = subjectFail || percentFail;
+  const grade = failed ? "F" : (gradeFromMarks(input.obtained, input.total) || null);
+  if (input.withheld) return { grade, resultStatus: "Withheld" };
+  return { grade, resultStatus: failed ? "Fail" : "Pass" };
+}
+
+async function insertExamSubjects(examId: string, subjects: NormalizedExamSubject[]): Promise<number> {
   if (!pool) return 0;
   let order = 0;
   for (const subject of subjects) {
@@ -324,9 +363,19 @@ async function insertExamSubjects(
       .input("total_marks", subject.totalMarks)
       .input("passing_marks", subject.passingMarks || Math.round(subject.totalMarks * 0.33))
       .input("sort_order", order++)
+      .input("exam_date", subject.examDate)
+      .input("start_time", subject.startTime)
+      .input("component", subject.component)
+      .input("grading_mode", subject.gradingMode)
       .query(`
-        INSERT INTO ExamSubjects (id, exam_id, subject_name, total_marks, passing_marks, sort_order)
-        VALUES (@id, @exam_id, @subject_name, @total_marks, @passing_marks, @sort_order)
+        INSERT INTO ExamSubjects (
+          id, exam_id, subject_name, total_marks, passing_marks, sort_order,
+          exam_date, start_time, component, grading_mode
+        )
+        VALUES (
+          @id, @exam_id, @subject_name, @total_marks, @passing_marks, @sort_order,
+          @exam_date, @start_time, @component, @grading_mode
+        )
       `);
   }
   return subjects.reduce((sum, s) => sum + s.totalMarks, 0);
@@ -336,12 +385,235 @@ async function fetchExamSubjects(examId: string) {
   if (!pool) return [];
   const result = await pool.request().input("examId", examId).query(`
     SELECT id, exam_id AS examId, subject_name AS subjectName,
-           total_marks AS totalMarks, passing_marks AS passingMarks, sort_order AS sortOrder
+           total_marks AS totalMarks, passing_marks AS passingMarks, sort_order AS sortOrder,
+           CONVERT(VARCHAR, exam_date, 23) AS examDate, start_time AS startTime,
+           ISNULL(component, 'Written') AS component, ISNULL(grading_mode, 'Marks') AS gradingMode
     FROM ExamSubjects
     WHERE exam_id = @examId
     ORDER BY sort_order ASC, subject_name ASC
   `);
   return result.recordset;
+}
+
+async function feeDueByStudent(studentIds: string[]): Promise<Map<string, number>> {
+  const due = new Map<string, number>();
+  if (!pool || studentIds.length === 0) return due;
+  const request = pool.request();
+  const params = studentIds.map((id, index) => {
+    request.input(`feeSid${index}`, id);
+    return `@feeSid${index}`;
+  });
+  const result = await request.query(`
+    SELECT student_id AS studentId, SUM(ISNULL(balance_amount, 0)) AS due
+    FROM Fees
+    WHERE student_id IN (${params.join(", ")})
+      AND ISNULL(balance_amount, 0) > 0
+      AND status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending')
+    GROUP BY student_id
+  `);
+  for (const row of result.recordset as Array<{ studentId: string; due: number }>) {
+    due.set(row.studentId, Number(row.due) || 0);
+  }
+  return due;
+}
+
+async function loadExamMeta(examId: string) {
+  if (!pool) return null;
+  const result = await pool.request().input("examId", examId).query(`
+    SELECT e.id, e.title, e.exam_type AS examType, e.class_id AS classId,
+           cl.class_name AS className, cl.section_name AS sectionName,
+           e.campus_id AS campusId, c.campus_name AS campusName, e.region AS region,
+           CONVERT(VARCHAR, e.exam_date, 23) AS examDate, e.total_marks AS totalMarks,
+           ISNULL(e.status, 'Draft') AS status, e.academic_session AS academicSession,
+           e.weight_percent AS weightPercent
+    FROM Exams e
+    LEFT JOIN Classes cl ON e.class_id = cl.id
+    LEFT JOIN Campuses c ON e.campus_id = c.id
+    WHERE e.id = @examId
+  `);
+  return result.recordset[0] || null;
+}
+
+async function classAttendanceByStudent(studentIds: string[]) {
+  const map = new Map<string, { present: number; total: number }>();
+  if (!pool || studentIds.length === 0) return map;
+  const request = pool.request();
+  const params = studentIds.map((id, index) => {
+    request.input(`attSid${index}`, id);
+    return `@attSid${index}`;
+  });
+  const result = await request.query(`
+    SELECT student_id AS studentId,
+           SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 ELSE 0 END) AS presentCount,
+           COUNT(*) AS totalCount
+    FROM Attendance
+    WHERE student_id IN (${params.join(", ")})
+    GROUP BY student_id
+  `);
+  for (const row of result.recordset as Array<{ studentId: string; presentCount: number; totalCount: number }>) {
+    map.set(row.studentId, { present: Number(row.presentCount) || 0, total: Number(row.totalCount) || 0 });
+  }
+  return map;
+}
+
+function rankByPercentage(rows: Array<{ studentId: string; percentage: number; resultStatus: string }>) {
+  const ranked = [...rows]
+    .filter((row) => row.resultStatus !== "Absent")
+    .sort((a, b) => b.percentage - a.percentage);
+  const ranks = new Map<string, number>();
+  let rank = 0;
+  let prev = Number.NaN;
+  ranked.forEach((row, index) => {
+    if (row.percentage !== prev) {
+      rank = index + 1;
+      prev = row.percentage;
+    }
+    ranks.set(row.studentId, rank);
+  });
+  return ranks;
+}
+
+async function buildExamReport(examId: string) {
+  if (!pool) return null;
+  const exam = await loadExamMeta(examId);
+  if (!exam) return null;
+  const subjects = await fetchExamSubjects(examId) as Array<{
+    id: string; subjectName: string; totalMarks: number; passingMarks: number;
+    examDate?: string | null; startTime?: string | null; component?: string; gradingMode?: string;
+  }>;
+  const totalMarks = subjects.length
+    ? subjects.reduce((sum, subject) => sum + Number(subject.totalMarks || 0), 0)
+    : Number(exam.totalMarks) || 0;
+
+  const [studentResult, attendanceResult, marksResult, savedResult] = await Promise.all([
+    pool.request().input("classId", exam.classId).query(`
+      SELECT id, student_name AS studentName, admission_no AS rollNumber
+      FROM Students WHERE class_id = @classId AND status = 'Active'
+    `),
+    pool.request().input("examId", examId).query(`
+      SELECT person_id AS personId, status FROM ExamAttendance
+      WHERE exam_id = @examId AND person_type = 'Student'
+    `),
+    pool.request().input("examId", examId).query(`
+      SELECT student_id AS studentId, subject_id AS subjectId, obtained_marks AS obtainedMarks
+      FROM ExamSubjectMarks WHERE exam_id = @examId
+    `),
+    pool.request().input("examId", examId).query(`
+      SELECT student_id AS studentId, obtained_marks AS obtainedMarks, grade, remarks,
+             result_status AS resultStatus, held_reason AS heldReason
+      FROM ExamResults WHERE exam_id = @examId
+    `),
+  ]);
+
+  const classStudents = studentResult.recordset as Array<{ id: string; studentName: string; rollNumber: string }>;
+  const absent = new Set(
+    (attendanceResult.recordset as Array<{ personId: string; status: string }>)
+      .filter((row) => row.status === "Absent")
+      .map((row) => row.personId)
+  );
+  const marksByStudent = new Map<string, Map<string, number>>();
+  for (const row of marksResult.recordset as Array<{ studentId: string; subjectId: string; obtainedMarks: number }>) {
+    if (!marksByStudent.has(row.studentId)) marksByStudent.set(row.studentId, new Map());
+    marksByStudent.get(row.studentId)!.set(row.subjectId, Number(row.obtainedMarks) || 0);
+  }
+  const savedByStudent = new Map<string, { obtainedMarks: number; remarks?: string; heldReason?: string | null }>();
+  for (const row of savedResult.recordset as Array<{ studentId: string; obtainedMarks: number; remarks?: string; heldReason?: string | null }>) {
+    savedByStudent.set(row.studentId, row);
+  }
+
+  const included = classStudents.filter((student) => savedByStudent.has(student.id) || absent.has(student.id));
+  const dues = String(exam.status) === "Published" ? await feeDueByStudent(included.map((student) => student.id)) : new Map<string, number>();
+  const attendance = await classAttendanceByStudent(included.map((student) => student.id));
+
+  const drafted = included.map((student) => {
+    const isAbsent = absent.has(student.id);
+    const subjectRows = subjects.map((subject) => {
+      const obtained = isAbsent ? 0 : Number(marksByStudent.get(student.id)?.get(subject.id) || 0);
+      const passing = Number(subject.passingMarks) || 0;
+      const passed = !isAbsent && obtained >= passing;
+      const grade = isAbsent ? "AB" : passed ? (gradeFromMarks(obtained, Number(subject.totalMarks) || 0) || "") : "F";
+      return {
+        subjectId: subject.id,
+        subjectName: subject.subjectName,
+        component: subject.component || "Written",
+        gradingMode: subject.gradingMode || "Marks",
+        totalMarks: Number(subject.totalMarks) || 0,
+        passingMarks: passing,
+        obtainedMarks: obtained,
+        grade,
+        passed,
+        examDate: subject.examDate || null,
+        startTime: subject.startTime || null,
+      };
+    });
+    const obtained = isAbsent
+      ? 0
+      : subjectRows.length
+        ? subjectRows.reduce((sum, subject) => sum + subject.obtainedMarks, 0)
+        : Number(savedByStudent.get(student.id)?.obtainedMarks || 0);
+    const due = dues.get(student.id) || 0;
+    const outcome = evaluateExamOutcome({
+      absent: isAbsent,
+      withheld: String(exam.status) === "Published" && due > 0 && !isAbsent,
+      obtained,
+      total: totalMarks,
+      subjects: subjectRows.map((subject) => ({ obtained: subject.obtainedMarks, passing: subject.passingMarks })),
+    });
+    const percentage = totalMarks > 0 ? Math.round((obtained / totalMarks) * 1000) / 10 : 0;
+    const classAtt = attendance.get(student.id) || { present: 0, total: 0 };
+    return {
+      studentId: student.id,
+      studentName: student.studentName,
+      rollNumber: student.rollNumber,
+      sectionName: exam.sectionName || "",
+      obtainedMarks: obtained,
+      totalMarks,
+      percentage,
+      grade: outcome.grade || "",
+      resultStatus: outcome.resultStatus,
+      heldReason: outcome.resultStatus === "Withheld" ? "Unpaid fee" : null,
+      remarks: savedByStudent.get(student.id)?.remarks || "",
+      classRank: null as number | null,
+      sectionRank: null as number | null,
+      attendancePresent: classAtt.present,
+      attendanceTotal: classAtt.total,
+      subjects: subjectRows,
+    };
+  });
+
+  const ranks = rankByPercentage(drafted.map((row) => ({
+    studentId: row.studentId,
+    percentage: row.percentage,
+    resultStatus: row.resultStatus,
+  })));
+  const students = drafted
+    .map((row) => ({ ...row, classRank: ranks.get(row.studentId) ?? null, sectionRank: ranks.get(row.studentId) ?? null }))
+    .sort((a, b) => a.studentName.localeCompare(b.studentName));
+
+  const scored = students.filter((row) => row.resultStatus !== "Absent");
+  const subjectStats = subjects.map((subject) => {
+    const rows = scored.map((student) => student.subjects.find((item) => item.subjectId === subject.id)).filter(Boolean) as Array<{ obtainedMarks: number; passed: boolean; totalMarks: number }>;
+    const average = rows.length
+      ? Math.round((rows.reduce((sum, row) => sum + row.obtainedMarks, 0) / rows.length) * 10) / 10
+      : 0;
+    const passPercent = rows.length
+      ? Math.round((rows.filter((row) => row.passed).length / rows.length) * 1000) / 10
+      : 0;
+    return { subjectId: subject.id, subjectName: subject.subjectName, average, passPercent };
+  });
+
+  const summary = {
+    students: students.length,
+    pass: students.filter((row) => row.resultStatus === "Pass").length,
+    fail: students.filter((row) => row.resultStatus === "Fail").length,
+    absent: students.filter((row) => row.resultStatus === "Absent").length,
+    withheld: students.filter((row) => row.resultStatus === "Withheld").length,
+    average: scored.length
+      ? Math.round((scored.reduce((sum, row) => sum + row.percentage, 0) / scored.length) * 10) / 10
+      : 0,
+  };
+
+  return { exam: { ...exam, totalMarks }, subjects, summary, subjectStats, students };
 }
 
 async function assertClassCapacity(
@@ -1898,6 +2170,9 @@ async function connectToDb() {
             region NVARCHAR(100) NULL,
             exam_date DATE,
             total_marks DECIMAL(18, 2) DEFAULT 100,
+            status NVARCHAR(20) NULL,
+            academic_session NVARCHAR(20) NULL,
+            weight_percent DECIMAL(5, 2) NULL,
             created_on DATETIME DEFAULT GETDATE()
           );
         END
@@ -1905,6 +2180,12 @@ async function connectToDb() {
         BEGIN
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Exams') AND name = 'region')
             ALTER TABLE Exams ADD region NVARCHAR(100) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Exams') AND name = 'status')
+            ALTER TABLE Exams ADD status NVARCHAR(20) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Exams') AND name = 'academic_session')
+            ALTER TABLE Exams ADD academic_session NVARCHAR(20) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Exams') AND name = 'weight_percent')
+            ALTER TABLE Exams ADD weight_percent DECIMAL(5, 2) NULL;
         END
 
         IF OBJECT_ID('ExamResults', 'U') IS NULL
@@ -1916,8 +2197,17 @@ async function connectToDb() {
             obtained_marks DECIMAL(18, 2) DEFAULT 0,
             grade NVARCHAR(10),
             remarks NVARCHAR(255),
+            result_status NVARCHAR(20) NULL,
+            held_reason NVARCHAR(120) NULL,
             recorded_on DATETIME DEFAULT GETDATE()
           );
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamResults') AND name = 'result_status')
+            ALTER TABLE ExamResults ADD result_status NVARCHAR(20) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamResults') AND name = 'held_reason')
+            ALTER TABLE ExamResults ADD held_reason NVARCHAR(120) NULL;
         END
 
         IF OBJECT_ID('ExamSubjects', 'U') IS NULL
@@ -1929,9 +2219,24 @@ async function connectToDb() {
             total_marks DECIMAL(18, 2) DEFAULT 100,
             passing_marks DECIMAL(18, 2) DEFAULT 33,
             sort_order INT DEFAULT 0,
+            exam_date DATE NULL,
+            start_time NVARCHAR(8) NULL,
+            component NVARCHAR(20) NULL,
+            grading_mode NVARCHAR(20) NULL,
             CONSTRAINT FK_ExamSubjects_Exams FOREIGN KEY (exam_id) REFERENCES Exams(id)
           );
           CREATE INDEX IX_ExamSubjects_exam ON ExamSubjects(exam_id, sort_order);
+        END
+        ELSE
+        BEGIN
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamSubjects') AND name = 'exam_date')
+            ALTER TABLE ExamSubjects ADD exam_date DATE NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamSubjects') AND name = 'start_time')
+            ALTER TABLE ExamSubjects ADD start_time NVARCHAR(8) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamSubjects') AND name = 'component')
+            ALTER TABLE ExamSubjects ADD component NVARCHAR(20) NULL;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ExamSubjects') AND name = 'grading_mode')
+            ALTER TABLE ExamSubjects ADD grading_mode NVARCHAR(20) NULL;
         END
 
         IF OBJECT_ID('ExamSubjectMarks', 'U') IS NULL
@@ -7352,7 +7657,9 @@ async function startServer() {
                cl.class_name AS className, e.campus_id AS campusId,
                c.campus_name AS campusName, e.region AS region,
                CONVERT(VARCHAR, e.exam_date, 23) AS examDate,
-               e.total_marks AS totalMarks, CONVERT(VARCHAR, e.created_on, 23) AS createdOn
+               e.total_marks AS totalMarks, CONVERT(VARCHAR, e.created_on, 23) AS createdOn,
+               ISNULL(e.status, 'Draft') AS status, e.academic_session AS academicSession,
+               e.weight_percent AS weightPercent
         FROM Exams e
         LEFT JOIN Classes cl ON e.class_id = cl.id
         LEFT JOIN Campuses c ON e.campus_id = c.id
@@ -7426,9 +7733,17 @@ async function startServer() {
           .input("region", region)
           .input("exam_date", e.examDate || null)
           .input("total_marks", totalMarks)
+          .input("academic_session", e.academicSession || null)
+          .input("weight_percent", e.weightPercent ?? null)
           .query(`
-            INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
-            VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
+            INSERT INTO Exams (
+              id, title, exam_type, class_id, campus_id, region, exam_date, total_marks,
+              status, academic_session, weight_percent
+            )
+            VALUES (
+              @id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks,
+              'Draft', @academic_session, @weight_percent
+            )
           `);
         if (subjects.length) await insertExamSubjects(id, subjects);
         created.push({ id, campusId: campus.id, classId });
@@ -7472,9 +7787,17 @@ async function startServer() {
         .input("region", e.region || null)
         .input("exam_date", e.examDate || null)
         .input("total_marks", totalMarks)
+        .input("academic_session", e.academicSession || null)
+        .input("weight_percent", e.weightPercent ?? null)
         .query(`
-          INSERT INTO Exams (id, title, exam_type, class_id, campus_id, region, exam_date, total_marks)
-          VALUES (@id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks)
+          INSERT INTO Exams (
+            id, title, exam_type, class_id, campus_id, region, exam_date, total_marks,
+            status, academic_session, weight_percent
+          )
+          VALUES (
+            @id, @title, @exam_type, @class_id, @campus_id, @region, @exam_date, @total_marks,
+            'Draft', @academic_session, @weight_percent
+          )
         `);
       if (subjects.length) await insertExamSubjects(id, subjects);
       res.status(201).json({ ...e, id, totalMarks, subjects });
@@ -7508,8 +7831,11 @@ async function startServer() {
       const authUser = await loadAuthUser(req);
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const { id } = req.params;
-      const examCheck = await pool.request().input("id", id).query("SELECT campus_id FROM Exams WHERE id = @id");
+      const examCheck = await pool.request().input("id", id).query("SELECT campus_id, ISNULL(status, 'Draft') AS status FROM Exams WHERE id = @id");
       if (!examCheck.recordset[0]) return res.status(404).json({ message: "Exam not found" });
+      if (examCheck.recordset[0].status !== "Draft") {
+        return res.status(409).json({ message: "Reopen the exam before changing subjects" });
+      }
       const campusErr = await assertCampusWrite(authUser, examCheck.recordset[0].campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
@@ -7540,6 +7866,11 @@ async function startServer() {
       if (!authUser) return res.status(401).json({ message: "Unauthorized" });
       const { id } = req.params;
       const e = req.body;
+      const existing = await pool.request().input("id", id).query("SELECT ISNULL(status, 'Draft') AS status FROM Exams WHERE id = @id");
+      if (!existing.recordset[0]) return res.status(404).json({ message: "Exam not found" });
+      if (existing.recordset[0].status !== "Draft") {
+        return res.status(409).json({ message: "Reopen the exam before editing it" });
+      }
       const campusErr = await assertCampusWrite(authUser, e.campusId);
       if (campusErr) return res.status(403).json({ message: campusErr });
       await pool.request()
@@ -7550,9 +7881,12 @@ async function startServer() {
         .input("campus_id", e.campusId)
         .input("exam_date", e.examDate || null)
         .input("total_marks", e.totalMarks || 100)
+        .input("academic_session", e.academicSession || null)
+        .input("weight_percent", e.weightPercent ?? null)
         .query(`
           UPDATE Exams SET title = @title, exam_type = @exam_type, class_id = @class_id,
-            campus_id = @campus_id, exam_date = @exam_date, total_marks = @total_marks
+            campus_id = @campus_id, exam_date = @exam_date, total_marks = @total_marks,
+            academic_session = @academic_session, weight_percent = @weight_percent
           WHERE id = @id
         `);
       res.json({ ...e, id });
@@ -7569,6 +7903,7 @@ async function startServer() {
       await pool.request().input("id", id).query("DELETE FROM ExamSubjectMarks WHERE exam_id = @id");
       await pool.request().input("id", id).query("DELETE FROM ExamSubjects WHERE exam_id = @id");
       await pool.request().input("id", id).query("DELETE FROM ExamResults WHERE exam_id = @id");
+      await pool.request().input("id", id).query("DELETE FROM ExamAttendance WHERE exam_id = @id");
       await pool.request().input("id", id).query("DELETE FROM Exams WHERE id = @id");
       res.status(204).send();
     } catch (err) {
@@ -7601,6 +7936,7 @@ async function startServer() {
           SELECT r.id, r.exam_id AS examId, r.student_id AS studentId,
                  s.student_name AS studentName, s.admission_no AS rollNumber,
                  r.obtained_marks AS obtainedMarks, r.grade, r.remarks,
+                 r.result_status AS resultStatus, r.held_reason AS heldReason,
                  CONVERT(VARCHAR, r.recorded_on, 23) AS recordedOn
           FROM ExamResults r
           JOIN Students s ON r.student_id = s.id
@@ -7664,31 +8000,49 @@ async function startServer() {
 
       const examCheck = await pool.request()
         .input("examId", examId)
-        .query("SELECT campus_id, total_marks FROM Exams WHERE id = @examId");
+        .query("SELECT campus_id, total_marks, ISNULL(status, 'Draft') AS status FROM Exams WHERE id = @examId");
       const examRow = examCheck.recordset[0];
       if (!examRow) return res.status(404).json({ message: "Exam not found" });
+      if (examRow.status !== "Draft") {
+        return res.status(409).json({ message: "This exam is locked. Reopen it before changing marks." });
+      }
       const campusErr = await assertCampusWrite(authUser, examRow.campus_id);
       if (campusErr) return res.status(403).json({ message: campusErr });
 
-      const subjects = await fetchExamSubjects(examId);
-      const subjectMap = new Map(subjects.map((s: { id: string; totalMarks: number }) => [s.id, Number(s.totalMarks || 0)]));
+      const subjects = await fetchExamSubjects(examId) as Array<{ id: string; totalMarks: number; passingMarks: number }>;
+      const subjectMap = new Map(subjects.map((s) => [s.id, s]));
       const totalMarks = subjects.length
-        ? subjects.reduce((s: number, x: { totalMarks: number }) => s + Number(x.totalMarks || 0), 0)
+        ? subjects.reduce((s, x) => s + Number(x.totalMarks || 0), 0)
         : Number(examRow.total_marks) || 0;
+      const absentRows = await pool.request().input("examId", examId).query(`
+        SELECT person_id AS personId FROM ExamAttendance
+        WHERE exam_id = @examId AND person_type = 'Student' AND status = 'Absent'
+      `);
+      const absent = new Set((absentRows.recordset as Array<{ personId: string }>).map((row) => row.personId));
 
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
       try {
         for (const row of results) {
-          let obtainedMarks = Number(row.obtainedMarks || 0);
-          if (Array.isArray(row.subjectMarks) && row.subjectMarks.length > 0) {
+          const isAbsent = absent.has(row.studentId);
+          let obtainedMarks = isAbsent ? 0 : Number(row.obtainedMarks || 0);
+          const subjectScores: Array<{ obtained: number; passing: number }> = [];
+          if (isAbsent) {
+            await new sql.Request(transaction)
+              .input("examId", examId)
+              .input("studentId", row.studentId)
+              .query("DELETE FROM ExamSubjectMarks WHERE exam_id = @examId AND student_id = @studentId");
+          } else if (Array.isArray(row.subjectMarks) && row.subjectMarks.length > 0) {
             obtainedMarks = 0;
             for (const sm of row.subjectMarks) {
-              if (!subjectMap.has(sm.subjectId)) continue;
-              const subTotal = subjectMap.get(sm.subjectId) || 0;
+              const subject = subjectMap.get(sm.subjectId);
+              if (!subject) continue;
+              const subTotal = Number(subject.totalMarks) || 0;
               const marks = Math.max(0, Math.min(subTotal, Number(sm.obtainedMarks) || 0));
+              const passing = Number(subject.passingMarks) || 0;
               obtainedMarks += marks;
-              const subGrade = gradeFromMarks(marks, subTotal) || null;
+              subjectScores.push({ obtained: marks, passing });
+              const subGrade = marks < passing ? "F" : (gradeFromMarks(marks, subTotal) || null);
               const existingSub = await new sql.Request(transaction)
                 .input("examId", examId)
                 .input("subjectId", sm.subjectId)
@@ -7723,10 +8077,14 @@ async function startServer() {
             }
           }
 
-          const grade =
-            (row.grade && String(row.grade).trim()) ||
-            gradeFromMarks(obtainedMarks, totalMarks) ||
-            null;
+          const outcome = evaluateExamOutcome({
+            absent: isAbsent,
+            withheld: false,
+            obtained: obtainedMarks,
+            total: totalMarks,
+            subjects: subjectScores,
+          });
+          const grade = outcome.grade;
           const existing = await new sql.Request(transaction)
             .input("examId", examId)
             .input("studentId", row.studentId)
@@ -7737,8 +8095,11 @@ async function startServer() {
               .input("obtainedMarks", obtainedMarks)
               .input("grade", grade)
               .input("remarks", row.remarks || null)
+              .input("resultStatus", outcome.resultStatus)
               .query(`
-                UPDATE ExamResults SET obtained_marks = @obtainedMarks, grade = @grade, remarks = @remarks, recorded_on = GETDATE()
+                UPDATE ExamResults
+                SET obtained_marks = @obtainedMarks, grade = @grade, remarks = @remarks,
+                    result_status = @resultStatus, held_reason = NULL, recorded_on = GETDATE()
                 WHERE id = @id
               `);
           } else {
@@ -7749,9 +8110,12 @@ async function startServer() {
               .input("obtainedMarks", obtainedMarks)
               .input("grade", grade)
               .input("remarks", row.remarks || null)
+              .input("resultStatus", outcome.resultStatus)
               .query(`
-                INSERT INTO ExamResults (id, exam_id, student_id, obtained_marks, grade, remarks)
-                VALUES (@id, @examId, @studentId, @obtainedMarks, @grade, @remarks)
+                INSERT INTO ExamResults (
+                  id, exam_id, student_id, obtained_marks, grade, remarks, result_status, held_reason
+                )
+                VALUES (@id, @examId, @studentId, @obtainedMarks, @grade, @remarks, @resultStatus, NULL)
               `);
           }
         }
@@ -7769,6 +8133,203 @@ async function startServer() {
       res.json({ message: "Results saved", count: results.length, totalMarks });
     } catch (err) {
       sendServerError(res, err, "Error saving exam results");
+    }
+  });
+
+  const EXAM_CONTROL_ROLES = new Set(["Super Admin", "Admin", "Principal"]);
+
+  app.post("/api/exams/:id/status", requireRoles(EXAM_CONTROL_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { id } = req.params;
+      const action = String(req.body?.action || "");
+      const exam = await loadExamMeta(id);
+      if (!exam) return res.status(404).json({ message: "Exam not found" });
+      const campusErr = await assertCampusWrite(authUser, exam.campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      if (action === "reopen" && !ADMIN_ROLES.has(authUser.role)) {
+        return res.status(403).json({ message: "Only an admin can reopen a locked exam" });
+      }
+      if (!["lock", "publish", "reopen"].includes(action)) {
+        return res.status(400).json({ message: "action must be lock, publish, or reopen" });
+      }
+      if (action === "lock" && exam.status !== "Draft") {
+        return res.status(409).json({ message: "Only a draft exam can be locked" });
+      }
+      if (action === "publish" && exam.status === "Published") {
+        return res.status(409).json({ message: "Exam is already published" });
+      }
+
+      const nextStatus = action === "lock" ? "Locked" : action === "publish" ? "Published" : "Draft";
+      await pool.request().input("id", id).input("status", nextStatus).query("UPDATE Exams SET status = @status WHERE id = @id");
+
+      if (action !== "lock") {
+        const report = await buildExamReport(id);
+        for (const student of report?.students || []) {
+          await pool.request()
+            .input("examId", id)
+            .input("studentId", student.studentId)
+            .input("grade", student.grade || null)
+            .input("resultStatus", student.resultStatus)
+            .input("heldReason", student.heldReason)
+            .query(`
+              UPDATE ExamResults
+              SET grade = @grade, result_status = @resultStatus, held_reason = @heldReason
+              WHERE exam_id = @examId AND student_id = @studentId
+            `);
+        }
+      }
+
+      res.json({ message: `Exam ${nextStatus.toLowerCase()}`, status: nextStatus });
+    } catch (err) {
+      sendServerError(res, err, "Error updating exam status");
+    }
+  });
+
+  app.get("/api/exams/:id/report", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const exam = await loadExamMeta(req.params.id);
+      if (!exam) return res.status(404).json({ message: "Exam not found" });
+      const campusErr = await assertCampusWrite(authUser, exam.campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+      const report = await buildExamReport(req.params.id);
+      res.json(report);
+    } catch (err) {
+      sendServerError(res, err, "Error building exam report");
+    }
+  });
+
+  app.get("/api/exam-merit", requireRoles(EXAM_CONTROL_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const title = String(req.query.title || "").trim();
+      const className = String(req.query.className || "").trim();
+      const region = String(req.query.region || "").trim();
+      if (!title || !className) return res.status(400).json({ message: "title and className are required" });
+
+      const result = await pool.request()
+        .input("title", title)
+        .input("className", className)
+        .input("region", region || null)
+        .query(`
+          SELECT c.campus_name AS campusName, s.student_name AS studentName, s.admission_no AS rollNumber,
+                 r.obtained_marks AS obtainedMarks, e.total_marks AS totalMarks,
+                 r.grade, ISNULL(r.result_status, '') AS resultStatus
+          FROM Exams e
+          JOIN Classes cl ON e.class_id = cl.id
+          JOIN Campuses c ON e.campus_id = c.id
+          JOIN ExamResults r ON r.exam_id = e.id
+          JOIN Students s ON s.id = r.student_id
+          WHERE e.title = @title
+            AND LTRIM(RTRIM(LOWER(cl.class_name))) = LTRIM(RTRIM(LOWER(@className)))
+            AND (@region IS NULL OR e.region = @region)
+        `);
+
+      const rows = (result.recordset as Array<{
+        campusName: string; studentName: string; rollNumber: string;
+        obtainedMarks: number; totalMarks: number; grade?: string; resultStatus: string;
+      }>).map((row) => {
+        const total = Number(row.totalMarks) || 0;
+        const obtained = Number(row.obtainedMarks) || 0;
+        return {
+          ...row,
+          obtainedMarks: obtained,
+          totalMarks: total,
+          percentage: total > 0 ? Math.round((obtained / total) * 1000) / 10 : 0,
+        };
+      });
+      const ranks = rankByPercentage(rows.map((row, index) => ({
+        studentId: String(index),
+        percentage: row.percentage,
+        resultStatus: row.resultStatus,
+      })));
+      const ranked = rows
+        .map((row, index) => ({ ...row, rank: ranks.get(String(index)) ?? null }))
+        .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999) || a.campusName.localeCompare(b.campusName));
+      res.json({ title, className, region: region || null, rows: ranked });
+    } catch (err) {
+      sendServerError(res, err, "Error building region merit list");
+    }
+  });
+
+  app.get("/api/exam-cumulative", requireRoles(EXAM_CONTROL_ROLES), async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const classId = String(req.query.classId || "").trim();
+      const session = String(req.query.session || "").trim();
+      if (!classId) return res.status(400).json({ message: "classId is required" });
+      const classRow = await pool.request().input("classId", classId).query("SELECT campus_id AS campusId FROM Classes WHERE id = @classId");
+      if (!classRow.recordset[0]) return res.status(404).json({ message: "Class not found" });
+      const campusErr = await assertCampusWrite(authUser, classRow.recordset[0].campusId);
+      if (campusErr) return res.status(403).json({ message: campusErr });
+
+      const result = await pool.request()
+        .input("classId", classId)
+        .input("session", session || null)
+        .query(`
+          SELECT e.id AS examId, e.title, e.exam_type AS examType,
+                 ISNULL(e.weight_percent, 100) AS weightPercent, e.total_marks AS totalMarks,
+                 r.student_id AS studentId, s.student_name AS studentName, s.admission_no AS rollNumber,
+                 r.obtained_marks AS obtainedMarks, ISNULL(r.result_status, '') AS resultStatus
+          FROM Exams e
+          JOIN ExamResults r ON r.exam_id = e.id
+          JOIN Students s ON s.id = r.student_id
+          WHERE e.class_id = @classId
+            AND (@session IS NULL OR e.academic_session = @session)
+        `);
+
+      const exams = new Map<string, { id: string; title: string; examType: string; weightPercent: number }>();
+      const byStudent = new Map<string, { studentId: string; studentName: string; rollNumber: string; weighted: number; weight: number }>();
+      for (const row of result.recordset as Array<{
+        examId: string; title: string; examType: string; weightPercent: number; totalMarks: number;
+        studentId: string; studentName: string; rollNumber: string; obtainedMarks: number;
+      }>) {
+        exams.set(row.examId, {
+          id: row.examId,
+          title: row.title,
+          examType: row.examType,
+          weightPercent: Number(row.weightPercent) || 0,
+        });
+        const total = Number(row.totalMarks) || 0;
+        const pct = total > 0 ? (Number(row.obtainedMarks) || 0) / total * 100 : 0;
+        const weight = Number(row.weightPercent) || 0;
+        const current = byStudent.get(row.studentId) || {
+          studentId: row.studentId,
+          studentName: row.studentName,
+          rollNumber: row.rollNumber,
+          weighted: 0,
+          weight: 0,
+        };
+        current.weighted += pct * weight;
+        current.weight += weight;
+        byStudent.set(row.studentId, current);
+      }
+      const students = [...byStudent.values()].map((row) => {
+        const weightedPercentage = row.weight > 0 ? Math.round((row.weighted / row.weight) * 10) / 10 : 0;
+        return {
+          studentId: row.studentId,
+          studentName: row.studentName,
+          rollNumber: row.rollNumber,
+          weightedPercentage,
+          grade: gradeFromMarks(weightedPercentage, 100),
+        };
+      }).sort((a, b) => b.weightedPercentage - a.weightedPercentage);
+
+      res.json({ classId, session: session || null, exams: [...exams.values()], students });
+    } catch (err) {
+      sendServerError(res, err, "Error building cumulative result");
     }
   });
 
@@ -7825,10 +8386,32 @@ async function startServer() {
         summary.total += r.cnt;
       });
 
+      const publishedExamResult = await pool.request()
+        .input("studentId", student.id)
+        .query(`
+          SELECT e.id AS examId, e.title, e.exam_type AS examType,
+                 CONVERT(VARCHAR, e.exam_date, 23) AS examDate, e.total_marks AS totalMarks,
+                 r.obtained_marks AS obtainedMarks, r.grade,
+                 ISNULL(r.result_status, 'Pass') AS resultStatus, r.held_reason AS heldReason
+          FROM ExamResults r
+          JOIN Exams e ON e.id = r.exam_id
+          WHERE r.student_id = @studentId AND ISNULL(e.status, 'Draft') = 'Published'
+          ORDER BY e.exam_date DESC, e.created_on DESC
+        `);
+      const publishedResults = (publishedExamResult.recordset as Array<{
+        examId: string; title: string; examType: string; examDate?: string; totalMarks: number;
+        obtainedMarks: number; grade?: string; resultStatus: string; heldReason?: string | null;
+      }>).map((row) => (
+        row.resultStatus === "Withheld"
+          ? { ...row, obtainedMarks: null, grade: null, totalMarks: null }
+          : row
+      ));
+
       res.json({
         student,
         fees: feesResult.recordset,
         attendanceSummary: summary,
+        publishedResults,
       });
     } catch (err) {
       sendServerError(res, err, "Error loading student portal");
@@ -8925,6 +9508,194 @@ async function startServer() {
       });
     } catch (err) {
       sendServerError(res, err, "Error generating admission voucher");
+    }
+  });
+
+  function moneyValue(value: unknown): number {
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Read-only fee desk reports. These do not write vouchers, payments, or outstanding balances.
+  app.get("/api/reports/defaulters", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      const now = new Date();
+      const year = parseInt(String(req.query.year || now.getFullYear()), 10);
+      const month = parseInt(String(req.query.month || (now.getMonth() + 1)), 10);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+        return res.status(400).json({ message: "year and month are invalid" });
+      }
+      if (denied) return res.json({ month, year, rows: [] });
+
+      const request = pool.request().input("year", year).input("month", month);
+      const campusSql = campusMatchOrAll(request, campusFilter, "s.campus_id", "campusId");
+      const result = await request.query(`
+        SELECT
+          s.id AS studentId,
+          s.admission_no AS admissionNo,
+          s.student_name AS studentName,
+          s.father_name AS fatherName,
+          s.father_mobile AS fatherMobile,
+          c.campus_name AS campusName,
+          cl.class_name AS className,
+          cl.section_name AS sectionName,
+          s.status AS status,
+          ISNULL(SUM(CASE WHEN f.year = @year AND f.month = @month AND ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS thisMonthBalance,
+          ISNULL(SUM(CASE WHEN NOT (f.year = @year AND f.month = @month) AND ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS olderBalance,
+          ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS totalBalance
+        FROM Fees f
+        INNER JOIN Students s ON s.id = f.student_id
+        LEFT JOIN Campuses c ON c.id = s.campus_id
+        LEFT JOIN Classes cl ON cl.id = s.class_id
+        WHERE ISNULL(f.status, '') <> 'Cancelled'
+          AND ${campusSql}
+        GROUP BY s.id, s.admission_no, s.student_name, s.father_name, s.father_mobile, c.campus_name, cl.class_name, cl.section_name, s.status
+        HAVING ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) > 0
+        ORDER BY totalBalance DESC, s.student_name
+      `);
+
+      res.json({
+        month,
+        year,
+        rows: result.recordset.map((row: Record<string, unknown>) => ({
+          ...row,
+          thisMonthBalance: moneyValue(row.thisMonthBalance),
+          olderBalance: moneyValue(row.olderBalance),
+          totalBalance: moneyValue(row.totalBalance),
+        })),
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error loading defaulter report");
+    }
+  });
+
+  app.get("/api/reports/class-collection", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      const year = parseInt(String(req.query.year || new Date().getFullYear()), 10);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        return res.status(400).json({ message: "year is invalid" });
+      }
+      if (denied) return res.json({ year, rows: [] });
+
+      const request = pool.request().input("year", year);
+      const campusSql = campusMatchOrAll(request, campusFilter, "s.campus_id", "campusId");
+      const result = await request.query(`
+        SELECT
+          cl.id AS classId,
+          ISNULL(cl.class_name, 'Unassigned') AS className,
+          cl.section_name AS sectionName,
+          c.campus_name AS campusName,
+          ISNULL(SUM(f.amount + ISNULL(f.arrears, 0)), 0) AS billed,
+          ISNULL(SUM(ISNULL(f.paid_amount, 0)), 0) AS collected,
+          ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS balance,
+          COUNT(DISTINCT f.student_id) AS students
+        FROM Fees f
+        INNER JOIN Students s ON s.id = f.student_id
+        LEFT JOIN Classes cl ON cl.id = s.class_id
+        LEFT JOIN Campuses c ON c.id = s.campus_id
+        WHERE f.year = @year
+          AND ISNULL(f.status, '') <> 'Cancelled'
+          AND ${campusSql}
+        GROUP BY cl.id, cl.class_name, cl.section_name, c.campus_name
+        ORDER BY c.campus_name, cl.class_name, cl.section_name
+      `);
+
+      res.json({
+        year,
+        rows: result.recordset.map((row: Record<string, unknown>) => ({
+          ...row,
+          billed: moneyValue(row.billed),
+          collected: moneyValue(row.collected),
+          balance: moneyValue(row.balance),
+          students: moneyValue(row.students),
+        })),
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error loading class collection report");
+    }
+  });
+
+  app.get("/api/reports/daily-collection", async (req, res) => {
+    try {
+      if (!pool || !pool.connected) await connectToDb();
+      if (!pool) return res.status(503).json({ message: "Database connection not available" });
+
+      const authUser = await loadAuthUser(req);
+      if (!authUser) return res.status(401).json({ message: "Unauthorized" });
+      const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
+      const date = String(req.query.date || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "date is required (YYYY-MM-DD)" });
+      }
+      const empty = { date, collected: 0, reversed: 0, net: 0, lines: [] as unknown[] };
+      if (denied) return res.json(empty);
+
+      const exists = await pool.request().query("SELECT OBJECT_ID('FeeAuditLog', 'U') AS id");
+      if (!exists.recordset[0]?.id) return res.json(empty);
+
+      const request = pool.request().input("reportDate", date);
+      const campusSql = campusMatchOrAll(request, campusFilter, "ISNULL(a.campus_id, s.campus_id)", "campusId");
+      const result = await request.query(`
+        SELECT
+          a.id,
+          CONVERT(VARCHAR(19), a.performed_on, 120) AS performedOn,
+          a.amount,
+          a.action_type AS actionType,
+          a.performed_by AS performedBy,
+          a.notes,
+          a.reason,
+          s.student_name AS studentName,
+          s.admission_no AS admissionNo,
+          cp.campus_name AS campusName
+        FROM FeeAuditLog a
+        INNER JOIN Students s ON s.id = a.student_id
+        LEFT JOIN Campuses cp ON cp.id = ISNULL(a.campus_id, s.campus_id)
+        WHERE a.action_type IN ('payment', 'collection_reversal', 'income_reversal')
+          AND CONVERT(date, a.performed_on) = CONVERT(date, @reportDate)
+          AND ${campusSql}
+        ORDER BY a.performed_on, s.student_name
+      `);
+
+      const lines = result.recordset.map((row: Record<string, unknown>) => ({
+        id: String(row.id || ""),
+        performedOn: String(row.performedOn || ""),
+        amount: moneyValue(row.amount),
+        actionType: String(row.actionType || ""),
+        performedBy: row.performedBy == null ? null : String(row.performedBy),
+        notes: row.notes == null ? null : String(row.notes),
+        reason: row.reason == null ? null : String(row.reason),
+        studentName: String(row.studentName || ""),
+        admissionNo: String(row.admissionNo || ""),
+        campusName: row.campusName == null ? null : String(row.campusName),
+      }));
+      let collected = 0;
+      let reversed = 0;
+      for (const row of lines) {
+        if (row.actionType === "payment") collected += row.amount;
+        else if (row.actionType === "collection_reversal" || row.actionType === "income_reversal") reversed += row.amount;
+      }
+
+      res.json({
+        date,
+        collected,
+        reversed,
+        net: collected - reversed,
+        lines,
+      });
+    } catch (err) {
+      sendServerError(res, err, "Error loading daily collection");
     }
   });
 

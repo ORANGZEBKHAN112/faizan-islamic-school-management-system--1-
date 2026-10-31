@@ -1,5 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
-import type { User, AppRole, PermissionMap, PermissionModuleDef, Fee } from '../types';
+import type { User, AppRole, PermissionMap, PermissionModuleDef, Fee, FeeDefaulterRow, ClassCollectionRow, DailyCollectionReport, ExamReport, ExamMeritRow, ExamCumulative } from '../types';
 
 const API_BASE_URL = '/api';
 const REFERENCE_COLLECTIONS = new Set(['campuses', 'classes']);
@@ -354,13 +354,47 @@ export const dataService = {
       totalMarks: number;
       passingMarks: number;
       sortOrder?: number;
+      examDate?: string | null;
+      startTime?: string | null;
+      component?: string;
+      gradingMode?: string;
     }>;
   },
 
-  async updateExamSubjects(examId: string, subjects: Array<{ subjectName: string; totalMarks: number; passingMarks: number }>) {
+  async updateExamSubjects(examId: string, subjects: Array<{
+    subjectName: string;
+    totalMarks: number;
+    passingMarks: number;
+    examDate?: string;
+    startTime?: string;
+    component?: string;
+    gradingMode?: string;
+  }>) {
     const response = await api.put(`/exams/${examId}/subjects`, { subjects });
     this.invalidateCollection('exams');
     return response.data;
+  },
+
+  async setExamStatus(examId: string, action: 'lock' | 'publish' | 'reopen') {
+    const response = await api.post(`/exams/${examId}/status`, { action });
+    this.invalidateCollection('exams');
+    this.invalidateCollection('exam-results');
+    return response.data as { message: string; status: string };
+  },
+
+  async fetchExamReport(examId: string) {
+    const response = await api.get(`/exams/${examId}/report`);
+    return response.data as ExamReport;
+  },
+
+  async fetchExamMerit(params: { title: string; className: string; region?: string }) {
+    const response = await api.get('/exam-merit', { params });
+    return response.data as { title: string; className: string; region: string | null; rows: ExamMeritRow[] };
+  },
+
+  async fetchExamCumulative(params: { classId: string; session?: string }) {
+    const response = await api.get('/exam-cumulative', { params });
+    return response.data as ExamCumulative;
   },
 
   async saveExamResults(
@@ -669,6 +703,21 @@ export const dataService = {
     const response = await api.post(`/fees/${id}/adjust`, data);
     this.invalidateCollection('fees');
     return response.data;
+  },
+
+  async fetchFeeDefaulters(params?: { campusId?: string; year?: number | string; month?: number | string }) {
+    const response = await api.get('/reports/defaulters', { params });
+    return response.data as { month: number; year: number; rows: FeeDefaulterRow[] };
+  },
+
+  async fetchClassCollection(params?: { campusId?: string; year?: number | string }) {
+    const response = await api.get('/reports/class-collection', { params });
+    return response.data as { year: number; rows: ClassCollectionRow[] };
+  },
+
+  async fetchDailyCollection(params?: { campusId?: string; date?: string }) {
+    const response = await api.get('/reports/daily-collection', { params });
+    return response.data as DailyCollectionReport;
   },
 
   async fetchAccountRoll(params?: { campusId?: string; status?: string }) {
