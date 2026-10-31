@@ -407,6 +407,7 @@ export const dataService = {
     feeDiscountAmount?: number;
     feeDiscountPercent?: number;
     siblingDiscountPercent?: number;
+    includedHeads?: Record<string, boolean>;
   }) {
     const body = options || {};
     const response = await api.post(`/admissions/${id}/review-check`, body);

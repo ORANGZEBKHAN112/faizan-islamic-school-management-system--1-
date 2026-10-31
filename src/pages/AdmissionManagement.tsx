@@ -51,6 +51,49 @@ const REJECTION_REASONS = [
   'Other',
 ] as const;
 
+function parseStoredFeeHeads(raw?: string): Record<string, boolean> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function feeHeadActive(key: string, includedHeads: Record<string, boolean>, waiveAdmissionFee: boolean) {
+  if (key === 'admission' && waiveAdmissionFee) return false;
+  return includedHeads[key] !== false;
+}
+
+function enrollmentTotal(
+  preview: { heads?: Array<{ key: string; catalogAmount: number }>; lines: Array<{ label: string; amount: number }> },
+  includedHeads: Record<string, boolean>,
+  waiveAdmissionFee: boolean,
+  discountAmount: number,
+  discountPercent: number,
+  siblingDiscountPercent: number,
+) {
+  const heads = (preview.heads || []).filter((head) => head.catalogAmount > 0);
+  const activeAmount = (key: string) => {
+    const head = heads.find((item) => item.key === key);
+    if (!head || !feeHeadActive(key, includedHeads, waiveAdmissionFee)) return 0;
+    return head.catalogAmount;
+  };
+  const subtotal = heads.reduce((sum, head) => sum + activeAmount(head.key), 0);
+  const siblingDiscount = siblingDiscountPercent > 0
+    ? Math.round((activeAmount('tuition') * siblingDiscountPercent) / 100)
+    : 0;
+  let manualDiscount = discountAmount || 0;
+  if (discountPercent > 0) manualDiscount += Math.round((subtotal * discountPercent) / 100);
+  const discount = Math.min(subtotal, siblingDiscount + manualDiscount);
+  const arrears = preview.lines
+    .filter((line) => /arrears/i.test(line.label) && line.amount > 0)
+    .reduce((sum, line) => sum + line.amount, 0);
+  return Math.max(0, subtotal - discount + arrears);
+}
+
 function apiErrorMessage(err: unknown, fallback: string): string {
   const data = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
   return data?.message || data?.error || fallback;
@@ -97,6 +140,7 @@ export default function AdmissionManagement() {
     feeDiscountAmount: 0,
     feeDiscountPercent: 0,
     siblingDiscountPercent: 0,
+    includedHeads: {} as Record<string, boolean>,
   });
   const [cnicOnRecord, setCnicOnRecord] = useState(false);
   const [editingCnic, setEditingCnic] = useState(false);
@@ -211,6 +255,7 @@ export default function AdmissionManagement() {
     feeDiscountAmount: reviewForm.feeDiscountAmount,
     feeDiscountPercent: reviewForm.feeDiscountPercent,
     siblingDiscountPercent: reviewForm.siblingDiscountPercent,
+    includedHeads: reviewForm.includedHeads,
   }), [reviewForm]);
 
   const runCnicCheckForApp = async (app: AdmissionApplication, cnicOverride?: string) => {
@@ -233,6 +278,7 @@ export default function AdmissionManagement() {
         };
         if (result.matchType === 're_enrollment') {
           next.waiveAdmissionFee = true;
+          next.includedHeads = { ...next.includedHeads, admission: false };
         }
         if (result.matchType === 'sibling' && result.suggestedSiblingDiscountPercent > 0) {
           next.siblingDiscountPercent = result.suggestedSiblingDiscountPercent;
@@ -265,6 +311,7 @@ export default function AdmissionManagement() {
     reviewForm.feeDiscountAmount,
     reviewForm.feeDiscountPercent,
     reviewForm.siblingDiscountPercent,
+    JSON.stringify(reviewForm.includedHeads),
     reviewTarget?.id,
     reviewTarget?.classId,
     reviewCheck?.matchType,
@@ -278,12 +325,15 @@ export default function AdmissionManagement() {
     setReviewCheck(null);
     setCnicOnRecord(hasStoredCnic);
     setEditingCnic(!hasStoredCnic);
+    const includedHeads = parseStoredFeeHeads(app.includedFeeHeads);
+    if (app.waiveAdmissionFee) includedHeads.admission = false;
     setReviewForm({
       fatherCnic: hasStoredCnic ? formatCnic(storedCnic) : '',
       waiveAdmissionFee: Boolean(app.waiveAdmissionFee),
       feeDiscountAmount: app.feeDiscountAmount || 0,
       feeDiscountPercent: app.feeDiscountPercent || 0,
       siblingDiscountPercent: app.siblingDiscountPercent || 0,
+      includedHeads,
     });
     if (hasStoredCnic) {
       await runCnicCheckForApp(app, storedCnic);
@@ -321,6 +371,7 @@ export default function AdmissionManagement() {
         feeDiscountAmount: reviewForm.feeDiscountAmount,
         feeDiscountPercent: reviewForm.feeDiscountPercent,
         siblingDiscountPercent: reviewForm.siblingDiscountPercent,
+        includedHeads: reviewForm.includedHeads,
       }) as { status?: string };
       toast.success(
         result.status === 'Approved'
@@ -897,7 +948,11 @@ export default function AdmissionManagement() {
                             <input
                               type="checkbox"
                               checked={reviewForm.waiveAdmissionFee}
-                              onChange={(e) => setReviewForm((prev) => ({ ...prev, waiveAdmissionFee: e.target.checked }))}
+                              onChange={(e) => setReviewForm((prev) => ({
+                                ...prev,
+                                waiveAdmissionFee: e.target.checked,
+                                includedHeads: { ...prev.includedHeads, admission: !e.target.checked },
+                              }))}
                             />
                             Waive admission fee
                           </label>
@@ -949,17 +1004,45 @@ export default function AdmissionManagement() {
                               <FileText className="w-4 h-4" /> Enrollment fee preview
                             </p>
                             <div className="space-y-1 text-sm">
-                              {reviewCheck.feePreview.lines.map((line) => (
-                                <div key={line.label} className="flex justify-between">
-                                  <span className="text-slate-500">{line.label}</span>
-                                  <span className={`font-bold ${line.amount < 0 ? 'text-success' : ''}`}>
-                                    {line.amount < 0 ? '−' : ''}{formatMoney(Math.abs(line.amount))}
-                                  </span>
-                                </div>
-                              ))}
+                              {(reviewCheck.feePreview.heads || [])
+                                .filter((head) => head.catalogAmount > 0)
+                                .map((head) => {
+                                  const active = feeHeadActive(head.key, reviewForm.includedHeads, reviewForm.waiveAdmissionFee);
+                                  return (
+                                    <div key={head.key} className="flex items-center justify-between gap-3">
+                                      <span className={active ? 'text-slate-500' : 'text-slate-400 line-through'}>{head.label}</span>
+                                      <div className="flex items-center gap-3">
+                                        <button
+                                          type="button"
+                                          onClick={() => setReviewForm((prev) => {
+                                            const turningOff = feeHeadActive(head.key, prev.includedHeads, prev.waiveAdmissionFee);
+                                            return {
+                                              ...prev,
+                                              waiveAdmissionFee: head.key === 'admission' ? turningOff : prev.waiveAdmissionFee,
+                                              includedHeads: { ...prev.includedHeads, [head.key]: !turningOff },
+                                            };
+                                          })}
+                                          className={`min-w-[88px] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${active ? 'bg-primary text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}
+                                        >
+                                          {active ? 'Active' : 'Inactive'}
+                                        </button>
+                                        <span className={`font-bold w-24 text-end ${active ? '' : 'text-slate-400 line-through'}`}>
+                                          {formatMoney(head.catalogAmount)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               <div className="flex justify-between pt-2 border-t border-primary/20 font-black text-primary">
                                 <span>Total due on enroll</span>
-                                <span>{formatMoney(reviewCheck.feePreview.totalDue)}</span>
+                                <span>{formatMoney(enrollmentTotal(
+                                  reviewCheck.feePreview,
+                                  reviewForm.includedHeads,
+                                  reviewForm.waiveAdmissionFee,
+                                  reviewForm.feeDiscountAmount,
+                                  reviewForm.feeDiscountPercent,
+                                  reviewForm.siblingDiscountPercent,
+                                ))}</span>
                               </div>
                             </div>
                           </div>

@@ -403,6 +403,7 @@ export interface AdmissionApplication {
   feeDiscountAmount?: number;
   feeDiscountPercent?: number;
   siblingDiscountPercent?: number;
+  includedFeeHeads?: string;
   rejectionReason?: string;
   referralSource?: string;
   admissionVoucherStatus?: string;
@@ -439,6 +440,13 @@ export interface AdmissionFeePreview {
   carryArrears: number;
   totalDue: number;
   lines: Array<{ label: string; amount: number }>;
+  heads?: Array<{
+    key: string;
+    label: string;
+    catalogAmount: number;
+    included: boolean;
+    amount: number;
+  }>;
 }
 
 export interface AdmissionMatchedStudent {

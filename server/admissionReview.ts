@@ -54,6 +54,44 @@ export interface AdmissionFeePreviewLine {
   amount: number;
 }
 
+export interface AdmissionFeeHead {
+  key: string;
+  label: string;
+  catalogAmount: number;
+  included: boolean;
+  amount: number;
+}
+
+const ADMISSION_FEE_HEAD_DEFS: Array<{ key: string; label: string; field: keyof FeeStructureRow }> = [
+  { key: "tuition", label: "Tuition (monthly)", field: "monthlyFee" },
+  { key: "admission", label: "Admission fee", field: "admissionFee" },
+  { key: "security", label: "Security deposit", field: "securityFee" },
+  { key: "registration", label: "Registration fee", field: "registrationFee" },
+  { key: "exam", label: "Exam fee", field: "examFee" },
+  { key: "transport", label: "Transport", field: "transportFee" },
+  { key: "idCard", label: "ID card charges", field: "idCardFee" },
+  { key: "summerCamp", label: "Summer camp", field: "summerCampFee" },
+  { key: "trip", label: "Educational trip", field: "tripFee" },
+  { key: "misc", label: "Misc fee", field: "miscFee" },
+];
+
+export function parseIncludedFeeHeads(raw: unknown): Record<string, boolean> | undefined {
+  if (!raw) return undefined;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, boolean>;
+  }
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, boolean>;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 export interface AdmissionFeePreview {
   classAssigned: boolean;
   tuitionFee: number;
@@ -64,7 +102,10 @@ export interface AdmissionFeePreview {
   transportFee: number;
   miscFee: number;
   idCardFee: number;
+  summerCampFee: number;
+  tripFee: number;
   subtotal: number;
+  heads: AdmissionFeeHead[];
   manualDiscountAmount: number;
   manualDiscountPercent: number;
   siblingDiscountPercent: number;
@@ -98,6 +139,8 @@ export interface FeeStructureRow {
   transportFee: number;
   miscFee: number;
   idCardFee: number;
+  summerCampFee: number;
+  tripFee: number;
 }
 
 export function normalizeCnic(raw: string | null | undefined): string {
@@ -164,18 +207,39 @@ export function computeAdmissionFeePreview(
     discountPercent?: number;
     siblingDiscountPercent?: number;
     carryArrears?: number;
+    includedHeads?: Record<string, boolean>;
   },
 ): AdmissionFeePreview | null {
   if (!feeStructure) return null;
 
-  let tuitionFee = Number(feeStructure.monthlyFee) || 0;
-  let admissionFee = options.waiveAdmissionFee ? 0 : (Number(feeStructure.admissionFee) || 0);
-  const securityFee = Number(feeStructure.securityFee) || 0;
-  const registrationFee = Number(feeStructure.registrationFee) || 0;
-  const examFee = Number(feeStructure.examFee) || 0;
-  const transportFee = Number(feeStructure.transportFee) || 0;
-  const miscFee = Number(feeStructure.miscFee) || 0;
-  const idCardFee = Number(feeStructure.idCardFee) || 0;
+  const included = (key: string) => {
+    if (key === "admission" && options.waiveAdmissionFee) return false;
+    return options.includedHeads?.[key] !== false;
+  };
+
+  const heads: AdmissionFeeHead[] = ADMISSION_FEE_HEAD_DEFS.map((def) => {
+    const catalogAmount = Number(feeStructure[def.field]) || 0;
+    const on = included(def.key);
+    return {
+      key: def.key,
+      label: def.label,
+      catalogAmount,
+      included: on,
+      amount: on ? catalogAmount : 0,
+    };
+  });
+  const amountOf = (key: string) => heads.find((h) => h.key === key)?.amount || 0;
+
+  const tuitionFee = amountOf("tuition");
+  const admissionFee = amountOf("admission");
+  const securityFee = amountOf("security");
+  const registrationFee = amountOf("registration");
+  const examFee = amountOf("exam");
+  const transportFee = amountOf("transport");
+  const miscFee = amountOf("misc");
+  const idCardFee = amountOf("idCard");
+  const summerCampFee = amountOf("summerCamp");
+  const tripFee = amountOf("trip");
   const carryArrears = Number(options.carryArrears) || 0;
 
   const siblingDiscountPercent = Number(options.siblingDiscountPercent) || 0;
@@ -183,7 +247,7 @@ export function computeAdmissionFeePreview(
     ? Math.round((tuitionFee * siblingDiscountPercent) / 100)
     : 0;
 
-  const grossSubtotal = tuitionFee + admissionFee + securityFee + registrationFee + examFee + transportFee + miscFee + idCardFee;
+  const grossSubtotal = heads.reduce((sum, head) => sum + head.amount, 0);
   let manualDiscountAmount = Number(options.discountAmount) || 0;
   const manualDiscountPercent = Number(options.discountPercent) || 0;
   if (manualDiscountPercent > 0) {
@@ -193,16 +257,9 @@ export function computeAdmissionFeePreview(
   const totalDiscount = Math.min(grossSubtotal, siblingDiscountAmount + manualDiscountAmount);
   const totalDue = grossSubtotal - totalDiscount + carryArrears;
 
-  const lines: AdmissionFeePreviewLine[] = [
-    { label: "Tuition (monthly)", amount: tuitionFee },
-  ];
-  if (admissionFee > 0) lines.push({ label: "Admission fee", amount: admissionFee });
-  if (securityFee > 0) lines.push({ label: "Security deposit", amount: securityFee });
-  if (registrationFee > 0) lines.push({ label: "Registration fee", amount: registrationFee });
-  if (examFee > 0) lines.push({ label: "Exam fee", amount: examFee });
-  if (transportFee > 0) lines.push({ label: "Transport", amount: transportFee });
-  if (miscFee > 0) lines.push({ label: "Misc fee", amount: miscFee });
-  if (idCardFee > 0) lines.push({ label: "ID card charges", amount: idCardFee });
+  const lines: AdmissionFeePreviewLine[] = heads
+    .filter((head) => head.included && head.amount !== 0)
+    .map((head) => ({ label: head.label, amount: head.amount }));
   if (siblingDiscountAmount > 0) {
     lines.push({ label: `Sibling discount (${siblingDiscountPercent}% on tuition)`, amount: -siblingDiscountAmount });
   }
@@ -224,6 +281,8 @@ export function computeAdmissionFeePreview(
     transportFee,
     miscFee,
     idCardFee,
+    summerCampFee,
+    tripFee,
     subtotal: grossSubtotal,
     manualDiscountAmount,
     manualDiscountPercent,
@@ -232,6 +291,7 @@ export function computeAdmissionFeePreview(
     totalDiscount,
     carryArrears,
     totalDue,
+    heads,
     lines: lines.filter((l) => l.amount !== 0),
   };
 }
@@ -367,6 +427,8 @@ export async function fetchClassFeeStructure(
         ISNULL(fs.transport_fee, 0) AS classTransportFee,
         ISNULL(fs.misc_fee, 0) AS classMiscFee,
         ISNULL(fs.id_card_fee, 0) AS classIdCardFee,
+        ISNULL(fs.summer_camp_fee, 0) AS classSummerCampFee,
+        ISNULL(fs.trip_fee, 0) AS classTripFee,
         ISNULL(st.tuition_fee, 0) AS campusMonthlyFee,
         ISNULL(st.admission_fee, 0) AS campusAdmissionFee,
         ISNULL(st.security_fee, 0) AS campusSecurityFee,
@@ -374,7 +436,9 @@ export async function fetchClassFeeStructure(
         ISNULL(st.exam_fee, 0) AS campusExamFee,
         ISNULL(st.transport_fee, 0) AS campusTransportFee,
         ISNULL(st.misc_fee, 0) AS campusMiscFee,
-        ISNULL(st.id_card_fee, 0) AS campusIdCardFee
+        ISNULL(st.id_card_fee, 0) AS campusIdCardFee,
+        ISNULL(st.summer_camp_fee, 0) AS campusSummerCampFee,
+        ISNULL(st.trip_fee, 0) AS campusTripFee
       FROM Classes cl
       LEFT JOIN FeeSettings fs ON fs.class_id = cl.id
       OUTER APPLY (
@@ -386,7 +450,9 @@ export async function fetchClassFeeStructure(
           st.exam_fee,
           st.transport_fee,
           st.misc_fee,
-          st.id_card_fee
+          st.id_card_fee,
+          st.summer_camp_fee,
+          st.trip_fee
         FROM FeeStructures st
         WHERE st.campus_id = cl.campus_id
           AND st.class_id IS NULL
@@ -408,7 +474,9 @@ export async function fetchClassFeeStructure(
     Number(row.classExamFee) +
     Number(row.classTransportFee) +
     Number(row.classMiscFee) +
-    Number(row.classIdCardFee);
+    Number(row.classIdCardFee) +
+    Number(row.classSummerCampFee) +
+    Number(row.classTripFee);
   const useClass = Boolean(row.feeSettingsId) && classTotal > 0;
 
   const monthlyFee = useClass ? Number(row.classMonthlyFee) : Number(row.campusMonthlyFee);
@@ -419,9 +487,11 @@ export async function fetchClassFeeStructure(
   const transportFee = useClass ? Number(row.classTransportFee) : Number(row.campusTransportFee);
   const miscFee = useClass ? Number(row.classMiscFee) : Number(row.campusMiscFee);
   const idCardFee = useClass ? Number(row.classIdCardFee) : Number(row.campusIdCardFee);
+  const summerCampFee = useClass ? Number(row.classSummerCampFee) : Number(row.campusSummerCampFee);
+  const tripFee = useClass ? Number(row.classTripFee) : Number(row.campusTripFee);
 
   if (
-    !monthlyFee && !admissionFee && !securityFee && !registrationFee && !examFee && !transportFee && !miscFee && !idCardFee
+    !monthlyFee && !admissionFee && !securityFee && !registrationFee && !examFee && !transportFee && !miscFee && !idCardFee && !summerCampFee && !tripFee
   ) {
     return null;
   }
@@ -435,6 +505,8 @@ export async function fetchClassFeeStructure(
     transportFee: transportFee || 0,
     miscFee: miscFee || 0,
     idCardFee: idCardFee || 0,
+    summerCampFee: summerCampFee || 0,
+    tripFee: tripFee || 0,
   };
 }
 
@@ -473,6 +545,7 @@ export async function runAdmissionCnicReview(
     discountPercent?: number;
     applySiblingDiscount?: boolean;
     siblingDiscountPercent?: number;
+    includedHeads?: Record<string, boolean>;
   },
 ): Promise<AdmissionReviewResult> {
   const normalizedCnic = normalizeCnic(params.fatherCnic);
@@ -601,6 +674,7 @@ export async function runAdmissionCnicReview(
       discountPercent: params.discountPercent,
       siblingDiscountPercent: siblingPercent,
       carryArrears,
+      includedHeads: params.includedHeads,
     });
   }
 
@@ -629,6 +703,7 @@ export async function createEnrollmentFeeVoucher(
     discountPercent?: number;
     siblingDiscountPercent?: number;
     carryArrears?: number;
+    includedHeads?: Record<string, boolean>;
   },
 ): Promise<{ feeId: string | null; totalDue: number; reason?: string }> {
   const feeStructure = await fetchClassFeeStructure(pool, classId);
@@ -644,7 +719,7 @@ export async function createEnrollmentFeeVoucher(
     return {
       feeId: null,
       totalDue: 0,
-      reason: "Admission total due is zero (fees waived or all heads are Rs. 0). Update Fee Settings or review discounts.",
+      reason: "Admission total due is zero. Turn at least one fee Active, or update Fee Settings.",
     };
   }
 
@@ -678,6 +753,8 @@ export async function createEnrollmentFeeVoucher(
     .input("transport_fee", preview.transportFee)
     .input("misc_fee", preview.miscFee)
     .input("id_card_fee", preview.idCardFee)
+    .input("summer_camp_fee", preview.summerCampFee)
+    .input("trip_fee", preview.tripFee)
     .input("arrears", preview.carryArrears)
     .input("discount_amount", preview.totalDiscount)
     .input("balance_amount", preview.totalDue)
@@ -687,10 +764,12 @@ export async function createEnrollmentFeeVoucher(
       INSERT INTO Fees (
         id, student_id, amount, month, year, status, due_date, fee_type,
         tuition_fee, admission_fee, security_fee, registration_fee, exam_fee, transport_fee, misc_fee, id_card_fee,
+        summer_camp_fee, trip_fee,
         arrears, discount_amount, balance_amount, paid_amount, campus_name_snapshot, months_label
       ) VALUES (
         @id, @student_id, @amount, @month, @year, 'Unpaid', @due_date, @fee_type,
         @tuition_fee, @admission_fee, @security_fee, @registration_fee, @exam_fee, @transport_fee, @misc_fee, @id_card_fee,
+        @summer_camp_fee, @trip_fee,
         @arrears, @discount_amount, @balance_amount, 0, @campus_name_snapshot, @months_label
       )
     `);

@@ -39,6 +39,7 @@ import {
   runAdmissionCnicReview,
   normalizeCnic,
   createEnrollmentFeeVoucher,
+  parseIncludedFeeHeads,
   type AdmissionReviewResult,
 } from "./server/admissionReview.js";
 import {
@@ -1983,6 +1984,7 @@ async function connectToDb() {
             fee_discount_amount DECIMAL(18, 2) DEFAULT 0,
             fee_discount_percent DECIMAL(5, 2) DEFAULT 0,
             sibling_discount_percent DECIMAL(5, 2) DEFAULT 0,
+            included_fee_heads NVARCHAR(MAX),
             rejection_reason NVARCHAR(100),
             tracking_no NVARCHAR(30),
             student_bform NVARCHAR(50)
@@ -2012,6 +2014,8 @@ async function connectToDb() {
             ALTER TABLE AdmissionApplications ADD fee_discount_percent DECIMAL(5, 2) DEFAULT 0;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'sibling_discount_percent')
             ALTER TABLE AdmissionApplications ADD sibling_discount_percent DECIMAL(5, 2) DEFAULT 0;
+          IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'included_fee_heads')
+            ALTER TABLE AdmissionApplications ADD included_fee_heads NVARCHAR(MAX) NULL;
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'rejection_reason')
             ALTER TABLE AdmissionApplications ADD rejection_reason NVARCHAR(100);
           IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('AdmissionApplications') AND name = 'referral_source')
@@ -7848,6 +7852,7 @@ async function startServer() {
                ISNULL(a.fee_discount_amount, 0) AS feeDiscountAmount,
                ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
                ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
+               a.included_fee_heads AS includedFeeHeads,
                a.rejection_reason AS rejectionReason,
                a.referral_source AS referralSource,
                CONVERT(VARCHAR, a.interview_at, 120) AS interviewAt,
@@ -8105,6 +8110,7 @@ async function startServer() {
                  ISNULL(a.fee_discount_amount, 0) AS feeDiscountAmount,
                  ISNULL(a.fee_discount_percent, 0) AS feeDiscountPercent,
                  ISNULL(a.sibling_discount_percent, 0) AS siblingDiscountPercent,
+                 a.included_fee_heads AS includedFeeHeads,
                  a.rejection_reason AS rejectionReason,
                  a.referral_source AS referralSource,
                  CONVERT(VARCHAR, a.applied_on, 120) AS appliedOn,
@@ -8175,6 +8181,7 @@ async function startServer() {
         siblingDiscountPercent: req.body?.siblingDiscountPercent != null
           ? Number(req.body.siblingDiscountPercent)
           : undefined,
+        includedHeads: parseIncludedFeeHeads(req.body?.includedHeads),
       });
       res.json({ ...result, fatherCnic });
     } catch (err) {
@@ -8248,6 +8255,8 @@ async function startServer() {
       const siblingDiscountPercent = Number(
         body.siblingDiscountPercent ?? reviewResult.suggestedSiblingDiscountPercent ?? 0,
       );
+      const includedHeads = parseIncludedFeeHeads(body.includedHeads) || {};
+      if (waiveAdmissionFee) includedHeads.admission = false;
       const reviewSnapshot = JSON.stringify({
         reviewedAt: new Date().toISOString(),
         reviewedBy: authUser.username,
@@ -8266,6 +8275,7 @@ async function startServer() {
         .input("fee_discount_amount", feeDiscountAmount)
         .input("fee_discount_percent", feeDiscountPercent)
         .input("sibling_discount_percent", siblingDiscountPercent)
+        .input("included_fee_heads", JSON.stringify(includedHeads))
         .input("reviewed_by", authUser.username)
         .query(`
           UPDATE AdmissionApplications SET
@@ -8278,6 +8288,7 @@ async function startServer() {
             fee_discount_amount = @fee_discount_amount,
             fee_discount_percent = @fee_discount_percent,
             sibling_discount_percent = @sibling_discount_percent,
+            included_fee_heads = @included_fee_heads,
             reviewed_by = @reviewed_by,
             reviewed_on = GETDATE()
           WHERE id = @id
@@ -8549,6 +8560,7 @@ async function startServer() {
              a.fee_discount_amount AS feeDiscountAmount,
              a.fee_discount_percent AS feeDiscountPercent,
              a.sibling_discount_percent AS siblingDiscountPercent,
+             a.included_fee_heads AS includedFeeHeads,
              a.review_match_type AS reviewMatchType,
              a.linked_student_id AS linkedStudentId,
              a.campus_id AS campusId,
@@ -8807,6 +8819,7 @@ async function startServer() {
           discountPercent: Number(loaded.application.feeDiscountPercent) || 0,
           siblingDiscountPercent: Number(loaded.application.siblingDiscountPercent) || 0,
           carryArrears: loaded.application.reviewMatchType === "re_enrollment" ? carryArrears : 0,
+          includedHeads: parseIncludedFeeHeads(loaded.application.includedFeeHeads),
         });
         if (!createdVoucher.feeId) {
           return res.status(400).json({

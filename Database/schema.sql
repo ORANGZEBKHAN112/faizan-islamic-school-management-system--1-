@@ -313,6 +313,7 @@ CREATE TABLE AdmissionApplications (
     waive_admission_fee BIT DEFAULT 0,
     fee_discount_amount DECIMAL(18, 2) DEFAULT 0,
     sibling_discount_percent DECIMAL(5, 2) DEFAULT 0,
+    included_fee_heads NVARCHAR(MAX),
     rejection_reason NVARCHAR(100),
     referral_source NVARCHAR(50),
     tracking_no NVARCHAR(30),
