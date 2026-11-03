@@ -1,18 +1,10 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { createRequire } from "module";
+import { ZipArchive } from "archiver";
 import sql from "mssql";
 import { admissionCountsInPeriod } from "./admissionCutoff.js";
 import { ensureKuickpayConsumerNumber } from "./kuickpayBps.js";
-
-const require = createRequire(import.meta.url);
-// archiver CJS default export
-const archiver = require("archiver") as (format: string, opts?: { zlib?: { level?: number } }) => import("stream").Duplex & {
-  pipe: (dest: fs.WriteStream) => unknown;
-  append: (source: Buffer | string, opts: { name: string }) => void;
-  finalize: () => Promise<void>;
-};
 
 const BATCH_SIZE = 500;
 const EXPORT_CHUNK_SIZE = 500;
@@ -516,7 +508,7 @@ export async function runFeeExportJob(pool: sql.ConnectionPool, jobId: string): 
     const zipName = `vouchers_${jobId}.zip`;
     const zipPath = path.join(exportsDir, zipName);
     const output = fs.createWriteStream(zipPath);
-    const archive = archiver("zip", { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.pipe(output);
 
     const headers = [

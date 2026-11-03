@@ -116,6 +116,10 @@ export default function FeeManagement() {
   const [generationRuns, setGenerationRuns] = useState<FeeGenerationRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [bulkDownloadOpen, setBulkDownloadOpen] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [bulkMonth, setBulkMonth] = useState(new Date().getMonth() + 1);
+  const [bulkYear, setBulkYear] = useState(new Date().getFullYear());
   const [generationJobId, setGenerationJobId] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -707,44 +711,77 @@ export default function FeeManagement() {
     await downloadFeeVoucherPdf(voucher, pdfOpts);
   };
 
+  const openBulkDownload = () => {
+    setBulkMonth(filterMonth || new Date().getMonth() + 1);
+    setBulkYear(filterYear || new Date().getFullYear());
+    setBulkDownloadOpen(true);
+  };
+
   const downloadAllVouchers = async () => {
-    if (vouchersTotal === 0) {
-      toast.error('No vouchers to download.');
+    const month = Number(bulkMonth);
+    const year = Number(bulkYear);
+    if (!month || month < 1 || month > 12 || !year) {
+      toast.error('Select the month and year.');
       return;
     }
 
-    if (vouchersTotal <= CLIENT_BULK_PDF_LIMIT) {
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const toastId = toast.loading(`Generating ${vouchers.length} vouchers…`);
-      const assets = await loadFeeVoucherPdfAssets();
-      for (let index = 0; index < vouchers.length; index++) {
-        const voucher = vouchers[index];
-        if (index > 0) doc.addPage();
-        const campus = campuses.find((c) => c.id === voucher.campusId);
-        drawFeeVoucherPage(doc, voucher, {
-          ...assets,
-          campusName: campus?.campusName || voucher.campusName,
-          kuickpayCustomerCharge,
-        });
-      }
-      doc.save(`Bulk_Vouchers_${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.success('Bulk download complete!', { id: toastId });
-      return;
-    }
-
+    setBulkDownloading(true);
+    const monthLabel = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
     try {
-      const result = await dataService.startFeeExport({
+      const params: Record<string, unknown> = {
+        page: 1,
+        limit: CLIENT_BULK_PDF_LIMIT,
+        month,
+        year,
+      };
+      if (selectedCampus !== 'all') params.campusId = selectedCampus;
+      if (selectedStatus !== 'all') params.status = selectedStatus;
+      if (urlStudentId) params.studentId = urlStudentId;
+      if (debouncedSearchTerm.trim()) params.search = debouncedSearchTerm.trim();
+
+      const result = await dataService.getPaginated('fees', params);
+      const list = (result.data || []) as Fee[];
+      if (!result.total || list.length === 0) {
+        toast.error(`No vouchers for ${monthLabel} ${year}.`);
+        return;
+      }
+
+      if (result.total <= CLIENT_BULK_PDF_LIMIT) {
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const toastId = toast.loading(`Generating ${list.length} vouchers…`);
+        const assets = await loadFeeVoucherPdfAssets();
+        const charge = result.kuickpayCustomerCharge ?? kuickpayCustomerCharge;
+        for (let index = 0; index < list.length; index++) {
+          const voucher = list[index];
+          if (index > 0) doc.addPage();
+          const campus = campuses.find((c) => c.id === voucher.campusId);
+          drawFeeVoucherPage(doc, voucher, {
+            ...assets,
+            campusName: campus?.campusName || voucher.campusName,
+            kuickpayCustomerCharge: charge,
+          });
+        }
+        doc.save(`Bulk_Vouchers_${monthLabel}_${year}.pdf`);
+        toast.success('Bulk download complete!', { id: toastId });
+        setBulkDownloadOpen(false);
+        return;
+      }
+
+      const exportResult = await dataService.startFeeExport({
         campusId: selectedCampus !== 'all' ? selectedCampus : undefined,
-        year: filterYear || undefined,
-        month: filterMonth || undefined,
+        year,
+        month,
         status: selectedStatus,
         search: debouncedSearchTerm.trim() || undefined,
       });
-      setExportJobId(result.jobId);
-      toast.success(`Export queued for ${vouchersTotal.toLocaleString()} vouchers…`);
+      setExportJobId(exportResult.jobId);
+      toast.success(`Export queued for ${result.total.toLocaleString()} vouchers of ${monthLabel} ${year}…`);
+      setBulkDownloadOpen(false);
     } catch (err) {
       console.error(err);
       toast.error('Failed to start export');
+    } finally {
+      setBulkDownloading(false);
     }
   };
 
@@ -883,7 +920,7 @@ export default function FeeManagement() {
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={downloadAllVouchers}
+              onClick={openBulkDownload}
               className="vibrant-btn-primary px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold"
             >
               <Download className="w-4 h-4" />
@@ -1999,6 +2036,51 @@ export default function FeeManagement() {
                   <button type="submit" className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase">Apply Adjustment</button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {bulkDownloadOpen && (
+          <div className="app-modal">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-md p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-black uppercase tracking-tight">Bulk download</h3>
+                  <p className="text-sm text-slate-500 mt-1">Which month’s vouchers should be downloaded?</p>
+                </div>
+                <button type="button" onClick={() => setBulkDownloadOpen(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-7 h-7" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Month</label>
+                  <SearchableSelect
+                    value={String(bulkMonth)}
+                    onChange={(month) => setBulkMonth(parseInt(month, 10))}
+                    searchPlaceholder="Search month…"
+                    options={Array.from({ length: 12 }, (_, i) => ({
+                      value: String(i + 1),
+                      label: new Date(0, i).toLocaleString('default', { month: 'long' }),
+                    }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Year</label>
+                  <SearchableSelect
+                    value={String(bulkYear)}
+                    onChange={(year) => setBulkYear(parseInt(year, 10))}
+                    searchPlaceholder="Search year…"
+                    options={[2023, 2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) }))}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-6">
+                <button type="button" onClick={() => setBulkDownloadOpen(false)} className="vibrant-btn-secondary flex-1" disabled={bulkDownloading}>Cancel</button>
+                <button type="button" onClick={downloadAllVouchers} disabled={bulkDownloading} className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase disabled:opacity-50">
+                  {bulkDownloading ? 'Preparing…' : 'Download'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

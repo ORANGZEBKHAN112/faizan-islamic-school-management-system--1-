@@ -5811,12 +5811,18 @@ async function startServer() {
         return res.status(400).json({ message: "Select a campus for fee export" });
       }
 
+      const month = parseInt(String(req.body?.month || ""), 10);
+      const year = parseInt(String(req.body?.year || ""), 10);
+      if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000 || year > 2100) {
+        return res.status(400).json({ message: "Select the month and year for the voucher export" });
+      }
+
       const jobId = crypto.randomUUID();
       await pool.request()
         .input("id", jobId)
         .input("campus_id", campusFilter || null)
-        .input("year", req.body?.year || null)
-        .input("month", req.body?.month || null)
+        .input("year", year)
+        .input("month", month)
         .input("status_filter", req.body?.status || "all")
         .input("search", req.body?.search || null)
         .input("requested_by", authUser.username)
