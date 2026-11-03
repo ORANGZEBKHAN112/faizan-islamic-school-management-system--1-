@@ -17,6 +17,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { useConfirm } from '../context/ConfirmContext';
 import { PermissionGate, usePermissions } from '../context/PermissionContext';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import StudentSuggestField, { type SuggestedStudent } from '../components/fees/StudentSuggestField';
 import { formatRollNumberForDisplay } from '../utils/rollNumber';
 import { downloadFeeVoucherPdf, drawFeeVoucherPage, loadFeeVoucherPdfAssets } from '../utils/feeVoucherPdf';
 import SingleVoucherPanel from '../components/fees/SingleVoucherPanel';
@@ -34,6 +35,38 @@ function defaultValidityDate(year: number, month: number): string {
 const scopeUser = getStoredUser();
 const CLIENT_BULK_PDF_LIMIT = 50;
 const VOUCHERS_PAGE_SIZE = 50;
+
+const BULK_KIND_GROUPS = [
+  {
+    label: 'Payment',
+    options: [
+      { value: 'status:Paid', label: 'Paid' },
+      { value: 'status:Unpaid', label: 'Unpaid' },
+      { value: 'status:Partially Paid', label: 'Partially Paid' },
+      { value: 'status:Pending', label: 'Processing (Kuickpay)' },
+    ],
+  },
+  {
+    label: 'Voucher type',
+    options: [
+      { value: 'type:Monthly', label: 'Monthly' },
+      { value: 'type:Admission', label: 'Admission' },
+      { value: 'type:Arrears', label: 'Arrears' },
+      { value: 'type:Fine', label: 'Fine' },
+      { value: 'type:Security Deposit', label: 'Security Deposit' },
+      { value: 'type:Summer Camp', label: 'Summer Camp' },
+      { value: 'type:ID Card', label: 'ID Card' },
+      { value: 'type:Educational Trip', label: 'Educational Trip' },
+    ],
+  },
+];
+
+function splitBulkKinds(kinds: string[]) {
+  return {
+    statuses: kinds.filter((kind) => kind.startsWith('status:')).map((kind) => kind.slice(7)),
+    feeTypes: kinds.filter((kind) => kind.startsWith('type:')).map((kind) => kind.slice(5)),
+  };
+}
 
 export default function FeeManagement() {
   const { t } = useI18n();
@@ -105,9 +138,7 @@ export default function FeeManagement() {
     amount: 0,
     description: '',
   });
-  const [extraStudentQuery, setExtraStudentQuery] = useState('');
-  const [extraStudentOptions, setExtraStudentOptions] = useState<Array<{ id: string; firstName: string; lastName?: string; rollNumber: string }>>([]);
-  const [extraStudentLoading, setExtraStudentLoading] = useState(false);
+  const [extraStudent, setExtraStudent] = useState<SuggestedStudent | null>(null);
   const [selectedMonths, setSelectedMonths] = useState<number[]>([new Date().getMonth() + 1]);
   
   const [currentPage, setCurrentPage] = useState(1);
@@ -120,6 +151,8 @@ export default function FeeManagement() {
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const [bulkMonth, setBulkMonth] = useState(new Date().getMonth() + 1);
   const [bulkYear, setBulkYear] = useState(new Date().getFullYear());
+  const [bulkKinds, setBulkKinds] = useState<string[]>([]);
+  const [bulkKindsOpen, setBulkKindsOpen] = useState(false);
   const [generationJobId, setGenerationJobId] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,8 +160,8 @@ export default function FeeManagement() {
     scopeUser ? resolveCampusFilter(scopeUser, searchParams.get('campusId')) : (searchParams.get('campusId') || 'all')
   );
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [filterMonth, setFilterMonth] = useState<number | ''>('');
-  const [filterYear, setFilterYear] = useState<number | ''>('');
+  const [filterMonth, setFilterMonth] = useState<number | ''>(new Date().getMonth() + 1);
+  const [filterYear, setFilterYear] = useState<number | ''>(new Date().getFullYear());
 
   const voucherParams = useMemo(
     () => ({
@@ -374,26 +407,6 @@ export default function FeeManagement() {
     };
     loadRuns();
   }, [activeTab, selectedCampus]);
-
-  useEffect(() => {
-    if (!isExtraChargeOpen) return;
-    const timer = setTimeout(async () => {
-      try {
-        setExtraStudentLoading(true);
-        const results = await dataService.fetchStudentOptions({
-          search: extraStudentQuery.trim() || undefined,
-          campusId: selectedCampus !== 'all' ? selectedCampus : undefined,
-          limit: 30,
-        });
-        setExtraStudentOptions(results);
-      } catch (err) {
-        console.error('Failed to search students for extra charge:', err);
-      } finally {
-        setExtraStudentLoading(false);
-      }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [isExtraChargeOpen, extraStudentQuery, selectedCampus]);
 
   useEffect(() => {
     const derived = deriveAcademicSession(generationParams.year, generationParams.month);
@@ -685,6 +698,8 @@ export default function FeeManagement() {
       });
       toast.success('Extra charge created');
       setIsExtraChargeOpen(false);
+      setExtraStudent(null);
+      setExtraChargeForm((prev) => ({ ...prev, studentId: '' }));
       await refreshVouchers();
       dataService.invalidateCollection('fees');
     } catch (err: unknown) {
@@ -714,6 +729,7 @@ export default function FeeManagement() {
   const openBulkDownload = () => {
     setBulkMonth(filterMonth || new Date().getMonth() + 1);
     setBulkYear(filterYear || new Date().getFullYear());
+    setBulkKindsOpen(false);
     setBulkDownloadOpen(true);
   };
 
@@ -734,8 +750,11 @@ export default function FeeManagement() {
         month,
         year,
       };
+      const { statuses, feeTypes } = splitBulkKinds(bulkKinds);
       if (selectedCampus !== 'all') params.campusId = selectedCampus;
-      if (selectedStatus !== 'all') params.status = selectedStatus;
+      if (statuses.length) params.statuses = statuses.join(',');
+      else if (selectedStatus !== 'all') params.status = selectedStatus;
+      if (feeTypes.length) params.feeTypes = feeTypes.join(',');
       if (urlStudentId) params.studentId = urlStudentId;
       if (debouncedSearchTerm.trim()) params.search = debouncedSearchTerm.trim();
 
@@ -747,12 +766,17 @@ export default function FeeManagement() {
       }
 
       if (result.total <= CLIENT_BULK_PDF_LIMIT) {
+        const ordered = [...list].sort((a, b) => {
+          const aMonthly = (a.feeType || 'Monthly') === 'Monthly' ? 0 : 1;
+          const bMonthly = (b.feeType || 'Monthly') === 'Monthly' ? 0 : 1;
+          return aMonthly - bMonthly;
+        });
         const doc = new jsPDF('p', 'mm', 'a4');
-        const toastId = toast.loading(`Generating ${list.length} vouchers…`);
+        const toastId = toast.loading(`Generating ${ordered.length} vouchers…`);
         const assets = await loadFeeVoucherPdfAssets();
         const charge = result.kuickpayCustomerCharge ?? kuickpayCustomerCharge;
-        for (let index = 0; index < list.length; index++) {
-          const voucher = list[index];
+        for (let index = 0; index < ordered.length; index++) {
+          const voucher = ordered[index];
           if (index > 0) doc.addPage();
           const campus = campuses.find((c) => c.id === voucher.campusId);
           drawFeeVoucherPage(doc, voucher, {
@@ -771,11 +795,13 @@ export default function FeeManagement() {
         campusId: selectedCampus !== 'all' ? selectedCampus : undefined,
         year,
         month,
-        status: selectedStatus,
+        statuses: statuses.join(','),
+        feeTypes: feeTypes.join(','),
+        status: statuses.length ? undefined : selectedStatus,
         search: debouncedSearchTerm.trim() || undefined,
       });
       setExportJobId(exportResult.jobId);
-      toast.success(`Export queued for ${result.total.toLocaleString()} vouchers of ${monthLabel} ${year}…`);
+      toast.success(`Export queued for ${result.total.toLocaleString()} vouchers of ${monthLabel} ${year}. Monthly fee and other collection are separate files.`);
       setBulkDownloadOpen(false);
     } catch (err) {
       console.error(err);
@@ -931,68 +957,108 @@ export default function FeeManagement() {
       />
 
       {/* Stats Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <motion.div 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fee period</p>
+          <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+            {filterMonth
+              ? new Date(Number(filterYear) || new Date().getFullYear(), Number(filterMonth) - 1).toLocaleString('default', { month: 'long' })
+              : 'All months'}
+            {filterYear ? ` ${filterYear}` : ''}
+            {' · '}
+            {selectedCampus === 'all'
+              ? 'All campuses'
+              : (campuses.find((c) => c.id === selectedCampus)?.campusName || 'Your campus')}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:w-80">
+          <SearchableSelect
+            variant="compact"
+            value={filterMonth === '' ? '' : String(filterMonth)}
+            onChange={(month) => setFilterMonth(month ? parseInt(month, 10) : '')}
+            searchPlaceholder="Search month…"
+            options={[
+              { value: '', label: 'All months' },
+              ...Array.from({ length: 12 }, (_, i) => ({
+                value: String(i + 1),
+                label: new Date(0, i).toLocaleString('default', { month: 'long' }),
+              })),
+            ]}
+          />
+          <SearchableSelect
+            variant="compact"
+            value={filterYear === '' ? '' : String(filterYear)}
+            onChange={(year) => setFilterYear(year ? parseInt(year, 10) : '')}
+            searchPlaceholder="Search year…"
+            options={[
+              { value: '', label: 'All years' },
+              ...[2023, 2024, 2025, 2026, 2027].map((y) => ({ value: String(y), label: String(y) })),
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="vibrant-card p-6 bg-success/5 border-success/10 relative overflow-hidden group"
+          className="vibrant-card p-6 bg-slate-50 dark:bg-slate-800/50 relative overflow-hidden group"
         >
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-success/5 rounded-full blur-2xl group-hover:bg-success/10 transition-all" />
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Collected</span>
-            <span className="text-3xl font-black text-success mt-1">{formatMoney(Number(feeStats.totalPaid || 0))}</span>
-            <div className="flex items-center gap-2 mt-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              <span className="text-[10px] font-medium text-success/60">Live Updates</span>
-            </div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Billed</span>
+            <span className="text-3xl font-black text-slate-900 dark:text-white mt-1">{formatMoney(Number(feeStats.totalBilled || 0))}</span>
+            <span className="text-[10px] font-medium text-slate-400 mt-2">Payable on vouchers</span>
           </div>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="vibrant-card p-6 bg-accent/5 border-accent/10 relative overflow-hidden group"
+          className="vibrant-card p-6 bg-success/5 border-success/10 relative overflow-hidden group"
         >
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-all" />
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outstanding</span>
-            <span className="text-3xl font-black text-accent mt-1">{formatMoney(Number(feeStats.totalOutstanding || 0))}</span>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] font-medium text-accent/60">Includes arrears</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collected</span>
+            <div className="mt-3 space-y-2">
+              <div className="flex items-end justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-success/70">Monthly fee</span>
+                <span className="text-lg font-black text-success">{formatMoney(Number(feeStats.monthlyCollected || 0))}</span>
+              </div>
+              <div className="flex items-end justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Other</span>
+                <span className="text-lg font-black text-slate-700 dark:text-slate-200">{formatMoney(Number(feeStats.otherCollected || 0))}</span>
+              </div>
+              <div className="flex items-end justify-between gap-3 border-t border-success/10 pt-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Total</span>
+                <span className="text-lg font-black text-slate-900 dark:text-white">{formatMoney(Number(feeStats.totalPaid || 0))}</span>
+              </div>
             </div>
           </div>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="vibrant-card p-6 bg-primary/5 border-primary/10 relative overflow-hidden group"
+          className="vibrant-card p-6 bg-accent/5 border-accent/10 relative overflow-hidden group"
         >
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-primary/5 rounded-full blur-2xl group-hover:bg-primary/10 transition-all" />
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Defaulters</span>
-            <span className="text-3xl font-black text-primary mt-1">{feeStats.defaulters}</span>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] font-medium text-primary/60">Unpaid vouchers</span>
-            </div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Still due</span>
+            <span className="text-3xl font-black text-accent mt-1">{formatMoney(Number(feeStats.totalOutstanding || 0))}</span>
+            <span className="text-[10px] font-medium text-accent/60 mt-2">Not yet received</span>
           </div>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="vibrant-card p-6 bg-slate-50 dark:bg-slate-800/50 relative overflow-hidden group"
+          className="vibrant-card p-6 bg-primary/5 border-primary/10 relative overflow-hidden group"
         >
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-slate-200 dark:bg-slate-700/50 rounded-full blur-2xl group-hover:scale-125 transition-all" />
           <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Vouchers</span>
-            <span className="text-3xl font-black text-slate-900 dark:text-white mt-1">{feeStats.totalCount}</span>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] font-medium text-slate-400">Current Session</span>
-            </div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Students due</span>
+            <span className="text-3xl font-black text-primary mt-1">{feeStats.defaulters}</span>
+            <span className="text-[10px] font-medium text-primary/60 mt-2">Students, not vouchers</span>
           </div>
         </motion.div>
       </div>
@@ -1869,25 +1935,14 @@ export default function FeeManagement() {
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="vibrant-card w-full max-w-md p-8 space-y-6">
               <h3 className="text-xl font-black uppercase">Extra Fee Charge</h3>
               <form onSubmit={handleExtraCharge} className="space-y-4">
-                <input
-                  className="vibrant-input"
-                  placeholder="Search student (name / roll no)"
-                  value={extraStudentQuery}
-                  onChange={(e) => setExtraStudentQuery(e.target.value)}
-                />
-                <SearchableSelect
-                  required
-                  value={extraChargeForm.studentId}
-                  onChange={(studentId) => setExtraChargeForm({ ...extraChargeForm, studentId })}
-                  disabled={extraStudentLoading}
-                  loading={extraStudentLoading}
-                  loadingText="Loading students…"
-                  placeholder="Select student"
-                  searchPlaceholder="Search students…"
-                  options={extraStudentOptions.map((s) => ({
-                    value: s.id,
-                    label: `${s.firstName} — ${formatRollNumberForDisplay(s.rollNumber)}`,
-                  }))}
+                <StudentSuggestField
+                  includeInactive={false}
+                  campusId={selectedCampus !== 'all' ? selectedCampus : undefined}
+                  value={extraStudent}
+                  onChange={(student) => {
+                    setExtraStudent(student);
+                    setExtraChargeForm((prev) => ({ ...prev, studentId: student?.id || '' }));
+                  }}
                 />
                 <SearchableSelect
                   value={extraChargeForm.feeType}
@@ -2044,7 +2099,7 @@ export default function FeeManagement() {
       <AnimatePresence>
         {bulkDownloadOpen && (
           <div className="app-modal">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-md p-8">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="vibrant-card w-full max-w-lg overflow-visible p-8">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-black uppercase tracking-tight">Bulk download</h3>
@@ -2075,6 +2130,36 @@ export default function FeeManagement() {
                   />
                 </div>
               </div>
+              <div className="relative mt-4">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Voucher type</label>
+                <button
+                  type="button"
+                  onClick={() => setBulkKindsOpen((open) => !open)}
+                  className="vibrant-input w-full truncate text-start text-sm font-semibold"
+                >
+                  {bulkKinds.length === 0 ? 'All vouchers' : bulkKinds.map((kind) => kind.slice(kind.indexOf(':') + 1)).join(', ')}
+                </button>
+                {bulkKindsOpen && (
+                  <div className="mt-2 w-full rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900 max-h-64 overflow-y-auto">
+                    {BULK_KIND_GROUPS.map((group) => (
+                      <div key={group.label} className="mb-3 last:mb-0">
+                        <div className="px-1 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">{group.label}</div>
+                        {group.options.map((option) => (
+                          <label key={option.value} className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={bulkKinds.includes(option.value)}
+                              onChange={() => setBulkKinds((prev) => prev.includes(option.value) ? prev.filter((item) => item !== option.value) : [...prev, option.value])}
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-slate-500">Leave this empty for every voucher. Paid and Unpaid narrow the payment. Monthly and Admission narrow the fee type. Monthly fee and other collection download in separate files.</p>
               <div className="flex gap-3 pt-6">
                 <button type="button" onClick={() => setBulkDownloadOpen(false)} className="vibrant-btn-secondary flex-1" disabled={bulkDownloading}>Cancel</button>
                 <button type="button" onClick={downloadAllVouchers} disabled={bulkDownloading} className="flex-1 vibrant-btn-primary py-3 text-[10px] font-black uppercase disabled:opacity-50">

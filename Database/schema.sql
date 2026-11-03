@@ -464,6 +464,8 @@ CREATE TABLE FeeExportJobs (
     year INT,
     month INT,
     status_filter NVARCHAR(30),
+    statuses_csv NVARCHAR(200),
+    fee_types_csv NVARCHAR(400),
     search NVARCHAR(200),
     format NVARCHAR(20) DEFAULT 'csv_zip',
     status NVARCHAR(20) DEFAULT 'pending',

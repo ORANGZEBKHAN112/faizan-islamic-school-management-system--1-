@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { bookstoreService } from '../../services/bookstoreService';
 import { dataService } from '../../services/dataService';
-import type { Campus, Class, Student } from '../../types';
+import type { Campus, Class } from '../../types';
+import StudentSuggestField, { type SuggestedStudent } from '../../components/fees/StudentSuggestField';
 import { apiError, currentAcademicSession, money } from './courseShared';
 import { useI18n } from '../../context/I18nContext';
 
@@ -37,8 +38,7 @@ export default function CourseVouchers() {
   const [books, setBooks] = useState<Book[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [search, setSearch] = useState('');
+  const [pickedStudent, setPickedStudent] = useState<SuggestedStudent | null>(null);
   const [form, setForm] = useState({
     kind: 'individual' as 'bulk' | 'individual' | 'existing',
     mode: 'full' as 'full' | 'custom',
@@ -63,19 +63,6 @@ export default function CourseVouchers() {
     bookstoreService.fetchPacks().then((rows) => setPacks(Array.isArray(rows) ? rows : [])).catch(() => undefined);
     void load().catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    if (form.kind === 'bulk' || search.trim().length < 2) {
-      setStudents([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      const params: { search: string; limit: number; page: number; status?: string } = { search, limit: 8, page: 1 };
-      if (form.kind === 'existing') params.status = 'Active';
-      dataService.getPaginated('students', params).then((r) => setStudents(r.data as Student[]));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search, form.kind]);
 
   const classOptions = useMemo(
     () => classes.filter((c) => !form.campusId || c.campusId === form.campusId),
@@ -188,21 +175,19 @@ export default function CourseVouchers() {
           </div>
         )}
         {form.kind !== 'bulk' && (
-          <div>
-            <input className="vibrant-input" placeholder="Search student name or admission number" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <div className="mt-2 flex flex-wrap gap-2">
-              {students.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={form.studentId === s.id ? 'vibrant-btn-primary' : 'vibrant-btn-secondary'}
-                  onClick={() => setForm((f) => ({ ...f, studentId: s.id, campusId: s.campusId, classId: s.classId }))}
-                >
-                  {s.firstName} {s.lastName} · {s.rollNumber}
-                </button>
-              ))}
-            </div>
-          </div>
+          <StudentSuggestField
+            includeInactive={form.kind !== 'existing'}
+            value={pickedStudent}
+            onChange={(student) => {
+              setPickedStudent(student);
+              setForm((current) => ({
+                ...current,
+                studentId: student?.id || '',
+                campusId: student?.campusId || current.campusId,
+                classId: student?.classId || current.classId,
+              }));
+            }}
+          />
         )}
         <button type="button" className="vibrant-btn-primary" onClick={() => void create()}>Generate voucher</button>
       </div>

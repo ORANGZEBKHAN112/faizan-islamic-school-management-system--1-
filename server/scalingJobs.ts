@@ -67,6 +67,36 @@ function buildStudentFeeQuery(): string {
 
 export type JobStatus = "pending" | "running" | "completed" | "failed";
 
+export const FEE_STATUS_OPTIONS = ["Paid", "Unpaid", "Partially Paid", "Pending", "Overdue"] as const;
+export const FEE_TYPE_OPTIONS = [
+  "Monthly",
+  "Admission",
+  "Arrears",
+  "Fine",
+  "Security Deposit",
+  "Summer Camp",
+  "ID Card",
+  "Educational Trip",
+] as const;
+
+export function parseAllowedList(raw: unknown, allowed: readonly string[]): string[] {
+  const parts = Array.isArray(raw) ? raw : String(raw || "").split(",");
+  const picked: string[] = [];
+  for (const part of parts) {
+    const value = String(part).trim();
+    if (value && allowed.includes(value) && !picked.includes(value)) picked.push(value);
+  }
+  return picked;
+}
+
+export function bindInClause(request: sql.Request, values: string[], prefix: string): string {
+  return values.map((value, index) => {
+    const name = `${prefix}${index}`;
+    request.input(name, value);
+    return `@${name}`;
+  }).join(", ");
+}
+
 export async function ensureScalingSchema(pool: sql.ConnectionPool): Promise<void> {
   await pool.request().query(`
     IF OBJECT_ID('FeeGenerationJobs', 'U') IS NULL
@@ -112,6 +142,8 @@ export async function ensureScalingSchema(pool: sql.ConnectionPool): Promise<voi
         year INT,
         month INT,
         status_filter NVARCHAR(30),
+        statuses_csv NVARCHAR(200),
+        fee_types_csv NVARCHAR(400),
         search NVARCHAR(200),
         format NVARCHAR(20) DEFAULT 'csv_zip',
         status NVARCHAR(20) DEFAULT 'pending',
@@ -125,6 +157,14 @@ export async function ensureScalingSchema(pool: sql.ConnectionPool): Promise<voi
         created_at DATETIME DEFAULT GETDATE()
       );
     END
+
+    IF OBJECT_ID('FeeExportJobs', 'U') IS NOT NULL
+      AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeExportJobs') AND name = 'statuses_csv')
+      ALTER TABLE FeeExportJobs ADD statuses_csv NVARCHAR(200) NULL;
+
+    IF OBJECT_ID('FeeExportJobs', 'U') IS NOT NULL
+      AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FeeExportJobs') AND name = 'fee_types_csv')
+      ALTER TABLE FeeExportJobs ADD fee_types_csv NVARCHAR(400) NULL;
 
     IF OBJECT_ID('DashboardCampusStats', 'U') IS NULL
     BEGIN
@@ -486,9 +526,16 @@ export async function runFeeExportJob(pool: sql.ConnectionPool, jobId: string): 
       whereParts.push("f.month = @month");
       countReq.input("month", job.month);
     }
-    if (job.status_filter && job.status_filter !== "all") {
-      whereParts.push("f.status = @status");
-      countReq.input("status", job.status_filter);
+    const exportStatuses = parseAllowedList(
+      job.statuses_csv || (job.status_filter && job.status_filter !== "all" ? job.status_filter : ""),
+      FEE_STATUS_OPTIONS
+    );
+    const exportFeeTypes = parseAllowedList(job.fee_types_csv, FEE_TYPE_OPTIONS);
+    if (exportStatuses.length) {
+      whereParts.push(`f.status IN (${bindInClause(countReq, exportStatuses, "st")})`);
+    }
+    if (exportFeeTypes.length) {
+      whereParts.push(`ISNULL(f.fee_type, 'Monthly') IN (${bindInClause(countReq, exportFeeTypes, "ft")})`);
     }
     if (job.search) {
       whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search)");
@@ -523,7 +570,8 @@ export async function runFeeExportJob(pool: sql.ConnectionPool, jobId: string): 
       if (job.campus_id) batchReq.input("campusId", job.campus_id);
       if (job.year) batchReq.input("year", job.year);
       if (job.month) batchReq.input("month", job.month);
-      if (job.status_filter && job.status_filter !== "all") batchReq.input("status", job.status_filter);
+      if (exportStatuses.length) bindInClause(batchReq, exportStatuses, "st");
+      if (exportFeeTypes.length) bindInClause(batchReq, exportFeeTypes, "ft");
       if (job.search) batchReq.input("search", `%${job.search}%`);
 
       const rows = await batchReq.query(`
@@ -542,15 +590,24 @@ export async function runFeeExportJob(pool: sql.ConnectionPool, jobId: string): 
         OFFSET @offset ROWS FETCH NEXT @batch ROWS ONLY
       `);
 
-      const lines = [headers.join(",")];
+      const monthlyLines = [headers.join(",")];
+      const otherLines = [headers.join(",")];
       for (const row of rows.recordset) {
-        lines.push([
+        const line = [
           row.id, row.rollNumber, row.studentName, row.className, row.campusName,
           row.month, row.year, row.feeType, row.amount, row.arrears,
           row.paidAmount, row.balanceAmount, row.status, row.dueDate,
-        ].map(csvEscape).join(","));
+        ].map(csvEscape).join(",");
+        if (String(row.feeType || "Monthly") === "Monthly") monthlyLines.push(line);
+        else otherLines.push(line);
       }
-      archive.append(Buffer.from(lines.join("\n"), "utf8"), { name: `vouchers_part_${++chunkIndex}.csv` });
+      chunkIndex += 1;
+      if (monthlyLines.length > 1) {
+        archive.append(Buffer.from(monthlyLines.join("\n"), "utf8"), { name: `monthly_fee_part_${chunkIndex}.csv` });
+      }
+      if (otherLines.length > 1) {
+        archive.append(Buffer.from(otherLines.join("\n"), "utf8"), { name: `other_collection_part_${chunkIndex}.csv` });
+      }
 
       offset += EXPORT_CHUNK_SIZE;
       await pool.request()

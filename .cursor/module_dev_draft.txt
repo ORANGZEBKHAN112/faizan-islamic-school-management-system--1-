@@ -1,0 +1,264 @@
+﻿
+Course Selling Module
+نئے ERP میں Course Selling کے نظام کے لیے Functional Proposal
+پس منظر
+Faizan Islamic School System میں Courses کی فروخت کیمپس کے ذریعے کی جاتی ہے، جبکہ Head Office میں Project Lead پورے Course Selling Project کی نگرانی کرتا ہے۔
+موجودہ نظام میں Projection، Purchase Order، Warehouse سے ترسیل، Campus Receiving، Inventory، Course Sale، Payment Verification، Course Issue اور Reports کا بڑا حصہ Manual طریقے سے چل رہا ہے۔ 
+ Project Lead کو مختلف Excel Files، Warehouse Invoices، ERP Reports اور Finance Reports کو الگ الگ دیکھ کر صورتحال معلوم کرنا پڑتی ہے، جس سے وقت زیادہ صرف ہوتا ہے اور Data میں فرق اور Human Error کے امکانات پیدا ہوتے ہیں۔
+موجودہ Flow
+Projection → Purchase Order → Warehouse Dispatch → Campus Receiving → Course Set → Course Sale → Voucher → KuickPay Payment → Course Issue → Record
+نئے ERP میں مطلوبہ نظام
+نئے ERP کا مقصد Course Selling کے پورے عمل کو ایک مربوط نظام میں لانا ہے، تاکہ Project Lead کو Sales، Payment، Inventory، Course Issuance اور Reconciliation کی صورتحال ایک ہی جگہ دستیاب ہو۔
+Projection & Purchase Order
+Project Lead کے لیے Campus-wise اور Class-wise Projection کا ریکارڈ موجود ہو، جس کی بنیاد پر Purchase Order تیار ہو۔
+Purchase Order میں:
+Region
+Campus
+Class / Course / Title
+Quantity
+Order Number
+Date
+Status
+کا ریکارڈ ہو۔
+Purchase Order کو ERP سے Excel / PDF میں حاصل کیا جا سکے اور Warehouse کو بھیجا جا سکے۔
+Campus Receiving & Inventory
+Warehouse سے Course موصول ہونے پر Campus اپنے متعلقہ Order کو ERP میں دیکھ کر Quantity کی Verification کرے۔
+ای آرپی پر  Verification کا بٹن دیا جائے کورس اسٹاک کیمپس کو وصول ہونے پر کیمپس  کورس کی ویریفیکشن ڈیجٹلی دے جس سے معلوم ہو سکےکہ وئیر ہاؤس سے جاری کیا گیا کورس مکمل بھیجا گیا ہے /کم بھیجا گیا ہے وغیرھما۔ 
+Verify کا Button ہر Title کے لیے الگ ہونا چاہیے، جبکہ تمام جگہوں پر Title Sequence ایک جیسا ہو۔
+ اسی طرح ہر Report میں Title Names یکساں ہوں اور Warehouse کے Record سے مکمل طور پر Match کرتے ہوں۔
+Dispatched Quantity → Received Quantity → Difference
+کی بنیاد پر Receiving کا Record بنے۔ 
+Verification کے بعد Campus Inventory Update ہو۔
+Inventory
+Inventory درج ذیل ترتیب سے دیکھی جائے:
+Region → Campus → Class → Course / Title → Quantity
+Project Lead پورے پاکستان کے تمام Campuses کی موجودہ Inventory ایک مرکزی جگہ سے دیکھ سکے۔
+ہر Course / Title کی Stock History میں:
+Warehouse سے وصولی
+Course Shuffling
+Student کو Issue 
+Return Campus to Warehouse
+Damage With Proper Authentic Reasons
+Adjustment
+موجودہ Balance
+کا مکمل Record موجود ہو۔
+اس سے ہر Course کی Movement واضح رہے کہ Stock کب، کہاں سے اور کس مقصد کے لیے آیا یا منتقل ہوا۔
+کیمپس سے Software کے ذریعے Course Issue کرتے وقت Admission Number کے تحت Voucher میں درج Titles کے مطابق ہی Titles Issue کیے جائیں، تاکہ Customized Voucher کی صورت میں مکمل Course Issue ہونے کا خدشہ نہ رہے۔ اس طریقۂ کار سے Inventory کا درست Balance بھی برقرار رہے گا۔
+Issue کے بٹن میں Full Courseیا Customizeکا Hintبھی دیا جاسکتا ہے۔
+Course Shuffling / Campus-to-Campus Stock Transfer
+اگر کسی Campus میں کسی Course کا Stock کم ہو تو دوسرے Campus کے Available Stock سے Requirement پوری کی جاتی ہے۔
+مثلاً شاہ فیصل Campus کو KG کے 05 Courses درکار ہوں اور بلدیہ ٹاؤن Campus کے پاس اضافی Stock موجود ہو تو 05 Courses بلدیہ ٹاؤن سے شاہ فیصل منتقل کیے جائیں۔
+ERP میں Course Shuffling کا مکمل Record:
+Request → Approval → Dispatch → Receiving → Inventory Update
+کے ذریعے محفوظ ہو۔
+Record میں:
+Source Campus
+Receiving Campus
+Class / Course
+Quantity
+Date
+Reason
+Requested / Approved By
+Dispatch / Receiving Status
+شامل ہو۔
+Transfer کے بعد Source Campus میں Stock Out اور Receiving Campus میں Stock In ہو، جبکہ Quantity کے فرق کی صورت میں Difference واضح ہو۔
+Course Voucher & Payment
+Course Voucher:
+Bulk Admission
+Individual Student
+Existing Student
+کے لیے تیار ہو سکے۔
+Voucherمیں Student، Admission Number، Class، Campus، Course / Titles، Quantity، Price، Total Amount، Voucher Number، Due Date اور Payment Status موجود ہوں۔
+Parent، KuickPay کے ذریعے Payment کرے اور Payment Status ERP میں Update ہو۔
+ای آرپی پر  Course Issued کا بٹن دیا جائے فیس کی ادائیگی کے بعد كورس جاری کیے جانے پر اس طالب علم کے اسٹیٹس کو اپڈیٹ کیا جائے  جس سے معلوم ہو سکے اس طالب علم کو کورس جاری کیا جا چکا ہے۔
+Course Issue & Inventory Deduction
+Course Issue کے وقت Admission Number کے ذریعے Student کا Record، Class، Voucher، Payment Status اور Available Stock verify ہو۔
+Payment Paid ہونے اور Stock Available ہونے کی صورت میں Course Issue کا Record بنے۔
+اگر Stock Available نہ ہو تو Voucher Generate کرتے وقت ہی واضح Notification/Alert موصول ہو، تاکہ Campus بروقت Course/Title arrange کرنے کے لیے اقدامات کر سکے۔
+Complete Course Set Issue ہونے پر Set میں شامل تمام Titles کی Quantity Inventory سے خودکار طور پر کم ہو۔
+مثلاً:
+Class 5 Complete Set Issue
+→ Book A -1→ Book B -1→ Book C -1→ Book D -1
+اس طرح Course Issue اور Inventory ایک ہی Transaction سے مربوط رہیں۔
+Course Issuance Record میں:
+Voucher Number
+Student Name
+Admission Number
+Class
+Course / Titles
+Quantity
+Amount
+Issue Date
+Campus
+Issued By
+محفوظ ہو۔
+Return, Damage & Adjustment
+Course Return، Damage یا Inventory Adjustment کا الگ Record موجود ہو۔
+Adjustment میں:
+Reason + Quantity + Date + User + Approval
+کا Record محفوظ رہے۔
+Manual Inventory Adjustment صرف Authorized User کے ذریعے ہو اور ہر تبدیلی کا Audit Trail موجود رہے۔
+Dashboard & Reports
+Project Lead کے لیے مرکزی Dashboard میں درج ذیل معلومات موجود ہوں:
+Sales
+Total Sale
+Paid / Unpaid Vouchers
+Total Collection
+Inventory
+Total Received
+Total Issued
+Available Stock
+Damaged Stock
+Low / Excess Stock
+Projection
+Total Projection
+Received Quantity
+Sold / Issued Quantity
+Remaining Stock
+Campus Performance
+Campus-wise Sale
+Campus-wise Collection
+Campus-wise Inventory
+Region –Wise Inventory
+Region –Wise Collection
+
+اہم Reports
+Inventory ReportCampus-wise, Title-wise, Available Stock, Low/Excess Stock, Returns, Damages and Stock Movement. 
+Sales & Collection ReportCampus-wise, Class-wise, Title-wise Sales, Paid/Unpaid Vouchers and Total Collection. 
+Course Issuance ReportStudent-wise Course Issuance and Paid but Not Issued Courses. 
+Projection & Performance ReportProjection, Actual Sales and Available Inventory comparison. 
+Stock Transfer & Reconciliation ReportCourse Shuffling, Campus Receiving, Warehouse Dispatch and related differences.
+Reconciliation & Exception Management
+موجودہ نظام میں Project Lead کو:
+Purchase Order + Warehouse Invoice + ERP Sale Report + Finance Sale Report
+کو الگ الگ دیکھ کر Reconciliation کرنا پڑتی ہے۔
+نئے ERP میں یہ Data آپس میں مربوط ہو اور فرق خود واضح ہو۔
+مرحلہ
+مقدار
+فرق
+قیمت خرید
+منافع (قیمت فروخت − قیمت خرید)
+قیمت فروخت
+Warehouse کو قابلِ ادائیگی رقم
+Purchase Order
+1,000
+—
+500,000
+100,000
+600,000
+500,000
+Warehouse Dispatch
+950
+50
+475,000
+95,000
+570,000
+475,000
+Campus Receiving
+940
+60
+470,000
+94,000
+564,000
+470,000
+Course Issue
+800
+200
+400,000
+80,000
+480,000
+—
+Available Inventory
+140
+—
+70,000
+14,000
+84,000
+—
+System میں متعلقہ Differences واضح ہوں۔
+اسی طرح Dashboard پر اہم Exceptions سامنے آئیں:
+Paid but Not Issued
+Receiving Pending
+Stock Difference
+Low Stock
+Excess Stock
+PO اور Dispatch کا فرق
+Receiving اور Inventory کا فرق
+Projection اور Sale کا فرق
+Project Lead کو مکمل Data manually check کرنے کے بجائے صرف Exceptions پر توجہ دینی پڑے۔
+بنیادی نظام کا Flow
+Projection
+↓
+Purchase Order
+↓
+Warehouse Dispatch
+↓
+Campus Receiving
+↓
+Campus Inventory
+↓
+Course Shuffling
+↓
+Course Sale / Voucher
+↓
+KuickPay Payment
+↓
+Course Issue
+↓
+Automatic Inventory Deduction
+↓
+Reports
+↓
+Reconciliation
+خلاصہ
+No.
+Function
+Key Purpose
+1
+Projection & Purchase Order
+Record campus- and class-wise requirements and orders
+2
+Warehouse Data
+Record dispatch and invoice information
+3
+Campus Receiving
+Verify received stock
+4
+Inventory
+Maintain campus-wise stock and complete stock movement history
+5
+Course Shuffling
+Transfer stock from one campus to another
+6
+Course Master / Set
+Manage course titles and class-wise course sets
+7
+Course Voucher
+Process complete or customized course sales
+8
+Payment
+Track KuickPay payment status
+9
+Course Issue
+Issue courses against paid vouchers
+10
+Inventory Deduction
+Automatically deduct stock upon course issuance
+11
+Return / Damage / Adjustment
+Record stock returns, damages, and adjustments
+12
+Dashboard / Reports
+Provide an overview of project status and performance
+13
+Reconciliation
+Compare PO, Warehouse, Sales, and Finance data
+14
+Exception Management
+Identify discrepancies and important pending cases
+15
+Audit Trail
+Maintain complete history of important transactions
+بنیادی مقصد
+Course Selling کا پورا Record ایک مربوط نظام میں موجود ہو، جس میں Order سے لے کر Course Issue، Inventory، Payment اور Reconciliation تک ہر Transaction باہم منسلک ہو اور Project Lead کو مختلف Manual Records سے معلومات جمع کرنے کی ضرورت نہ رہے۔
+

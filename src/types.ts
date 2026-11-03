@@ -515,7 +515,10 @@ export interface FeeExportJob {
 
 export interface FeeStats {
   totalCount: number;
+  totalBilled?: number;
   totalPaid: number;
+  monthlyCollected?: number;
+  otherCollected?: number;
   totalOutstanding: number;
   defaulters: number;
 }

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { bookstoreService } from '../../services/bookstoreService';
-import { dataService } from '../../services/dataService';
-import type { Student } from '../../types';
+import StudentSuggestField, { type SuggestedStudent } from '../../components/fees/StudentSuggestField';
 import { usePermissions } from '../../context/PermissionContext';
 import PageLoader from '../../components/ui/PageLoader';
 import { formatMoney } from '../../utils/money';
@@ -44,8 +43,6 @@ export default function BookSales() {
 
   const [stores, setStores] = useState<Array<{ id: string; name: string; campusId?: string; storeType: string }>>([]);
   const [storeId, setStoreId] = useState('');
-  const [search, setSearch] = useState('');
-  const [students, setStudents] = useState<Student[]>([]);
   const [posStudent, setPosStudent] = useState<PosStudent | null>(null);
   const [packs, setPacks] = useState<PackSummary[]>([]);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
@@ -76,17 +73,6 @@ export default function BookSales() {
     bookstoreService.fetchBooks({ limit: 300 }).then((r) => setBooks(r.data || []));
     bookstoreService.fetchSales({ limit: 10 }).then((r) => setRecent(r.data || []));
   }, []);
-
-  useEffect(() => {
-    if (search.trim().length < 2) {
-      setStudents([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      dataService.getPaginated('students', { search, limit: 8, page: 1, status: 'Active' }).then((r) => setStudents(r.data as Student[]));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
 
   const loadStudentContext = useCallback(async (studentId: string) => {
     try {
@@ -248,18 +234,29 @@ export default function BookSales() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <input className="vibrant-input" placeholder="Search active student…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          {students.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`w-full text-start p-3 rounded-xl border ${posStudent?.id === s.id ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-700'}`}
-              onClick={() => void loadStudentContext(s.id)}
-            >
-              <p className="font-bold">{s.firstName}</p>
-              <p className="text-xs text-slate-500">{s.rollNumber} · {s.className}</p>
-            </button>
-          ))}
+          <StudentSuggestField
+            includeInactive={false}
+            value={posStudent ? {
+              id: posStudent.id,
+              firstName: posStudent.studentName,
+              rollNumber: posStudent.rollNumber,
+              campusId: posStudent.campusId,
+              classId: posStudent.classId,
+              campusName: posStudent.campusName || undefined,
+            } satisfies SuggestedStudent : null}
+            onChange={(student) => {
+              if (!student) {
+                setPosStudent(null);
+                setCart([]);
+                setPacks([]);
+                setPackQuote(null);
+                setSelectedPackId(null);
+                setReservationId(null);
+                return;
+              }
+              void loadStudentContext(student.id);
+            }}
+          />
         </div>
 
         {posStudent && (

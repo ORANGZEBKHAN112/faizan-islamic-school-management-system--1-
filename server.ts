@@ -16,6 +16,10 @@ import {
   startScalingWorkers,
   refreshDashboardCampusStats,
   archiveOldFees,
+  FEE_STATUS_OPTIONS,
+  FEE_TYPE_OPTIONS,
+  parseAllowedList,
+  bindInClause,
 } from "./server/scalingJobs.js";
 import {
   APP_MODULES,
@@ -666,6 +670,29 @@ function normalizeSessionLabel(raw: unknown, fallbackYear?: number, fallbackMont
   return deriveAcademicSession(y, m);
 }
 
+function appendStudentSearch(
+  request: tediousSql.Request,
+  whereParts: string[],
+  searchRaw: unknown,
+  alias = "s"
+) {
+  const search = String(searchRaw || "").trim();
+  if (!search) return;
+  const displayRoll = search.match(/^STD-(\d+)$/i);
+  const clauses = [
+    `${alias}.student_name LIKE @search`,
+    `${alias}.father_name LIKE @search`,
+    `${alias}.admission_no LIKE @search`,
+    `${alias}.registration_no LIKE @search`,
+  ];
+  request.input("search", `%${search}%`);
+  if (displayRoll) {
+    clauses.push(`${alias}.admission_no LIKE @rollTail`);
+    request.input("rollTail", `%-${displayRoll[1]}`);
+  }
+  whereParts.push(`(${clauses.join(" OR ")})`);
+}
+
 function buildFeeFilterClauses(
   req: Request,
   request: tediousSql.Request,
@@ -687,10 +714,20 @@ function buildFeeFilterClauses(
     request.input("classId", classId);
   }
 
-  const status = String(req.query.status || "").trim();
-  if (status && status !== "all") {
-    whereParts.push("f.status = @status");
-    request.input("status", status);
+  const statuses = parseAllowedList(req.query.statuses, FEE_STATUS_OPTIONS);
+  if (statuses.length) {
+    whereParts.push(`f.status IN (${bindInClause(request, statuses, "feeStatus")})`);
+  } else {
+    const status = String(req.query.status || "").trim();
+    if (status && status !== "all") {
+      whereParts.push("f.status = @status");
+      request.input("status", status);
+    }
+  }
+
+  const feeTypes = parseAllowedList(req.query.feeTypes, FEE_TYPE_OPTIONS);
+  if (feeTypes.length) {
+    whereParts.push(`ISNULL(f.fee_type, 'Monthly') IN (${bindInClause(request, feeTypes, "feeType")})`);
   }
 
   const month = parseInt(String(req.query.month || ""), 10);
@@ -705,11 +742,7 @@ function buildFeeFilterClauses(
     request.input("year", year);
   }
 
-  const search = String(req.query.search || "").trim();
-  if (search) {
-    whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search)");
-    request.input("search", `%${search}%`);
-  }
+  appendStudentSearch(request, whereParts, req.query.search);
 
   return whereParts.length ? ` WHERE ${whereParts.join(" AND ")}` : "";
 }
@@ -3215,11 +3248,7 @@ async function startServer() {
         request.input("status", status);
       }
 
-      const search = String(req.query.search || "").trim();
-      if (search) {
-        whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search OR s.registration_no LIKE @search)");
-        request.input("search", `%${search}%`);
-      }
+      appendStudentSearch(request, whereParts, req.query.search);
 
       const whereClause = whereParts.length ? ` WHERE ${whereParts.join(" AND ")}` : "";
 
@@ -3292,10 +3321,7 @@ async function startServer() {
         const _cf = bindCampusColumnFilter(request, campusFilter, "s.campus_id", "campusId");
         if (_cf) whereParts.push(_cf);
       }
-      if (search) {
-        whereParts.push("(s.student_name LIKE @search OR s.admission_no LIKE @search)");
-        request.input("search", `%${search}%`);
-      }
+      appendStudentSearch(request, whereParts, search);
 
       const result = await request.query(`
         SELECT TOP (@limit)
@@ -4268,7 +4294,7 @@ async function startServer() {
       const { filter: campusFilter, denied } = resolveCampusFilter(authUser, req.query.campusId);
       if (denied) {
         return res.json({
-          totalCount: 0, totalPaid: 0, totalOutstanding: 0, defaulters: 0,
+          totalCount: 0, totalBilled: 0, totalPaid: 0, monthlyCollected: 0, otherCollected: 0, totalOutstanding: 0, defaulters: 0,
         });
       }
 
@@ -4283,7 +4309,10 @@ async function startServer() {
       const result = await request.query(`
         SELECT
           COUNT(*) AS totalCount,
+          ISNULL(SUM(ISNULL(f.amount, 0) + ISNULL(f.arrears, 0) + ISNULL(f.fine_amount, 0) - ISNULL(f.discount_amount, 0)), 0) AS totalBilled,
           ISNULL(SUM(f.paid_amount), 0) AS totalPaid,
+          ISNULL(SUM(CASE WHEN ISNULL(f.fee_type, 'Monthly') = 'Monthly' THEN ISNULL(f.paid_amount, 0) ELSE 0 END), 0) AS monthlyCollected,
+          ISNULL(SUM(CASE WHEN ISNULL(f.fee_type, 'Monthly') <> 'Monthly' THEN ISNULL(f.paid_amount, 0) ELSE 0 END), 0) AS otherCollected,
           ISNULL(SUM(CASE WHEN ISNULL(f.balance_amount, 0) > 0 THEN f.balance_amount ELSE 0 END), 0) AS totalOutstanding,
           COUNT(DISTINCT CASE WHEN f.status IN ('Unpaid', 'Partially Paid', 'Overdue', 'Pending') THEN f.student_id END) AS defaulters
         ${baseFrom}
@@ -4292,7 +4321,10 @@ async function startServer() {
       const row = result.recordset[0] || {};
       res.json({
         totalCount: row.totalCount ?? 0,
+        totalBilled: row.totalBilled ?? 0,
         totalPaid: row.totalPaid ?? 0,
+        monthlyCollected: row.monthlyCollected ?? 0,
+        otherCollected: row.otherCollected ?? 0,
         totalOutstanding: row.totalOutstanding ?? 0,
         defaulters: row.defaulters ?? 0,
       });
@@ -5817,18 +5849,26 @@ async function startServer() {
         return res.status(400).json({ message: "Select the month and year for the voucher export" });
       }
 
+      const exportStatuses = parseAllowedList(req.body?.statuses, FEE_STATUS_OPTIONS);
+      const exportFeeTypes = parseAllowedList(req.body?.feeTypes, FEE_TYPE_OPTIONS);
+      const singleStatus = exportStatuses.length === 1
+        ? exportStatuses[0]
+        : (exportStatuses.length ? "custom" : String(req.body?.status || "all"));
+
       const jobId = crypto.randomUUID();
       await pool.request()
         .input("id", jobId)
         .input("campus_id", campusFilter || null)
         .input("year", year)
         .input("month", month)
-        .input("status_filter", req.body?.status || "all")
+        .input("status_filter", singleStatus)
+        .input("statuses_csv", exportStatuses.join(","))
+        .input("fee_types_csv", exportFeeTypes.join(","))
         .input("search", req.body?.search || null)
         .input("requested_by", authUser.username)
         .query(`
-          INSERT INTO FeeExportJobs (id, campus_id, year, month, status_filter, search, requested_by, status)
-          VALUES (@id, @campus_id, @year, @month, @status_filter, @search, @requested_by, 'pending')
+          INSERT INTO FeeExportJobs (id, campus_id, year, month, status_filter, statuses_csv, fee_types_csv, search, requested_by, status)
+          VALUES (@id, @campus_id, @year, @month, @status_filter, @statuses_csv, @fee_types_csv, @search, @requested_by, 'pending')
         `);
 
       res.status(202).json({ message: "Export queued", jobId, async: true });

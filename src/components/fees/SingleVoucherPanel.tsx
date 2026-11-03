@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, Search, User, BookOpen, Download } from 'lucide-react';
+import { FileText, BookOpen, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { dataService } from '../../services/dataService';
 import SearchableSelect from '../ui/SearchableSelect';
+import StudentSuggestField, { type SuggestedStudent } from './StudentSuggestField';
 import { formatRollNumberForDisplay } from '../../utils/rollNumber';
 import { feeVoucherTransactionType, paymentTransactionType } from '../../utils/feeTransactionType';
 import { deriveAcademicSession } from '../../utils/academicSession';
@@ -11,16 +12,6 @@ import autoTable from 'jspdf-autotable';
 import { formatMoney } from '../../utils/money';
 
 type Mode = 'single' | 'custom' | 'ledger';
-
-type StudentOpt = {
-  id: string;
-  firstName: string;
-  lastName?: string;
-  rollNumber: string;
-  fatherName?: string;
-  campusName?: string;
-  status?: string;
-};
 
 function defaultDueDate(year: number, month: number): string {
   return new Date(year, month - 1, 10).toISOString().split('T')[0];
@@ -37,10 +28,8 @@ interface Props {
 
 export default function SingleVoucherPanel({ mode, onCreated }: Props) {
   const now = new Date();
-  const [query, setQuery] = useState('');
-  const [options, setOptions] = useState<StudentOpt[]>([]);
-  const [loadingStudents, setLoadingStudents] = useState(false);
   const [studentId, setStudentId] = useState('');
+  const [picked, setPicked] = useState<SuggestedStudent | null>(null);
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [dueDate, setDueDate] = useState(defaultDueDate(now.getFullYear(), now.getMonth() + 1));
@@ -81,41 +70,11 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
   } | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
 
-  const selected = useMemo(() => options.find((s) => s.id === studentId), [options, studentId]);
-
   useEffect(() => {
     setDueDate(defaultDueDate(year, month));
     setValidityDate(defaultValidityDate(year, month));
     setSession(deriveAcademicSession(year, month));
   }, [month, year]);
-
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setOptions([]);
-      return;
-    }
-    let cancelled = false;
-    const t = setTimeout(async () => {
-      setLoadingStudents(true);
-      try {
-        const rows = await dataService.getPaginated('students', {
-          search: query.trim(),
-          ...(mode === 'ledger' ? {} : { status: 'Active' }),
-          limit: 20,
-          page: 1,
-        });
-        if (!cancelled) setOptions(rows.data as StudentOpt[]);
-      } catch {
-        if (!cancelled) setOptions([]);
-      } finally {
-        if (!cancelled) setLoadingStudents(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [query, mode]);
 
   useEffect(() => {
     if (mode !== 'ledger' || !studentId) {
@@ -323,32 +282,14 @@ export default function SingleVoucherPanel({ mode, onCreated }: Props) {
 
       <div>
         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ms-1">Find student</label>
-        <div className="relative mb-3">
-          <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            className="vibrant-input ps-10"
-            placeholder="Search by name, roll, or father name…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        <SearchableSelect
-          value={studentId}
-          onChange={setStudentId}
-          placeholder={loadingStudents ? 'Searching…' : 'Select student'}
-          searchPlaceholder="Filter results…"
-          options={options.map((s) => ({
-            value: s.id,
-            label: `${s.firstName} — ${formatRollNumberForDisplay(s.rollNumber)}${s.fatherName ? ` (${s.fatherName})` : ''}${s.status && s.status !== 'Active' ? ` · ${s.status}` : ''}`,
-          }))}
+        <StudentSuggestField
+          includeInactive={mode === 'ledger'}
+          value={picked}
+          onChange={(student) => {
+            setPicked(student);
+            setStudentId(student?.id || '');
+          }}
         />
-        {selected && (
-          <p className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-            <User className="w-3.5 h-3.5" />
-            {selected.firstName} · {formatRollNumberForDisplay(selected.rollNumber)}
-            {selected.campusName ? ` · ${selected.campusName}` : ''}
-          </p>
-        )}
       </div>
 
       {mode !== 'ledger' && (
