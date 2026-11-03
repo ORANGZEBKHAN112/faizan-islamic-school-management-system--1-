@@ -59,8 +59,15 @@ export default function FeeDeskReports({
   const [loading, setLoading] = useState(true);
   const [defaulters, setDefaulters] = useState<FeeDefaulterRow[]>([]);
   const [classes, setClasses] = useState<ClassCollectionRow[]>([]);
-  const [daily, setDaily] = useState<{ collected: number; reversed: number; net: number; lines: DailyCollectionLine[] }>({
-    collected: 0, reversed: 0, net: 0, lines: [],
+  const [daily, setDaily] = useState<{
+    collected: number;
+    studentPaid: number;
+    kuickpayCharges: number;
+    reversed: number;
+    net: number;
+    lines: DailyCollectionLine[];
+  }>({
+    collected: 0, studentPaid: 0, kuickpayCharges: 0, reversed: 0, net: 0, lines: [],
   });
 
   const campusParam = campusId !== 'all' ? campusId : undefined;
@@ -81,6 +88,8 @@ export default function FeeDeskReports({
           if (!cancelled) {
             setDaily({
               collected: Number(data.collected || 0),
+              studentPaid: Number(data.studentPaid ?? data.collected ?? 0),
+              kuickpayCharges: Number(data.kuickpayCharges || 0),
               reversed: Number(data.reversed || 0),
               net: Number(data.net || 0),
               lines: data.lines || [],
@@ -137,7 +146,7 @@ export default function FeeDeskReports({
   const exportDaily = () => {
     downloadCsv(
       `daily-collection-${date}.csv`,
-      ['Time', 'Admission No', 'Student', 'Campus', 'Type', 'Amount', 'Recorded By', 'Notes'],
+      ['Time', 'Admission No', 'Student', 'Campus', 'Type', 'Student paid', 'Kuickpay charge', 'School account', 'Recorded By', 'Notes'],
       daily.lines.map((row) => [
         row.performedOn,
         row.admissionNo,
@@ -145,6 +154,8 @@ export default function FeeDeskReports({
         row.campusName || '',
         actionLabel(row.actionType),
         row.actionType === 'payment' ? row.amount : -row.amount,
+        row.kuickpayCharge || 0,
+        row.actionType === 'payment' ? (row.schoolAmount ?? row.amount) : -(row.schoolAmount ?? row.amount),
         row.performedBy || '',
         row.notes || row.reason || '',
       ]),
@@ -164,7 +175,7 @@ export default function FeeDeskReports({
           <p className="text-xs font-bold text-slate-400 mt-1 max-w-2xl">
             {view === 'defaulters' && `Due balances from vouchers. ${MONTHS[month - 1]} ${year} is separate from older arrears. This list follows voucher balance, not the stored student outstanding figure.`}
             {view === 'classes' && `Billed is voucher amount plus arrears for ${year}, grouped by each student's current class. Balance is what is still due.`}
-            {view === 'daily' && 'Payments and reversals recorded in the fee audit log for this date. Cash, bank, and Kuickpay stay in the notes until a payment-mode column exists.'}
+            {view === 'daily' && 'The student pays the fee plus the Kuickpay charge. Kuickpay keeps that charge, so School account is the amount that reaches the company bank. Cash and other payments have no Kuickpay charge.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -322,14 +333,15 @@ function ClassTable({ rows }: { rows: ClassCollectionRow[] }) {
   );
 }
 
-function DailyTable({ report }: { report: { collected: number; reversed: number; net: number; lines: DailyCollectionLine[] } }) {
+function DailyTable({ report }: { report: { collected: number; studentPaid: number; kuickpayCharges: number; reversed: number; net: number; lines: DailyCollectionLine[] } }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'Collected', value: report.collected, tone: 'text-green-600' },
+          { label: 'Student paid', value: report.studentPaid, tone: 'text-slate-900 dark:text-white' },
+          { label: 'Kuickpay charges', value: report.kuickpayCharges, tone: 'text-amber-600' },
           { label: 'Reversed', value: report.reversed, tone: 'text-rose-500' },
-          { label: 'Net', value: report.net, tone: 'text-slate-900 dark:text-white' },
+          { label: 'School account', value: report.net, tone: 'text-green-600' },
         ].map((stat) => (
           <div key={stat.label} className="vibrant-card p-6">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{stat.label}</p>
@@ -338,14 +350,14 @@ function DailyTable({ report }: { report: { collected: number; reversed: number;
         ))}
       </div>
       <div className="vibrant-card overflow-hidden">
-        <TableShell hint="Audit lines for the selected date">
-          <table className="w-full min-w-[860px] text-left border-collapse table-sticky-head">
+        <TableShell hint="School account is what reaches the bank. Kuickpay keeps its own charge.">
+          <table className="w-full min-w-[960px] text-left border-collapse table-sticky-head">
             <thead>
               <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
                 <th className="px-6 py-4">Time</th>
                 <th className="px-6 py-4">Student</th>
                 <th className="px-6 py-4">Type</th>
-                <th className="px-6 py-4">Amount</th>
+                <th className="px-6 py-4">School account</th>
                 <th className="px-6 py-4">Recorded by</th>
               </tr>
             </thead>
@@ -354,23 +366,32 @@ function DailyTable({ report }: { report: { collected: number; reversed: number;
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-400">No payments or reversals on this date.</td>
                 </tr>
-              ) : report.lines.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{row.performedOn}</td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900 dark:text-white">{row.studentName}</div>
-                    <div className="text-[10px] font-mono text-slate-400">{row.admissionNo} · {row.campusName || '—'}</div>
-                  </td>
-                  <td className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">{actionLabel(row.actionType)}</td>
-                  <td className={`px-6 py-4 text-sm font-black ${row.actionType === 'payment' ? 'text-green-600' : 'text-rose-500'}`}>
-                    {row.actionType === 'payment' ? money(row.amount) : `- ${money(row.amount)}`}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                    <div>{row.performedBy || '—'}</div>
-                    {(row.notes || row.reason) && <div className="text-[10px] font-bold text-slate-400">{row.notes || row.reason}</div>}
-                  </td>
-                </tr>
-              ))}
+              ) : report.lines.map((row) => {
+                const school = row.schoolAmount ?? row.amount;
+                const charge = row.kuickpayCharge || 0;
+                return (
+                  <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{row.performedOn}</td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-slate-900 dark:text-white">{row.studentName}</div>
+                      <div className="text-[10px] font-mono text-slate-400">{row.admissionNo} · {row.campusName || '—'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">{actionLabel(row.actionType)}</td>
+                    <td className={`px-6 py-4 text-sm font-black ${row.actionType === 'payment' ? 'text-green-600' : 'text-rose-500'}`}>
+                      <div>{row.actionType === 'payment' ? money(school) : `- ${money(school)}`}</div>
+                      {charge > 0 && (
+                        <div className="text-[10px] font-bold text-amber-600 normal-case tracking-normal">
+                          Student paid {money(row.amount)} · Kuickpay {money(charge)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                      <div>{row.performedBy || '—'}</div>
+                      {(row.notes || row.reason) && <div className="text-[10px] font-bold text-slate-400">{row.notes || row.reason}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </TableShell>

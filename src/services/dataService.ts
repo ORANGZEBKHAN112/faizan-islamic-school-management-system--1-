@@ -767,7 +767,15 @@ export const dataService = {
   async assignKuickpayConsumerNumbers(limit = 500) {
     const response = await api.post('/fees/assign-kuickpay-ids', { limit });
     this.invalidateCollection('fees');
-    return response.data as { assigned: number; failed?: number; scanned?: number; message: string };
+    return response.data as {
+      assigned: number;
+      replaced?: number;
+      failed?: number;
+      scanned?: number;
+      prefix?: string;
+      paidKept?: number;
+      message: string;
+    };
   },
 
   async fetchKuickpayCustomerCharge(): Promise<number> {

@@ -22,6 +22,33 @@ export function kuickpayCustomerChargePkr(cfg: KuickpayConfigRow | null | undefi
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
 }
 
+/**
+ * Parent pays fee + Kuickpay charge. The charge stays with Kuickpay and does not
+ * reach the school bank account. Tagged notes win; older Kuickpay rows use the
+ * configured charge.
+ */
+export function splitKuickpayCollection(
+  amount: number,
+  performedBy: string | null | undefined,
+  notes: string | null | undefined,
+  configuredCharge: number,
+): { gross: number; kuickpayCharge: number; schoolAmount: number } {
+  const gross = Math.round((Number(amount) || 0) * 100) / 100;
+  const tagged = /kuickpayCharge=(\d+(?:\.\d+)?)/.exec(String(notes || ""));
+  let charge = 0;
+  if (tagged) {
+    charge = Math.round(Number(tagged[1]) * 100) / 100;
+  } else if (String(performedBy || "").toLowerCase() === "kuickpay-bps") {
+    charge = kuickpayCustomerChargePkr({ kuickpay_customer_charge: configuredCharge });
+  }
+  if (!(charge > 0) || gross <= charge) charge = 0;
+  return {
+    gross,
+    kuickpayCharge: charge,
+    schoolAmount: Math.round((gross - charge) * 100) / 100,
+  };
+}
+
 export function bpsPayableTotal(fee: Record<string, unknown>, customerChargePkr = 0): number {
   const base = outstandingPayable(fee);
   const charge = customerChargePkr > 0 ? customerChargePkr : 0;
@@ -194,16 +221,20 @@ export function isValidKuickpayConsumerNumber(raw: unknown): boolean {
 /** Allocate a unique 18-digit Kuickpay consumer number for a fee voucher. */
 export async function ensureKuickpayConsumerNumber(
   pool: ConnectionPool,
-  feeId: string
+  feeId: string,
+  options?: { replaceMismatchedPrefix?: boolean }
 ): Promise<string | null> {
   const existing = await pool.request()
     .input("id", feeId)
-    .query(`SELECT kuickpay_consumer_number AS cn FROM Fees WHERE id = @id`);
-  const current = existing.recordset[0]?.cn;
-  if (isValidKuickpayConsumerNumber(current)) return String(current).replace(/\D/g, "");
-
+    .query(`SELECT kuickpay_consumer_number AS cn, status, ISNULL(paid_amount, 0) AS paidAmount FROM Fees WHERE id = @id`);
+  const row = existing.recordset[0];
+  const current = String(row?.cn || "").replace(/\D/g, "");
   const cfg = await loadKuickpayConfig(pool);
   const prefix = normalizePrefix(cfg?.consumer_prefix);
+  const alreadyPaid = String(row?.status || "") === "Paid" || Number(row?.paidAmount || 0) > 0;
+  if (isValidKuickpayConsumerNumber(current) && (current.startsWith(prefix) || alreadyPaid || !options?.replaceMismatchedPrefix)) {
+    return current;
+  }
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const seqResult = await pool.request().query(`
@@ -409,6 +440,8 @@ export async function applyKuickpayPayment(
   Reserved?: string;
   status?: string;
   balanceAmount?: number;
+  kuickpayCharge?: number;
+  schoolAmount?: number;
   message?: string;
 }> {
   const { fee, consumerNumber, amount, tranAuthId, tranDate, tranTime, bankMnemonic, reserved } = opts;
@@ -530,57 +563,132 @@ export async function applyKuickpayPayment(
     Reserved: String(reserved || "").slice(0, 200),
     status: newStatus,
     balanceAmount: newBalance,
+    kuickpayCharge: customerCharge,
+    schoolAmount: baseOutstanding,
   };
 }
 
 export async function backfillKuickpayConsumerNumbers(
   pool: ConnectionPool,
   limit = 500
-): Promise<{ assigned: number; failed: number; scanned: number }> {
-  // Keep SQL simple — complex REPLACE/LEN filters were failing on some DBs.
-  const result = await pool.request().input("limit", Math.min(5000, Math.max(1, limit))).query(`
-    SELECT TOP (@limit) id, kuickpay_consumer_number AS cn
-    FROM Fees
-    WHERE kuickpay_consumer_number IS NULL
-       OR LTRIM(RTRIM(kuickpay_consumer_number)) = ''
-       OR LEN(LTRIM(RTRIM(kuickpay_consumer_number))) <> 18
-    ORDER BY id DESC
-  `);
+): Promise<{ assigned: number; replaced: number; failed: number; scanned: number; prefix: string; paidKept: number }> {
+  const cfg = await loadKuickpayConfig(pool);
+  const prefix = normalizePrefix(cfg?.consumer_prefix);
+  const cap = Math.min(5000, Math.max(1, limit));
+  const result = await pool.request()
+    .input("limit", cap)
+    .input("prefix", prefix)
+    .query(`
+      SELECT TOP (@limit) id, kuickpay_consumer_number AS cn
+      FROM Fees
+      WHERE ISNULL(status, '') NOT IN ('Paid', 'Cancelled')
+        AND ISNULL(paid_amount, 0) = 0
+        AND (
+          kuickpay_consumer_number IS NULL
+          OR LTRIM(RTRIM(ISNULL(kuickpay_consumer_number, ''))) = ''
+          OR LEN(LTRIM(RTRIM(kuickpay_consumer_number))) <> 18
+          OR LEFT(LTRIM(RTRIM(kuickpay_consumer_number)), 5) <> @prefix
+        )
+      ORDER BY created_at DESC
+    `);
+
+  const paidKeptResult = await pool.request()
+    .input("prefix", prefix)
+    .query(`
+      SELECT COUNT(*) AS n
+      FROM Fees
+      WHERE (ISNULL(status, '') = 'Paid' OR ISNULL(paid_amount, 0) > 0)
+        AND LEN(LTRIM(RTRIM(ISNULL(kuickpay_consumer_number, '')))) = 18
+        AND LEFT(LTRIM(RTRIM(kuickpay_consumer_number)), 5) <> @prefix
+    `);
 
   let assigned = 0;
+  let replaced = 0;
   let failed = 0;
   let scanned = 0;
 
   for (const row of result.recordset) {
-    if (isValidKuickpayConsumerNumber(row.cn)) continue;
+    const before = String(row.cn || "").replace(/\D/g, "");
+    const needsReplace = isValidKuickpayConsumerNumber(before) && !before.startsWith(prefix);
     scanned += 1;
     try {
-      const cn = await ensureKuickpayConsumerNumber(pool, String(row.id));
-      if (cn && cn.length === 18) assigned += 1;
-      else failed += 1;
+      const cn = await ensureKuickpayConsumerNumber(pool, String(row.id), { replaceMismatchedPrefix: true });
+      if (cn && cn.length === 18 && cn.startsWith(prefix)) {
+        if (needsReplace) replaced += 1;
+        else assigned += 1;
+      } else failed += 1;
     } catch (err) {
       failed += 1;
       console.error("Kuickpay assign failed for fee", row.id, err instanceof Error ? err.message : err);
     }
   }
 
-  return { assigned, failed, scanned };
+  if (await courseVoucherTableExists(pool)) {
+    const courses = await pool.request()
+      .input("limit", cap)
+      .input("prefix", prefix)
+      .query(`
+        SELECT TOP (@limit) id, kuickpay_consumer_number AS cn
+        FROM CourseVouchers
+        WHERE ISNULL(payment_status, 'unpaid') <> 'paid'
+          AND ISNULL(paid_amount, 0) = 0
+          AND ISNULL(status, 'open') <> 'cancelled'
+          AND (
+            kuickpay_consumer_number IS NULL
+            OR LTRIM(RTRIM(ISNULL(kuickpay_consumer_number, ''))) = ''
+            OR LEN(LTRIM(RTRIM(kuickpay_consumer_number))) <> 18
+            OR LEFT(LTRIM(RTRIM(kuickpay_consumer_number)), 5) <> @prefix
+          )
+      `);
+    for (const row of courses.recordset) {
+      const before = String(row.cn || "").replace(/\D/g, "");
+      const needsReplace = isValidKuickpayConsumerNumber(before) && !before.startsWith(prefix);
+      scanned += 1;
+      try {
+        const cn = await ensureCourseKuickpayConsumerNumber(pool, String(row.id), { replaceMismatchedPrefix: true });
+        if (cn && cn.length === 18 && cn.startsWith(prefix)) {
+          if (needsReplace) replaced += 1;
+          else assigned += 1;
+        } else failed += 1;
+      } catch (err) {
+        failed += 1;
+        console.error("Kuickpay assign failed for course voucher", row.id, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
+  return {
+    assigned,
+    replaced,
+    failed,
+    scanned,
+    prefix,
+    paidKept: Number(paidKeptResult.recordset[0]?.n || 0),
+  };
+}
+
+async function courseVoucherTableExists(pool: ConnectionPool): Promise<boolean> {
+  const result = await pool.request().query(`SELECT OBJECT_ID('CourseVouchers', 'U') AS id`);
+  return Boolean(result.recordset[0]?.id);
 }
 
 /** Same 18-digit sequence as fee vouchers, stored on the course voucher. */
 export async function ensureCourseKuickpayConsumerNumber(
   pool: ConnectionPool,
-  voucherId: string
+  voucherId: string,
+  options?: { replaceMismatchedPrefix?: boolean }
 ): Promise<string | null> {
   const existing = await pool.request()
     .input("id", voucherId)
-    .query(`SELECT kuickpay_consumer_number AS cn FROM CourseVouchers WHERE id = @id`);
+    .query(`SELECT kuickpay_consumer_number AS cn, payment_status AS paymentStatus, ISNULL(paid_amount, 0) AS paidAmount FROM CourseVouchers WHERE id = @id`);
   if (!existing.recordset[0]) return null;
-  const current = existing.recordset[0].cn;
-  if (isValidKuickpayConsumerNumber(current)) return String(current).replace(/\D/g, "");
-
+  const current = String(existing.recordset[0].cn || "").replace(/\D/g, "");
   const cfg = await loadKuickpayConfig(pool);
   const prefix = normalizePrefix(cfg?.consumer_prefix);
+  const alreadyPaid = String(existing.recordset[0].paymentStatus || "") === "paid" || Number(existing.recordset[0].paidAmount || 0) > 0;
+  if (isValidKuickpayConsumerNumber(current) && (current.startsWith(prefix) || alreadyPaid || !options?.replaceMismatchedPrefix)) {
+    return current;
+  }
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const seqResult = await pool.request().query(`

@@ -284,12 +284,21 @@ export default function QuickPaySetup() {
                   type="button"
                   onClick={async () => {
                     try {
-                      const result = await dataService.assignKuickpayConsumerNumbers(1000);
-                      const failed = Number((result as { failed?: number }).failed || 0);
+                      const result = await dataService.assignKuickpayConsumerNumbers(2000);
+                      const failed = Number(result.failed || 0);
+                      const updated = Number(result.assigned || 0) + Number(result.replaced || 0);
+                      const prefix = result.prefix ? ` prefix ${result.prefix}` : '';
                       if (failed > 0) {
-                        toast.warning(`Assigned ${result.assigned} ID(s); ${failed} failed — check server logs`);
+                        toast.warning(`Updated ${updated} unpaid voucher(s)${prefix}; ${failed} failed`);
+                      } else if (updated > 0) {
+                        const kept = Number(result.paidKept || 0);
+                        toast.success(
+                          kept > 0
+                            ? `Updated ${updated} unpaid voucher(s) to${prefix}. ${kept} paid voucher(s) kept the old ID.`
+                            : `Updated ${updated} unpaid voucher(s) to${prefix}.`
+                        );
                       } else {
-                        toast.success(`Assigned ${result.assigned} Kuickpay ID(s) to vouchers`);
+                        toast.success(`Unpaid vouchers already use${prefix}.`);
                       }
                     } catch (err: unknown) {
                       const msg =
@@ -301,7 +310,7 @@ export default function QuickPaySetup() {
                   }}
                   className="w-full py-3 rounded-2xl border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/5"
                 >
-                  Assign / fix Kuickpay IDs (18 digits)
+                  Assign / update Kuickpay IDs to saved prefix
                 </button>
               </PermissionGate>
             </form>

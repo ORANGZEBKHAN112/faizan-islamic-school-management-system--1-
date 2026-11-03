@@ -74,6 +74,7 @@ import {
   paymentError,
   quickPayConfigSelectSql,
   resolveBpsCredentials,
+  splitKuickpayCollection,
 } from "./server/kuickpayBps.js";
 import { ensureBookstoreSchema, seedBookstoreStores } from "./server/bookstore/schema.js";
 import { registerBookstoreRoutes } from "./server/bookstore/routes.js";
@@ -5417,14 +5418,14 @@ async function startServer() {
             actionType: "payment",
             amount,
             previousPaid: Number(fee.paid_amount || 0),
-            newPaid: Number(fee.paid_amount || 0) + amount,
+            newPaid: Number(fee.paid_amount || 0) + Number(result.schoolAmount ?? amount),
             previousBalance: Number(fee.balance_amount || 0),
             newBalance: result.balanceAmount ?? 0,
             previousStatus: String(fee.status || ""),
             newStatus: result.status || "",
             reason: `Kuickpay BPS ${tranAuthId}`,
             performedBy: "kuickpay-bps",
-            notes: `bank=${bankMnemonic}; date=${tranDate}`,
+            notes: `bank=${bankMnemonic}; date=${tranDate}; kuickpayCharge=${Number(result.kuickpayCharge || 0)}; schoolAmount=${Number(result.schoolAmount ?? amount)}`,
           });
         } catch {
           // optional
@@ -5463,11 +5464,17 @@ async function startServer() {
       if (!pool) return res.status(503).json({ message: "Database connection not available" });
       const limit = Math.min(2000, Math.max(1, Number(req.body?.limit) || 500));
       const result = await backfillKuickpayConsumerNumbers(pool, limit);
+      const updated = result.assigned + result.replaced;
       res.json({
-        message: "Kuickpay consumer numbers assigned",
+        message: updated
+          ? `Updated ${updated} unpaid voucher(s) to prefix ${result.prefix}`
+          : `Unpaid vouchers already use prefix ${result.prefix}`,
         assigned: result.assigned,
+        replaced: result.replaced,
         failed: result.failed,
         scanned: result.scanned,
+        prefix: result.prefix,
+        paidKept: result.paidKept,
       });
     } catch (err) {
       console.error("Error assigning Kuickpay IDs:", err);
@@ -9639,11 +9646,22 @@ async function startServer() {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "date is required (YYYY-MM-DD)" });
       }
-      const empty = { date, collected: 0, reversed: 0, net: 0, lines: [] as unknown[] };
+      const empty = {
+        date,
+        collected: 0,
+        studentPaid: 0,
+        kuickpayCharges: 0,
+        reversed: 0,
+        net: 0,
+        lines: [] as unknown[],
+      };
       if (denied) return res.json(empty);
 
       const exists = await pool.request().query("SELECT OBJECT_ID('FeeAuditLog', 'U') AS id");
       if (!exists.recordset[0]?.id) return res.json(empty);
+
+      const cfg = await loadKuickpayConfig(pool);
+      const configuredCharge = kuickpayCustomerChargePkr(cfg);
 
       const request = pool.request().input("reportDate", date);
       const campusSql = campusMatchOrAll(request, campusFilter, "ISNULL(a.campus_id, s.campus_id)", "campusId");
@@ -9668,28 +9686,46 @@ async function startServer() {
         ORDER BY a.performed_on, s.student_name
       `);
 
-      const lines = result.recordset.map((row: Record<string, unknown>) => ({
-        id: String(row.id || ""),
-        performedOn: String(row.performedOn || ""),
-        amount: moneyValue(row.amount),
-        actionType: String(row.actionType || ""),
-        performedBy: row.performedBy == null ? null : String(row.performedBy),
-        notes: row.notes == null ? null : String(row.notes),
-        reason: row.reason == null ? null : String(row.reason),
-        studentName: String(row.studentName || ""),
-        admissionNo: String(row.admissionNo || ""),
-        campusName: row.campusName == null ? null : String(row.campusName),
-      }));
+      const lines = result.recordset.map((row: Record<string, unknown>) => {
+        const actionType = String(row.actionType || "");
+        const gross = moneyValue(row.amount);
+        const split = actionType === "payment"
+          ? splitKuickpayCollection(gross, row.performedBy == null ? null : String(row.performedBy), row.notes == null ? null : String(row.notes), configuredCharge)
+          : { gross, kuickpayCharge: 0, schoolAmount: gross };
+        return {
+          id: String(row.id || ""),
+          performedOn: String(row.performedOn || ""),
+          amount: split.gross,
+          schoolAmount: split.schoolAmount,
+          kuickpayCharge: split.kuickpayCharge,
+          actionType,
+          performedBy: row.performedBy == null ? null : String(row.performedBy),
+          notes: row.notes == null ? null : String(row.notes),
+          reason: row.reason == null ? null : String(row.reason),
+          studentName: String(row.studentName || ""),
+          admissionNo: String(row.admissionNo || ""),
+          campusName: row.campusName == null ? null : String(row.campusName),
+        };
+      });
+      let studentPaid = 0;
+      let kuickpayCharges = 0;
       let collected = 0;
       let reversed = 0;
       for (const row of lines) {
-        if (row.actionType === "payment") collected += row.amount;
-        else if (row.actionType === "collection_reversal" || row.actionType === "income_reversal") reversed += row.amount;
+        if (row.actionType === "payment") {
+          studentPaid += row.amount;
+          kuickpayCharges += row.kuickpayCharge;
+          collected += row.schoolAmount;
+        } else if (row.actionType === "collection_reversal" || row.actionType === "income_reversal") {
+          reversed += row.amount;
+        }
       }
 
       res.json({
         date,
         collected,
+        studentPaid,
+        kuickpayCharges,
         reversed,
         net: collected - reversed,
         lines,

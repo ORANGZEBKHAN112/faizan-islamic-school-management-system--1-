@@ -192,6 +192,8 @@ export interface DailyCollectionLine {
   id: string;
   performedOn: string;
   amount: number;
+  schoolAmount?: number;
+  kuickpayCharge?: number;
   actionType: string;
   performedBy?: string | null;
   notes?: string | null;
@@ -204,6 +206,8 @@ export interface DailyCollectionLine {
 export interface DailyCollectionReport {
   date: string;
   collected: number;
+  studentPaid?: number;
+  kuickpayCharges?: number;
   reversed: number;
   net: number;
   lines: DailyCollectionLine[];
