@@ -4,9 +4,15 @@ import { bookstoreService } from '../../services/bookstoreService';
 import { dataService } from '../../services/dataService';
 import type { Campus, Class } from '../../types';
 import { deriveAcademicSession } from '../../utils/academicSession';
-import { apiError } from './courseShared';
+import { apiError, money } from './courseShared';
 
-type MasterItem = { title: string; publisher?: string | null; quantity: number; sharedStationery?: boolean | number };
+type MasterItem = {
+  title: string;
+  publisher?: string | null;
+  quantity: number;
+  unitPrice?: number;
+  sharedStationery?: boolean | number;
+};
 type MasterRegion = { name: string; classes: Array<{ grade: string; items: MasterItem[] }> };
 
 export default function BookPacks() {
@@ -87,7 +93,7 @@ export default function BookPacks() {
       <div className="vibrant-card p-4 space-y-4">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Client course list</p>
-          <p className="text-sm text-slate-500 mt-1">Titles, publisher, and quantity per student from the working file. Copies marked All Classes stay with the class above them, in the same order.</p>
+          <p className="text-sm text-slate-500 mt-1">Piece prices are last year (2025-2026), not the final price. Pack amount is piece price × copies. Where the amount is three times the piece price, that title counts as 3 copies.</p>
         </div>
         <div className="grid md:grid-cols-4 gap-3">
           <select className="vibrant-input" value={regionName} onChange={(e) => {
@@ -133,26 +139,45 @@ export default function BookPacks() {
             Apply to campus
           </button>
         </div>
-        <table className="w-full text-sm">
-          <thead className="text-[10px] uppercase text-slate-400">
-            <tr>
-              <th className="text-start py-2">#</th>
-              <th className="text-start">Title</th>
-              <th className="text-start">Publisher</th>
-              <th className="text-end">Each student</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(master.find((r) => r.name === regionName)?.classes.find((c) => c.grade === grade)?.items || []).map((item, index) => (
-              <tr key={`${item.title}-${index}`} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="py-2 text-slate-400">{index + 1}</td>
-                <td className="font-semibold">{item.title}</td>
-                <td>{item.publisher || '—'}</td>
-                <td className="text-end">{item.quantity} Piece{item.sharedStationery ? ' · copy' : ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {(() => {
+          const items = master.find((r) => r.name === regionName)?.classes.find((c) => c.grade === grade)?.items || [];
+          const packTotal = items.reduce((sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0), 0);
+          return (
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase text-slate-400">
+                <tr>
+                  <th className="text-start py-2">#</th>
+                  <th className="text-start">Title</th>
+                  <th className="text-start">Publisher</th>
+                  <th className="text-end">Piece price</th>
+                  <th className="text-end">Copies</th>
+                  <th className="text-end">Line amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, index) => {
+                  const line = (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0);
+                  return (
+                    <tr key={`${item.title}-${index}`} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-2 text-slate-400">{index + 1}</td>
+                      <td className="font-semibold">{item.title}</td>
+                      <td>{item.publisher || '—'}</td>
+                      <td className="text-end">{money(item.unitPrice)}</td>
+                      <td className="text-end">{item.quantity}</td>
+                      <td className="text-end">{money(line)}</td>
+                    </tr>
+                  );
+                })}
+                {items.length > 0 && (
+                  <tr className="border-t border-slate-200 dark:border-slate-700 font-black">
+                    <td colSpan={5} className="py-3 text-end">1 student pack</td>
+                    <td className="py-3 text-end text-primary">{money(packTotal)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
 
       <div className="vibrant-card p-6 grid md:grid-cols-3 gap-4">

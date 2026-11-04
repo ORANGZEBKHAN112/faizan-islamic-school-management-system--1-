@@ -199,6 +199,7 @@ export async function ensureCourseSellingSchema(pool: ConnectionPool): Promise<v
        title NVARCHAR(300) NOT NULL,
        publisher NVARCHAR(200) NULL,
        quantity INT NOT NULL DEFAULT 1,
+       unit_price DECIMAL(18, 2) NOT NULL DEFAULT 0,
        sort_order INT NOT NULL,
        shared_stationery BIT NOT NULL DEFAULT 0
      )`,
@@ -222,6 +223,8 @@ export async function ensureCourseSellingSchema(pool: ConnectionPool): Promise<v
       ALTER TABLE Students ADD course_issued_session NVARCHAR(30) NULL`,
     `IF COL_LENGTH('BookPackItems', 'sort_order') IS NULL
       ALTER TABLE BookPackItems ADD sort_order INT NOT NULL CONSTRAINT DF_BookPackItems_sort DEFAULT 0`,
+    `IF COL_LENGTH('CourseMasterLines', 'unit_price') IS NULL
+      ALTER TABLE CourseMasterLines ADD unit_price DECIMAL(18, 2) NOT NULL CONSTRAINT DF_CourseMasterLines_price DEFAULT 0`,
   ];
 
   for (const q of batches) {

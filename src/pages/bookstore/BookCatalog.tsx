@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { bookstoreService } from '../../services/bookstoreService';
 import { PermissionGate } from '../../context/PermissionContext';
 import PageLoader from '../../components/ui/PageLoader';
-import { formatMoney } from '../../utils/money';
+import { currentAcademicSession, lastYearAcademicSession } from './courseShared';
 
 type BookRow = {
   id: string;
@@ -18,7 +18,9 @@ export default function BookCatalog() {
   const [rows, setRows] = useState<BookRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [sessionFilter, setSessionFilter] = useState('');
+  const [sessionFilter, setSessionFilter] = useState(lastYearAcademicSession());
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState('');
   const [priceMap, setPriceMap] = useState<Record<string, number>>({});
   const [form, setForm] = useState({ title: '', isbn: '', publisher: '', sellingPrice: 0, academicSession: '' });
 
@@ -101,6 +103,34 @@ export default function BookCatalog() {
     }
   };
 
+  const savePrice = async (bookId: string) => {
+    if (!/^\d{4}-\d{4}$/.test(sessionFilter)) {
+      toast.error('Session must be YYYY-YYYY, for example 2026-2027');
+      return;
+    }
+    const sellingPrice = Number(drafts[bookId] ?? priceMap[bookId] ?? '');
+    if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
+      toast.error('Enter the selling price');
+      return;
+    }
+    setSavingId(bookId);
+    try {
+      await bookstoreService.saveBookPrice({
+        bookId,
+        academicSession: sessionFilter,
+        sellingPrice,
+        purchaseCost: 0,
+      });
+      setPriceMap((current) => ({ ...current, [bookId]: sellingPrice }));
+      toast.success(`Price saved for ${sessionFilter}`);
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: { message?: string } } })?.response?.data;
+      toast.error(data?.message || 'Could not save price');
+    } finally {
+      setSavingId('');
+    }
+  };
+
   if (loading && rows.length === 0) return <PageLoader label="Loading catalog…" />;
 
   return (
@@ -139,11 +169,19 @@ export default function BookCatalog() {
         />
         <input
           className="vibrant-input max-w-xs"
-          placeholder="Session for prices e.g. 2025-2026"
+          placeholder="Session for prices e.g. 2026-2027"
           value={sessionFilter}
-          onChange={(e) => setSessionFilter(e.target.value.trim())}
+          onChange={(e) => {
+            setSessionFilter(e.target.value.trim());
+            setDrafts({});
+          }}
         />
       </div>
+      <p className="text-sm text-slate-500">
+        {sessionFilter === lastYearAcademicSession()
+          ? `Session ${sessionFilter} is last year's amount, not the final price. For the new price, change the session to ${currentAcademicSession()} and save each title.`
+          : `Prices saved here are used on course vouchers for session ${sessionFilter}. Last year's amounts stay on ${lastYearAcademicSession()}.`}
+      </p>
 
       <div className="vibrant-card overflow-hidden">
         <table className="w-full text-sm">
@@ -163,11 +201,22 @@ export default function BookCatalog() {
                 <td className="px-4 py-3">{b.isbn || '—'}</td>
                 <td className="px-4 py-3">{b.publisher || '—'}</td>
                 <td className="px-4 py-3">
-                  {sessionFilter
-                    ? priceMap[b.id] != null
-                      ? formatMoney(priceMap[b.id])
-                      : '—'
-                    : '—'}
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="vibrant-input w-28"
+                      inputMode="decimal"
+                      value={drafts[b.id] ?? (priceMap[b.id] != null ? String(priceMap[b.id]) : '')}
+                      onChange={(e) => setDrafts((current) => ({ ...current, [b.id]: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      className="text-[10px] font-black uppercase text-primary"
+                      disabled={savingId === b.id}
+                      onClick={() => void savePrice(b.id)}
+                    >
+                      {savingId === b.id ? 'Saving' : 'Save'}
+                    </button>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <span className={b.isActive ? 'status-badge status-success' : 'status-badge status-neutral'}>

@@ -1,5 +1,5 @@
 {
-  "source": "Software_Working.xlsx",
+  "source": "book module .xlsx",
   "regions": [
     {
       "name": "Karachi, Interior Sindh",
@@ -11,6 +11,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 385,
               "sort": 1,
               "sharedStationery": false
             },
@@ -18,6 +19,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 385,
               "sort": 2,
               "sharedStationery": false
             },
@@ -25,6 +27,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 505,
               "sort": 3,
               "sharedStationery": false
             },
@@ -32,6 +35,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 495,
               "sort": 4,
               "sharedStationery": false
             },
@@ -39,6 +43,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 475,
               "sort": 5,
               "sharedStationery": false
             },
@@ -46,6 +51,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT PRE NURSERY AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -53,6 +59,7 @@
               "title": "FISS URDU AMLI KITAB PEHLA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 540,
               "sort": 7,
               "sharedStationery": false
             },
@@ -60,6 +67,7 @@
               "title": "FISS URDU DARSI KITAB PEHLA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 450,
               "sort": 8,
               "sharedStationery": false
             },
@@ -67,8 +75,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -79,6 +88,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 400,
               "sort": 1,
               "sharedStationery": false
             },
@@ -86,6 +96,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 430,
               "sort": 2,
               "sharedStationery": false
             },
@@ -93,6 +104,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 515,
               "sort": 3,
               "sharedStationery": false
             },
@@ -100,6 +112,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 625,
               "sort": 4,
               "sharedStationery": false
             },
@@ -107,6 +120,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 515,
               "sort": 5,
               "sharedStationery": false
             },
@@ -114,6 +128,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT NURSERY AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -121,6 +136,7 @@
               "title": "FISS URDU AMLI KITAB DOOSRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 550,
               "sort": 7,
               "sharedStationery": false
             },
@@ -128,6 +144,7 @@
               "title": "FISS URDU DARSI KITAB DOOSRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 495,
               "sort": 8,
               "sharedStationery": false
             },
@@ -135,6 +152,7 @@
               "title": "FISS LET`S READ SECOND STEP",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 315,
               "sort": 9,
               "sharedStationery": false
             },
@@ -142,8 +160,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -154,6 +173,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 415,
               "sort": 1,
               "sharedStationery": false
             },
@@ -161,6 +181,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 485,
               "sort": 2,
               "sharedStationery": false
             },
@@ -168,6 +189,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 3,
               "sharedStationery": false
             },
@@ -175,6 +197,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 635,
               "sort": 4,
               "sharedStationery": false
             },
@@ -182,6 +205,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 635,
               "sort": 5,
               "sharedStationery": false
             },
@@ -189,6 +213,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT KG AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -196,6 +221,7 @@
               "title": "FISS URDU AMLI KITAB TEESRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 625,
               "sort": 7,
               "sharedStationery": false
             },
@@ -203,6 +229,7 @@
               "title": "FISS URDU DARSI KITAB TEESRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 535,
               "sort": 8,
               "sharedStationery": false
             },
@@ -210,6 +237,7 @@
               "title": "FISS LET`S READ THIRD STEP",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 330,
               "sort": 9,
               "sharedStationery": false
             },
@@ -217,6 +245,7 @@
               "title": "FISS MY WORLD STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 545,
               "sort": 10,
               "sharedStationery": false
             },
@@ -224,8 +253,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -236,6 +266,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
@@ -243,6 +274,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
@@ -250,6 +282,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 3,
               "sharedStationery": false
             },
@@ -257,6 +290,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
@@ -264,6 +298,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
@@ -271,6 +306,7 @@
               "title": "FISS EVERYDAY KNOWLEDGE BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 665,
               "sort": 6,
               "sharedStationery": false
             },
@@ -278,36 +314,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 7,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -318,6 +359,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
@@ -325,6 +367,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
@@ -332,6 +375,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 395,
               "sort": 3,
               "sharedStationery": false
             },
@@ -339,6 +383,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
@@ -346,6 +391,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
@@ -353,6 +399,7 @@
               "title": "FISS EVERYDAY KNOWLEDGE BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 675,
               "sort": 6,
               "sharedStationery": false
             },
@@ -360,36 +407,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 7,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -399,86 +451,98 @@
             {
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
             {
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
             {
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 415,
               "sort": 3,
               "sharedStationery": false
             },
             {
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
             {
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
             {
               "title": "FISS EVERYDAY KNOWLEDGE BOOK 3",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 685,
               "sort": 6,
               "sharedStationery": false
             },
             {
               "title": "STB SINDHI CLASS 3",
               "publisher": "STB",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 91,
               "sort": 7,
               "sharedStationery": false
             },
             {
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 180,
               "sort": 12,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -488,93 +552,106 @@
             {
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 465,
               "sort": 1,
               "sharedStationery": false
             },
             {
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 465,
               "sort": 2,
               "sharedStationery": false
             },
             {
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 435,
               "sort": 3,
               "sharedStationery": false
             },
             {
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 465,
               "sort": 4,
               "sharedStationery": false
             },
             {
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 465,
               "sort": 5,
               "sharedStationery": false
             },
             {
               "title": "FISS SOCIAL STUDIES 4",
               "publisher": "Qadri Publication",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 560,
               "sort": 6,
               "sharedStationery": false
             },
             {
               "title": "STB SINDHI CLASS 4",
               "publisher": "STB",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 109,
               "sort": 7,
               "sharedStationery": false
             },
             {
               "title": "GENERAL SCIENCE 4 (NBF)",
               "publisher": "NBF",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 300,
               "sort": 8,
               "sharedStationery": false
             },
             {
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
-              "quantity": 1,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
-              "quantity": 2,
+              "quantity": 3,
+              "unitPrice": 140,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 12,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 13,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -585,6 +662,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 1,
               "sharedStationery": false
             },
@@ -592,6 +670,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 2,
               "sharedStationery": false
             },
@@ -599,6 +678,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 455,
               "sort": 3,
               "sharedStationery": false
             },
@@ -606,6 +686,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 4,
               "sharedStationery": false
             },
@@ -613,6 +694,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 5,
               "sharedStationery": false
             },
@@ -620,6 +702,7 @@
               "title": "FISS SOCIAL STUDIES 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 580,
               "sort": 6,
               "sharedStationery": false
             },
@@ -627,6 +710,7 @@
               "title": "STB SINDHI CLASS 5",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 109,
               "sort": 7,
               "sharedStationery": false
             },
@@ -634,6 +718,7 @@
               "title": "GENERAL SCIENCE 5 (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 295,
               "sort": 8,
               "sharedStationery": false
             },
@@ -641,15 +726,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 7,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -660,6 +747,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 1,
               "sharedStationery": false
             },
@@ -667,6 +755,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 6 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 775,
               "sort": 2,
               "sharedStationery": false
             },
@@ -674,6 +763,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 3,
               "sharedStationery": false
             },
@@ -681,6 +771,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 535,
               "sort": 4,
               "sharedStationery": false
             },
@@ -688,6 +779,7 @@
               "title": "FISS SMART ICT BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 700,
               "sort": 5,
               "sharedStationery": false
             },
@@ -695,6 +787,7 @@
               "title": "STB SINDHI CLASS 6",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 104,
               "sort": 6,
               "sharedStationery": false
             },
@@ -702,6 +795,7 @@
               "title": "GENERAL SCIENCE 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 300,
               "sort": 7,
               "sharedStationery": false
             },
@@ -709,6 +803,7 @@
               "title": "GEOGRAPHY 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 220,
               "sort": 8,
               "sharedStationery": false
             },
@@ -716,6 +811,7 @@
               "title": "HISTORY 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 185,
               "sort": 9,
               "sharedStationery": false
             },
@@ -723,15 +819,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 6,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -742,6 +840,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 7 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 795,
               "sort": 1,
               "sharedStationery": false
             },
@@ -749,6 +848,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 530,
               "sort": 2,
               "sharedStationery": false
             },
@@ -756,6 +856,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 645,
               "sort": 3,
               "sharedStationery": false
             },
@@ -763,6 +864,7 @@
               "title": "FISS SMART ICT BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 720,
               "sort": 4,
               "sharedStationery": false
             },
@@ -770,13 +872,15 @@
               "title": "STB SINDHI CLASS 7",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 120,
               "sort": 5,
               "sharedStationery": false
             },
             {
-              "title": "ENGLISH 7 COMBINED (NBF)",
-              "publisher": "NBF",
+              "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 7",
+              "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 545,
               "sort": 6,
               "sharedStationery": false
             },
@@ -784,6 +888,7 @@
               "title": "GENERAL SCIENCE 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 315,
               "sort": 7,
               "sharedStationery": false
             },
@@ -791,6 +896,7 @@
               "title": "GEOGRAPHY 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 190,
               "sort": 8,
               "sharedStationery": false
             },
@@ -798,6 +904,7 @@
               "title": "HISTORY 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 225,
               "sort": 9,
               "sharedStationery": false
             },
@@ -805,15 +912,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 6,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -824,6 +933,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 8 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 815,
               "sort": 1,
               "sharedStationery": false
             },
@@ -831,6 +941,7 @@
               "title": "STB URDU LAZMI CLASS 8 (IX AND X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 296,
               "sort": 2,
               "sharedStationery": false
             },
@@ -838,6 +949,7 @@
               "title": "STB PHYSICS CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 3,
               "sharedStationery": false
             },
@@ -845,6 +957,7 @@
               "title": "STB MATHEMATICS CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 512,
               "sort": 4,
               "sharedStationery": false
             },
@@ -852,6 +965,7 @@
               "title": "STB ENGLISH BOOK 1 CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 382,
               "sort": 5,
               "sharedStationery": false
             },
@@ -859,6 +973,7 @@
               "title": "STB COMPUTER SCIENCE CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 290,
               "sort": 6,
               "sharedStationery": false
             },
@@ -866,6 +981,7 @@
               "title": "STB CHEMISTRY CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 321,
               "sort": 7,
               "sharedStationery": false
             },
@@ -873,6 +989,7 @@
               "title": "STB BIOLOGY CLASS 8 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 350,
               "sort": 8,
               "sharedStationery": false
             },
@@ -880,15 +997,17 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -899,6 +1018,7 @@
               "title": "STB ISLAMIAT 9 (IX AND X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 265,
               "sort": 1,
               "sharedStationery": false
             },
@@ -906,6 +1026,7 @@
               "title": "STB URDU LAZMI CLASS 9 (IX AND X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 296,
               "sort": 2,
               "sharedStationery": false
             },
@@ -913,6 +1034,7 @@
               "title": "STB PHYSICS CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 3,
               "sharedStationery": false
             },
@@ -920,6 +1042,7 @@
               "title": "STB MATHEMATICS CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 512,
               "sort": 4,
               "sharedStationery": false
             },
@@ -927,6 +1050,7 @@
               "title": "STB ENGLISH BOOK 1 CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 382,
               "sort": 5,
               "sharedStationery": false
             },
@@ -934,6 +1058,7 @@
               "title": "STB COMPUTER SCIENCE CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 289,
               "sort": 6,
               "sharedStationery": false
             },
@@ -941,6 +1066,7 @@
               "title": "STB CHEMISTRY CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 321,
               "sort": 7,
               "sharedStationery": false
             },
@@ -948,6 +1074,7 @@
               "title": "STB BIOLOGY CLASS 9 (IX)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 350,
               "sort": 8,
               "sharedStationery": false
             }
@@ -960,6 +1087,7 @@
               "title": "STB SINDHI CLASS 10 (IX AND X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 104,
               "sort": 1,
               "sharedStationery": false
             },
@@ -967,6 +1095,7 @@
               "title": "STB PHYSICS CLASS 10",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 404,
               "sort": 2,
               "sharedStationery": false
             },
@@ -974,6 +1103,7 @@
               "title": "STB PAKISTAN STUDIES CLASS 10 (IX AND X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 326,
               "sort": 3,
               "sharedStationery": false
             },
@@ -981,6 +1111,7 @@
               "title": "STB MATHEMATICS CLASS 10",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 519,
               "sort": 4,
               "sharedStationery": false
             },
@@ -988,6 +1119,7 @@
               "title": "STB ENGLISH BOOK 2 CLASS 10 (X)",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 326,
               "sort": 5,
               "sharedStationery": false
             },
@@ -995,6 +1127,7 @@
               "title": "STB COMPUTER SCIENCE CLASS 10",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 265,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1002,6 +1135,7 @@
               "title": "STB CHEMISTRY CLASS 10",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 247,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1009,6 +1143,7 @@
               "title": "STB BIOLOGY CLASS 10",
               "publisher": "STB",
               "quantity": 1,
+              "unitPrice": 338,
               "sort": 8,
               "sharedStationery": false
             }
@@ -1026,6 +1161,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 385,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1033,6 +1169,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 385,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1040,6 +1177,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 505,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1047,6 +1185,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 495,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1054,6 +1193,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 475,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1061,6 +1201,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT PRE NURSERY AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1068,6 +1209,7 @@
               "title": "FISS URDU AMLI KITAB PEHLA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 540,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1075,6 +1217,7 @@
               "title": "FISS URDU DARSI KITAB PEHLA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 450,
               "sort": 8,
               "sharedStationery": false
             },
@@ -1082,8 +1225,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1094,6 +1238,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 400,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1101,6 +1246,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 430,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1108,6 +1254,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 515,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1115,6 +1262,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 625,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1122,6 +1270,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 515,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1129,6 +1278,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT NURSERY AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1136,6 +1286,7 @@
               "title": "FISS URDU AMLI KITAB DOOSRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 550,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1143,6 +1294,7 @@
               "title": "FISS URDU DARSI KITAB DOOSRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 495,
               "sort": 8,
               "sharedStationery": false
             },
@@ -1150,6 +1302,7 @@
               "title": "FISS LET`S READ SECOND STEP",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 315,
               "sort": 9,
               "sharedStationery": false
             },
@@ -1157,8 +1310,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1169,6 +1323,7 @@
               "title": "FISS CONCEPT COMBINE COPY STEP3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 415,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1176,6 +1331,7 @@
               "title": "FISS ENGLISH TEXTBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 485,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1183,6 +1339,7 @@
               "title": "FISS ENGLISH WORKBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1190,6 +1347,7 @@
               "title": "FISS MATHEMATICS TEXTBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 635,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1197,6 +1355,7 @@
               "title": "FISS MATHEMATICS WORKBOOK STEP 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 635,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1204,6 +1363,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIAT KG AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1211,6 +1371,7 @@
               "title": "FISS URDU AMLI KITAB TEESRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 625,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1218,6 +1379,7 @@
               "title": "FISS URDU DARSI KITAB TEESRA QADAM",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 535,
               "sort": 8,
               "sharedStationery": false
             },
@@ -1225,6 +1387,7 @@
               "title": "FISS LET`S READ THIRD STEP",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 330,
               "sort": 9,
               "sharedStationery": false
             },
@@ -1232,6 +1395,7 @@
               "title": "FISS MY WORLD STEP 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 545,
               "sort": 10,
               "sharedStationery": false
             },
@@ -1239,8 +1403,9 @@
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1251,6 +1416,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1258,6 +1424,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1265,6 +1432,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 375,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1272,6 +1440,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1279,6 +1448,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1286,6 +1456,7 @@
               "title": "FISS WAQFIAT E AAMA BOOK 1",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 550,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1293,36 +1464,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 7,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1333,6 +1509,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1340,6 +1517,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1347,6 +1525,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 395,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1354,6 +1533,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1361,6 +1541,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1368,6 +1549,7 @@
               "title": "FISS WAQFIAT E AAMA BOOK 2",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 570,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1375,36 +1557,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 7,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1415,6 +1602,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1422,6 +1610,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1429,6 +1618,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 415,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1436,6 +1626,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1443,6 +1634,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 440,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1450,6 +1642,7 @@
               "title": "FISS WAQFIAT E AAMABOOK 3",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 590,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1457,36 +1650,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 7,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1497,6 +1695,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1504,6 +1703,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1511,6 +1711,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 435,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1518,6 +1719,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1525,6 +1727,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1532,6 +1735,7 @@
               "title": "FISS PIYARA PAKISTAN MASHERTI ULOOM 4",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 560,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1539,6 +1743,7 @@
               "title": "GENERAL SCIENCE 4 (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 300,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1546,36 +1751,41 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS MEDIUM SQUARE COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS RED & BLUE 4 LINE COPY",
               "publisher": "Private",
               "quantity": 2,
+              "unitPrice": 140,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 3,
+              "unitPrice": 140,
               "sort": 11,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 12,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1586,6 +1796,7 @@
               "title": "FISS 3 IN 1 WORKBOOK ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1593,6 +1804,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1600,6 +1812,7 @@
               "title": "FISS RAH-E-ISLAM ECONOMIC PACK CLASS 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 455,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1607,6 +1820,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1614,6 +1828,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 465,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1621,6 +1836,7 @@
               "title": "FISS PIYARA PAKISTAN MASHERTI ULOOM 5",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 580,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1628,6 +1844,7 @@
               "title": "GENERAL SCIENCE 5 (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 295,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1635,15 +1852,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 7,
+              "unitPrice": 140,
               "sort": 8,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1654,6 +1873,7 @@
               "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1661,6 +1881,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 6 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 775,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1668,6 +1889,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 525,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1675,6 +1897,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 535,
               "sort": 4,
               "sharedStationery": false
             },
@@ -1682,6 +1905,7 @@
               "title": "FISS SMART ICT BOOK 6",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 700,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1689,6 +1913,7 @@
               "title": "GENERAL SCIENCE 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 300,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1696,6 +1921,7 @@
               "title": "GEOGRAPHY 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 220,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1703,6 +1929,7 @@
               "title": "HISTORY 6 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 185,
               "sort": 8,
               "sharedStationery": false
             },
@@ -1710,15 +1937,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 6,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1729,6 +1958,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 7 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 795,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1736,6 +1966,7 @@
               "title": "FISS ROSHAN SAFAR URDU ECONOMIC BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 530,
               "sort": 2,
               "sharedStationery": false
             },
@@ -1743,6 +1974,7 @@
               "title": "FISS UNIQUE MATHEMATICS ECONOMIC BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 645,
               "sort": 3,
               "sharedStationery": false
             },
@@ -1750,13 +1982,15 @@
               "title": "FISS SMART ICT BOOK 7",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 720,
               "sort": 4,
               "sharedStationery": false
             },
             {
-              "title": "ENGLISH 7 COMBINED (NBF)",
-              "publisher": "NBF",
+              "title": "FISS DYNAMIC ENGLISH ECONOMIC BOOK 7",
+              "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 545,
               "sort": 5,
               "sharedStationery": false
             },
@@ -1764,6 +1998,7 @@
               "title": "GENERAL SCIENCE 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 315,
               "sort": 6,
               "sharedStationery": false
             },
@@ -1771,6 +2006,7 @@
               "title": "GEOGRAPHY 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 190,
               "sort": 7,
               "sharedStationery": false
             },
@@ -1778,6 +2014,7 @@
               "title": "HISTORY 7 SNC (NBF)",
               "publisher": "NBF",
               "quantity": 1,
+              "unitPrice": 225,
               "sort": 8,
               "sharedStationery": false
             },
@@ -1785,15 +2022,17 @@
               "title": "FISS SINGLE LINE COPY",
               "publisher": "Private",
               "quantity": 6,
+              "unitPrice": 140,
               "sort": 9,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 10,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         },
@@ -1804,6 +2043,7 @@
               "title": "FISS RAH-E-ISLAM ISLAMIATE CLASS - 8 AS PER SNC",
               "publisher": "Qadri Publication",
               "quantity": 1,
+              "unitPrice": 815,
               "sort": 1,
               "sharedStationery": false
             },
@@ -1811,15 +2051,17 @@
               "title": "FISS 3 IN 1 COPY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 140,
               "sort": 2,
-              "sharedStationery": true
+              "sharedStationery": false
             },
             {
               "title": "FISS HOMEWORK DIARY",
               "publisher": "Private",
               "quantity": 1,
+              "unitPrice": 180,
               "sort": 3,
-              "sharedStationery": true
+              "sharedStationery": false
             }
           ]
         }

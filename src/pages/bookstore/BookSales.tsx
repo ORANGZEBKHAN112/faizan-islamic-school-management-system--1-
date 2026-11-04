@@ -211,7 +211,6 @@ export default function BookSales() {
       setPackQuote(null);
       setReservationId(null);
       setPosStudent(null);
-      setSearch('');
       const sales = await bookstoreService.fetchSales({ limit: 10 });
       setRecent(sales.data || []);
     } catch (err: unknown) {

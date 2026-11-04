@@ -7,12 +7,15 @@ import sql from "mssql";
 import { assertValidSessionLabel } from "./pricing.js";
 import { CourseFlowError } from "./courseFlow.js";
 
-const SOURCE = "software-working-v1";
+const SOURCE = "book-module-v2";
+/** Piece prices in the client file are last year's amounts, not the final session price. */
+const LAST_YEAR_SESSION = "2025-2026";
 
 type MasterItem = {
   title: string;
   publisher: string | null;
   quantity: number;
+  unitPrice?: number;
   sort: number;
   sharedStationery?: boolean;
 };
@@ -155,11 +158,12 @@ export async function seedCourseMaster(pool: ConnectionPool): Promise<void> {
           .input("title", line.title)
           .input("publisher", line.publisher)
           .input("qty", line.quantity)
+          .input("price", Number(line.unitPrice) || 0)
           .input("sort", line.sort)
           .input("shared", line.sharedStationery ? 1 : 0)
           .query(`
-            INSERT INTO CourseMasterLines (id, region_name, class_name, title, publisher, quantity, sort_order, shared_stationery)
-            VALUES (@id, @region, @className, @title, @publisher, @qty, @sort, @shared)
+            INSERT INTO CourseMasterLines (id, region_name, class_name, title, publisher, quantity, unit_price, sort_order, shared_stationery)
+            VALUES (@id, @region, @className, @title, @publisher, @qty, @price, @sort, @shared)
           `);
       }
       await tx.request().input("source", SOURCE).input("count", lines.length).query(`
@@ -171,14 +175,54 @@ export async function seedCourseMaster(pool: ConnectionPool): Promise<void> {
       await tx.rollback();
       throw err;
     }
+    await syncCourseTitlesIntoCatalog(pool, lines);
+    await syncLastYearPrices(pool, lines);
+    return;
   }
   await syncCourseTitlesIntoCatalog(pool, lines);
+}
+
+async function syncLastYearPrices(
+  pool: ConnectionPool,
+  lines: Array<{ title: string; unitPrice?: number }>
+) {
+  const session = assertValidSessionLabel(LAST_YEAR_SESSION);
+  const books = await pool.request().query(`
+    SELECT id, UPPER(LTRIM(RTRIM(title))) AS title FROM BookCatalog
+  `);
+  const byTitle = new Map<string, string>();
+  for (const book of books.recordset) {
+    byTitle.set(String(book.title || ""), String(book.id));
+  }
+  const priceByTitle = new Map<string, number>();
+  for (const line of lines) {
+    const key = String(line.title || "").trim().toUpperCase();
+    const price = Number(line.unitPrice) || 0;
+    if (key && price > 0) priceByTitle.set(key, price);
+  }
+  for (const [title, price] of priceByTitle) {
+    const bookId = byTitle.get(title);
+    if (!bookId) continue;
+    await pool.request()
+      .input("id", crypto.randomUUID())
+      .input("bookId", bookId)
+      .input("session", session)
+      .input("price", price)
+      .query(`
+        MERGE BookPrices AS t
+        USING (SELECT @bookId AS book_id, @session AS academic_session) AS s
+        ON t.book_id = s.book_id AND t.academic_session = s.academic_session
+        WHEN MATCHED THEN UPDATE SET selling_price = @price
+        WHEN NOT MATCHED THEN INSERT (id, book_id, academic_session, purchase_cost, selling_price)
+          VALUES (@id, @bookId, @session, 0, @price);
+      `);
+  }
 }
 
 export async function listCourseMaster(pool: ConnectionPool) {
   const rows = await pool.request().query(`
     SELECT region_name AS regionName, class_name AS className, title, publisher,
-           quantity, sort_order AS sortOrder, shared_stationery AS sharedStationery
+           quantity, unit_price AS unitPrice, sort_order AS sortOrder, shared_stationery AS sharedStationery
     FROM CourseMasterLines
     ORDER BY region_name, class_name, sort_order
   `);
